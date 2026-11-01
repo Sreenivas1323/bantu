@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Bantu</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid; place-items: center;
+        background: oklch(0.17 0.005 260); color: oklch(0.93 0.005 260);
+        font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      main { max-width: 420px; text-align: center; padding: 24px; }
+      h1 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+      p { margin: 0; color: oklch(0.68 0.01 260); }
+      #error { display: none; margin-top: 14px; color: oklch(0.68 0.18 25); white-space: pre-wrap; text-align: left;
+               font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Bantu</h1>
+      <p id="status">Starting the Bantu daemon…</p>
+      <pre id="error"></pre>
+    </main>
+    <script>
+      // Called from the Rust side with `window.eval` when the daemon can't be reached.
+      window.bantuShowError = (message) => {
+        document.getElementById("status").textContent = "Couldn't start the Bantu daemon.";
+        const el = document.getElementById("error");
+        el.textContent = message;
+        el.style.display = "block";
+      };
+    </script>
+  </body>
+</html>

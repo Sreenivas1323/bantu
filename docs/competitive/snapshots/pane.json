@@ -1,0 +1,1802 @@
+[
+  {
+    "id": "v2.4.212",
+    "title": "2.4.212",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.212",
+    "date": "2026-10-31"
+  },
+  {
+    "id": "v2.4.211",
+    "title": "2.4.211",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.211",
+    "date": "2026-10-31"
+  },
+  {
+    "id": "v2.4.210-canary.202610310113.d8d9742.32.1",
+    "title": "Pane Canary 2.4.210-canary.202610310113.d8d9742.32.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.210-canary.202610310113.d8d9742.32.1",
+    "date": "2026-10-31"
+  },
+  {
+    "id": "pr-assets-2",
+    "title": "PR Assets 2",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/pr-assets-2",
+    "date": "2026-10-31"
+  },
+  {
+    "id": "v2.4.210",
+    "title": "2.4.210",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.210",
+    "date": "2026-10-30"
+  },
+  {
+    "id": "v2.4.209",
+    "title": "2.4.209",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.209",
+    "date": "2026-10-30"
+  },
+  {
+    "id": "v2.4.208-canary.202610300108.aa545ea.31.1",
+    "title": "Pane Canary 2.4.208-canary.202610300108.aa545ea.31.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.208-canary.202610300108.aa545ea.31.1",
+    "date": "2026-10-30"
+  },
+  {
+    "id": "v2.4.208",
+    "title": "2.4.208",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.208",
+    "date": "2026-10-29"
+  },
+  {
+    "id": "v2.4.207-canary.202610291124.0520d22.27.1",
+    "title": "Pane Canary 2.4.207-canary.202610291124.0520d22.27.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.207-canary.202610291124.0520d22.27.1",
+    "date": "2026-10-29"
+  },
+  {
+    "id": "v2.4.207",
+    "title": "2.4.207",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.207",
+    "date": "2026-10-28"
+  },
+  {
+    "id": "v2.4.206",
+    "title": "2.4.206",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.206",
+    "date": "2026-10-28"
+  },
+  {
+    "id": "v2.4.205-canary.202610282102.be1ae8e.25.1",
+    "title": "Pane Canary 2.4.205-canary.202610282102.be1ae8e.25.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.205-canary.202610282102.be1ae8e.25.1",
+    "date": "2026-10-28"
+  },
+  {
+    "id": "v2.4.205",
+    "title": "2.4.205",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.205",
+    "date": "2026-10-28"
+  },
+  {
+    "id": "v2.4.204",
+    "title": "2.4.204",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.204",
+    "date": "2026-10-27"
+  },
+  {
+    "id": "v2.4.203",
+    "title": "2.4.203",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.203",
+    "date": "2026-10-27"
+  },
+  {
+    "id": "v2.4.202",
+    "title": "2.4.202",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.202",
+    "date": "2026-10-26"
+  },
+  {
+    "id": "v2.4.201",
+    "title": "2.4.201",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.201",
+    "date": "2026-10-26"
+  },
+  {
+    "id": "v2.4.200",
+    "title": "2.4.200",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.200",
+    "date": "2026-10-24"
+  },
+  {
+    "id": "v2.4.199",
+    "title": "2.4.199",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.199",
+    "date": "2026-10-24"
+  },
+  {
+    "id": "v2.4.198",
+    "title": "2.4.198",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.198",
+    "date": "2026-10-24"
+  },
+  {
+    "id": "v2.4.197",
+    "title": "2.4.197",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.197",
+    "date": "2026-10-24"
+  },
+  {
+    "id": "v2.4.196",
+    "title": "2.4.196",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.196",
+    "date": "2026-10-24"
+  },
+  {
+    "id": "v2.4.195",
+    "title": "v2.4.195",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.195",
+    "date": "2026-10-23"
+  },
+  {
+    "id": "v2.4.194",
+    "title": "2.4.194",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.194",
+    "date": "2026-10-23"
+  },
+  {
+    "id": "v2.4.193",
+    "title": "2.4.193",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.193",
+    "date": "2026-10-21"
+  },
+  {
+    "id": "v2.4.191",
+    "title": "2.4.191",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.191",
+    "date": "2026-10-20"
+  },
+  {
+    "id": "v2.4.190",
+    "title": "2.4.190",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.190",
+    "date": "2026-10-20"
+  },
+  {
+    "id": "v2.4.189",
+    "title": "2.4.189",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.189",
+    "date": "2026-10-20"
+  },
+  {
+    "id": "v2.4.188",
+    "title": "2.4.188",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.188",
+    "date": "2026-10-19"
+  },
+  {
+    "id": "v2.4.187",
+    "title": "2.4.187",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.187",
+    "date": "2026-10-19"
+  },
+  {
+    "id": "v2.4.186",
+    "title": "2.4.186",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.186",
+    "date": "2026-10-19"
+  },
+  {
+    "id": "v2.4.185",
+    "title": "2.4.185",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.185",
+    "date": "2026-10-16"
+  },
+  {
+    "id": "v2.4.184",
+    "title": "2.4.184",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.184",
+    "date": "2026-10-16"
+  },
+  {
+    "id": "v2.4.183",
+    "title": "2.4.183",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.183",
+    "date": "2026-10-16"
+  },
+  {
+    "id": "v2.4.182",
+    "title": "2.4.182",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.182",
+    "date": "2026-10-16"
+  },
+  {
+    "id": "v2.4.181",
+    "title": "2.4.181",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.181",
+    "date": "2026-10-15"
+  },
+  {
+    "id": "v2.4.180",
+    "title": "2.4.180",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.180",
+    "date": "2026-10-11"
+  },
+  {
+    "id": "v2.4.179",
+    "title": "2.4.179",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.179",
+    "date": "2026-10-10"
+  },
+  {
+    "id": "v2.4.178",
+    "title": "2.4.178",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.178",
+    "date": "2026-10-10"
+  },
+  {
+    "id": "v2.4.177",
+    "title": "2.4.177",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.177",
+    "date": "2026-10-10"
+  },
+  {
+    "id": "v2.4.176",
+    "title": "2.4.176",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.176",
+    "date": "2026-10-09"
+  },
+  {
+    "id": "v2.4.175",
+    "title": "2.4.175",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.175",
+    "date": "2026-10-09"
+  },
+  {
+    "id": "v2.4.174",
+    "title": "2.4.174",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.174",
+    "date": "2026-10-09"
+  },
+  {
+    "id": "v2.4.173",
+    "title": "2.4.173",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.173",
+    "date": "2026-10-09"
+  },
+  {
+    "id": "v2.4.172",
+    "title": "2.4.172",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.172",
+    "date": "2026-10-09"
+  },
+  {
+    "id": "v2.4.171",
+    "title": "2.4.171",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.171",
+    "date": "2026-10-07"
+  },
+  {
+    "id": "v2.4.170",
+    "title": "2.4.170",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.170",
+    "date": "2026-10-06"
+  },
+  {
+    "id": "v2.4.169",
+    "title": "2.4.169",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.169",
+    "date": "2026-10-06"
+  },
+  {
+    "id": "v2.4.168",
+    "title": "v2.4.168",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.168",
+    "date": "2026-10-06"
+  },
+  {
+    "id": "v2.4.167",
+    "title": "2.4.167",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.167",
+    "date": "2026-10-06"
+  },
+  {
+    "id": "v2.4.166",
+    "title": "2.4.166",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.166",
+    "date": "2026-10-06"
+  },
+  {
+    "id": "v2.4.165",
+    "title": "2.4.165",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.165",
+    "date": "2026-10-06"
+  },
+  {
+    "id": "v2.4.164",
+    "title": "2.4.164",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.164",
+    "date": "2026-10-05"
+  },
+  {
+    "id": "v2.4.163",
+    "title": "2.4.163",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.163",
+    "date": "2026-10-05"
+  },
+  {
+    "id": "v2.4.162",
+    "title": "2.4.162",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.162",
+    "date": "2026-10-05"
+  },
+  {
+    "id": "v2.4.161",
+    "title": "2.4.161",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.161",
+    "date": "2026-10-05"
+  },
+  {
+    "id": "v2.4.160",
+    "title": "2.4.160",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.160",
+    "date": "2026-10-05"
+  },
+  {
+    "id": "v2.4.159",
+    "title": "2.4.159",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.159",
+    "date": "2026-10-04"
+  },
+  {
+    "id": "v2.4.158",
+    "title": "2.4.158",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.158",
+    "date": "2026-10-04"
+  },
+  {
+    "id": "v2.4.157",
+    "title": "2.4.157",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.157",
+    "date": "2026-10-04"
+  },
+  {
+    "id": "v2.4.155",
+    "title": "2.4.155",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.155",
+    "date": "2026-10-03"
+  },
+  {
+    "id": "v2.4.154",
+    "title": "2.4.154",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.154",
+    "date": "2026-10-03"
+  },
+  {
+    "id": "v2.4.153",
+    "title": "2.4.153",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.153",
+    "date": "2026-10-03"
+  },
+  {
+    "id": "v2.4.152",
+    "title": "2.4.152",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.152",
+    "date": "2026-10-03"
+  },
+  {
+    "id": "v2.4.151",
+    "title": "2.4.151",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.151",
+    "date": "2026-10-02"
+  },
+  {
+    "id": "v2.4.150",
+    "title": "2.4.150",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.150",
+    "date": "2026-10-02"
+  },
+  {
+    "id": "v2.4.149",
+    "title": "2.4.149",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.149",
+    "date": "2026-10-02"
+  },
+  {
+    "id": "v2.4.148",
+    "title": "2.4.148",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.148",
+    "date": "2026-10-02"
+  },
+  {
+    "id": "v2.4.147",
+    "title": "2.4.147",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.147",
+    "date": "2026-10-01"
+  },
+  {
+    "id": "v2.4.146",
+    "title": "2.4.146",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.146",
+    "date": "2026-10-01"
+  },
+  {
+    "id": "v2.4.145",
+    "title": "2.4.145",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.145",
+    "date": "2026-10-01"
+  },
+  {
+    "id": "v2.4.144",
+    "title": "2.4.144",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.144",
+    "date": "2026-10-01"
+  },
+  {
+    "id": "v2.4.143",
+    "title": "2.4.143",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.143",
+    "date": "2026-10-01"
+  },
+  {
+    "id": "v2.4.142",
+    "title": "2.4.142",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.142",
+    "date": "2026-10-01"
+  },
+  {
+    "id": "v2.4.141",
+    "title": "2.4.141",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.141",
+    "date": "2026-09-29"
+  },
+  {
+    "id": "v2.4.140",
+    "title": "2.4.140",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.140",
+    "date": "2026-09-29"
+  },
+  {
+    "id": "v2.4.139",
+    "title": "2.4.139",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.139",
+    "date": "2026-09-29"
+  },
+  {
+    "id": "v2.4.138",
+    "title": "2.4.138",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.138",
+    "date": "2026-09-29"
+  },
+  {
+    "id": "v2.4.137",
+    "title": "2.4.137",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.137",
+    "date": "2026-09-28"
+  },
+  {
+    "id": "v2.4.136",
+    "title": "2.4.136",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.136",
+    "date": "2026-09-28"
+  },
+  {
+    "id": "v2.4.135",
+    "title": "2.4.135",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.135",
+    "date": "2026-09-28"
+  },
+  {
+    "id": "v2.4.133",
+    "title": "2.4.133",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.133",
+    "date": "2026-09-27"
+  },
+  {
+    "id": "v2.4.132",
+    "title": "2.4.132",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.132",
+    "date": "2026-09-27"
+  },
+  {
+    "id": "v2.4.131",
+    "title": "2.4.131",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.131",
+    "date": "2026-09-27"
+  },
+  {
+    "id": "v2.4.130",
+    "title": "2.4.130",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.130",
+    "date": "2026-09-26"
+  },
+  {
+    "id": "v2.4.129",
+    "title": "2.4.129",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.129",
+    "date": "2026-09-25"
+  },
+  {
+    "id": "v2.4.128",
+    "title": "2.4.128",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.128",
+    "date": "2026-09-25"
+  },
+  {
+    "id": "v2.4.127",
+    "title": "2.4.127",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.127",
+    "date": "2026-09-24"
+  },
+  {
+    "id": "v2.4.126",
+    "title": "2.4.126",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.126",
+    "date": "2026-09-24"
+  },
+  {
+    "id": "v2.4.125",
+    "title": "2.4.125",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.125",
+    "date": "2026-09-24"
+  },
+  {
+    "id": "v2.4.124",
+    "title": "2.4.124",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.124",
+    "date": "2026-09-24"
+  },
+  {
+    "id": "v2.4.123",
+    "title": "2.4.123",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.123",
+    "date": "2026-09-24"
+  },
+  {
+    "id": "v2.4.122",
+    "title": "2.4.122",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.122",
+    "date": "2026-09-24"
+  },
+  {
+    "id": "v2.4.121",
+    "title": "2.4.121",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.121",
+    "date": "2026-09-24"
+  },
+  {
+    "id": "v2.4.120",
+    "title": "2.4.120",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.120",
+    "date": "2026-09-24"
+  },
+  {
+    "id": "v2.4.118",
+    "title": "2.4.118",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.118",
+    "date": "2026-09-24"
+  },
+  {
+    "id": "v2.4.117",
+    "title": "2.4.117",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.117",
+    "date": "2026-09-24"
+  },
+  {
+    "id": "v2.4.116",
+    "title": "2.4.116",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.116",
+    "date": "2026-09-23"
+  },
+  {
+    "id": "v2.4.115",
+    "title": "2.4.115",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.115",
+    "date": "2026-09-22"
+  },
+  {
+    "id": "v2.4.114",
+    "title": "2.4.114",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.114",
+    "date": "2026-09-22"
+  },
+  {
+    "id": "v2.4.113",
+    "title": "2.4.113",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.113",
+    "date": "2026-09-22"
+  },
+  {
+    "id": "v2.4.112",
+    "title": "2.4.112",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.112",
+    "date": "2026-09-22"
+  },
+  {
+    "id": "v2.4.111",
+    "title": "2.4.111",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.111",
+    "date": "2026-09-22"
+  },
+  {
+    "id": "v2.4.110",
+    "title": "2.4.110",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.110",
+    "date": "2026-09-22"
+  },
+  {
+    "id": "v2.4.109",
+    "title": "2.4.109",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.109",
+    "date": "2026-09-22"
+  },
+  {
+    "id": "v2.4.108",
+    "title": "2.4.108",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.108",
+    "date": "2026-09-21"
+  },
+  {
+    "id": "v2.4.107",
+    "title": "2.4.107",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.107",
+    "date": "2026-09-17"
+  },
+  {
+    "id": "v2.4.106",
+    "title": "2.4.106",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.106",
+    "date": "2026-09-17"
+  },
+  {
+    "id": "v2.4.105",
+    "title": "2.4.105",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.105",
+    "date": "2026-09-14"
+  },
+  {
+    "id": "v2.4.104",
+    "title": "2.4.104",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.104",
+    "date": "2026-09-14"
+  },
+  {
+    "id": "v2.4.103",
+    "title": "2.4.103",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.103",
+    "date": "2026-09-11"
+  },
+  {
+    "id": "v2.4.102",
+    "title": "2.4.102",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.102",
+    "date": "2026-09-09"
+  },
+  {
+    "id": "v2.4.99",
+    "title": "2.4.99",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.99",
+    "date": "2026-09-05"
+  },
+  {
+    "id": "v2.4.97",
+    "title": "2.4.97",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.97",
+    "date": "2026-09-04"
+  },
+  {
+    "id": "v2.4.96",
+    "title": "2.4.96",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.96",
+    "date": "2026-09-04"
+  },
+  {
+    "id": "v2.4.95",
+    "title": "2.4.95",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.95",
+    "date": "2026-09-01"
+  },
+  {
+    "id": "v2.4.94",
+    "title": "2.4.94",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.94",
+    "date": "2026-08-31"
+  },
+  {
+    "id": "v2.4.93",
+    "title": "2.4.93",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.93",
+    "date": "2026-08-31"
+  },
+  {
+    "id": "v2.4.92",
+    "title": "2.4.92",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.92",
+    "date": "2026-08-31"
+  },
+  {
+    "id": "v2.4.91",
+    "title": "2.4.91",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.91",
+    "date": "2026-08-31"
+  },
+  {
+    "id": "v2.4.90",
+    "title": "2.4.90",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.90",
+    "date": "2026-08-31"
+  },
+  {
+    "id": "v2.4.89",
+    "title": "2.4.89",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.89",
+    "date": "2026-08-31"
+  },
+  {
+    "id": "v2.4.88",
+    "title": "2.4.88",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.88",
+    "date": "2026-08-30"
+  },
+  {
+    "id": "v2.4.87",
+    "title": "2.4.87",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.87",
+    "date": "2026-08-29"
+  },
+  {
+    "id": "v2.4.86",
+    "title": "2.4.86",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.86",
+    "date": "2026-08-29"
+  },
+  {
+    "id": "v2.4.85",
+    "title": "2.4.85",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.85",
+    "date": "2026-08-28"
+  },
+  {
+    "id": "v2.4.84",
+    "title": "2.4.84",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.84",
+    "date": "2026-08-28"
+  },
+  {
+    "id": "v2.4.83",
+    "title": "2.4.83",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.83",
+    "date": "2026-08-28"
+  },
+  {
+    "id": "v2.4.82",
+    "title": "2.4.82",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.82",
+    "date": "2026-08-27"
+  },
+  {
+    "id": "v2.4.81",
+    "title": "2.4.81",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.81",
+    "date": "2026-08-27"
+  },
+  {
+    "id": "v2.4.80",
+    "title": "2.4.80",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.80",
+    "date": "2026-08-27"
+  },
+  {
+    "id": "v2.4.79",
+    "title": "2.4.79",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.79",
+    "date": "2026-08-27"
+  },
+  {
+    "id": "v2.4.78",
+    "title": "2.4.78",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.78",
+    "date": "2026-08-27"
+  },
+  {
+    "id": "v2.4.77",
+    "title": "2.4.77",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.77",
+    "date": "2026-08-27"
+  },
+  {
+    "id": "v2.4.76",
+    "title": "2.4.76",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.76",
+    "date": "2026-08-27"
+  },
+  {
+    "id": "v2.4.75",
+    "title": "2.4.75",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.75",
+    "date": "2026-08-27"
+  },
+  {
+    "id": "v2.4.70",
+    "title": "2.4.70",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.70",
+    "date": "2026-08-21"
+  },
+  {
+    "id": "v2.4.69",
+    "title": "2.4.69",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.69",
+    "date": "2026-08-21"
+  },
+  {
+    "id": "v2.4.67",
+    "title": "2.4.67",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.67",
+    "date": "2026-08-20"
+  },
+  {
+    "id": "v2.4.66",
+    "title": "2.4.66",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.66",
+    "date": "2026-08-20"
+  },
+  {
+    "id": "v2.4.65",
+    "title": "2.4.65",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.65",
+    "date": "2026-08-20"
+  },
+  {
+    "id": "v2.4.64",
+    "title": "2.4.64",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.64",
+    "date": "2026-08-19"
+  },
+  {
+    "id": "v2.4.63",
+    "title": "2.4.63",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.63",
+    "date": "2026-08-19"
+  },
+  {
+    "id": "v2.4.62",
+    "title": "2.4.62",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.62",
+    "date": "2026-08-18"
+  },
+  {
+    "id": "v2.4.61",
+    "title": "2.4.61",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.61",
+    "date": "2026-08-18"
+  },
+  {
+    "id": "v2.4.60",
+    "title": "2.4.60",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.60",
+    "date": "2026-08-18"
+  },
+  {
+    "id": "v2.4.59",
+    "title": "2.4.59",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.59",
+    "date": "2026-08-17"
+  },
+  {
+    "id": "v2.4.58",
+    "title": "2.4.58",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.58",
+    "date": "2026-08-17"
+  },
+  {
+    "id": "v2.4.57",
+    "title": "2.4.57",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.57",
+    "date": "2026-08-17"
+  },
+  {
+    "id": "v2.4.55",
+    "title": "2.4.55",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.55",
+    "date": "2026-08-17"
+  },
+  {
+    "id": "v2.4.54",
+    "title": "2.4.54",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.54",
+    "date": "2026-08-17"
+  },
+  {
+    "id": "v2.4.53",
+    "title": "2.4.53",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.53",
+    "date": "2026-08-17"
+  },
+  {
+    "id": "v2.4.52",
+    "title": "2.4.52",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.52",
+    "date": "2026-08-17"
+  },
+  {
+    "id": "v2.4.51",
+    "title": "2.4.51",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.51",
+    "date": "2026-08-17"
+  },
+  {
+    "id": "v2.4.50",
+    "title": "2.4.50",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.50",
+    "date": "2026-08-17"
+  },
+  {
+    "id": "v2.4.49",
+    "title": "2.4.49",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.49",
+    "date": "2026-08-16"
+  },
+  {
+    "id": "v2.4.48",
+    "title": "2.4.48",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.48",
+    "date": "2026-08-12"
+  },
+  {
+    "id": "v2.4.47",
+    "title": "2.4.47",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.47",
+    "date": "2026-08-11"
+  },
+  {
+    "id": "v2.4.46",
+    "title": "2.4.46",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.46",
+    "date": "2026-08-11"
+  },
+  {
+    "id": "v2.4.45",
+    "title": "2.4.45",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.45",
+    "date": "2026-08-07"
+  },
+  {
+    "id": "v2.4.44",
+    "title": "2.4.44",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.44",
+    "date": "2026-08-07"
+  },
+  {
+    "id": "v2.4.43",
+    "title": "2.4.43",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.43",
+    "date": "2026-08-07"
+  },
+  {
+    "id": "v2.4.42",
+    "title": "2.4.42",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.42",
+    "date": "2026-08-07"
+  },
+  {
+    "id": "v2.4.41",
+    "title": "2.4.41",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.41",
+    "date": "2026-08-06"
+  },
+  {
+    "id": "v2.4.40",
+    "title": "2.4.40",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.40",
+    "date": "2026-08-06"
+  },
+  {
+    "id": "v2.4.39",
+    "title": "2.4.39",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.39",
+    "date": "2026-08-06"
+  },
+  {
+    "id": "pr-366-assets",
+    "title": "PR #366 assets",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/pr-366-assets",
+    "date": "2026-08-06"
+  },
+  {
+    "id": "v2.4.38",
+    "title": "2.4.38",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.38",
+    "date": "2026-08-05"
+  },
+  {
+    "id": "v2.4.37",
+    "title": "2.4.37",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.37",
+    "date": "2026-08-05"
+  },
+  {
+    "id": "v2.4.36",
+    "title": "2.4.36",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.36",
+    "date": "2026-07-31"
+  },
+  {
+    "id": "v2.4.35",
+    "title": "2.4.35",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.35",
+    "date": "2026-07-23"
+  },
+  {
+    "id": "v2.4.34",
+    "title": "2.4.34",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.34",
+    "date": "2026-07-22"
+  },
+  {
+    "id": "pr-assets",
+    "title": "PR Assets",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/pr-assets",
+    "date": "2026-07-22"
+  },
+  {
+    "id": "v2.4.30",
+    "title": "2.4.30",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.30",
+    "date": "2026-07-21"
+  },
+  {
+    "id": "v2.4.29",
+    "title": "2.4.29",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.29",
+    "date": "2026-07-17"
+  },
+  {
+    "id": "v2.4.28",
+    "title": "2.4.28",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.28",
+    "date": "2026-07-15"
+  },
+  {
+    "id": "v2.4.26",
+    "title": "2.4.26",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.26",
+    "date": "2026-07-15"
+  },
+  {
+    "id": "v2.4.25",
+    "title": "2.4.25",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.25",
+    "date": "2026-07-15"
+  },
+  {
+    "id": "v2.4.24",
+    "title": "2.4.24",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.24",
+    "date": "2026-07-14"
+  },
+  {
+    "id": "qa-assets",
+    "title": "QA evidence assets",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/qa-assets",
+    "date": "2026-07-14"
+  },
+  {
+    "id": "v2.4.23",
+    "title": "2.4.23",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.23",
+    "date": "2026-07-13"
+  },
+  {
+    "id": "v2.4.22",
+    "title": "2.4.22",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.22",
+    "date": "2026-07-12"
+  },
+  {
+    "id": "v2.4.21",
+    "title": "2.4.21",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.21",
+    "date": "2026-07-12"
+  },
+  {
+    "id": "v2.4.20",
+    "title": "2.4.20",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.20",
+    "date": "2026-07-12"
+  },
+  {
+    "id": "v2.4.19",
+    "title": "2.4.19",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.19",
+    "date": "2026-07-12"
+  },
+  {
+    "id": "v2.4.18",
+    "title": "2.4.18",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.18",
+    "date": "2026-07-11"
+  },
+  {
+    "id": "v2.4.17",
+    "title": "2.4.17",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.17",
+    "date": "2026-07-11"
+  },
+  {
+    "id": "v2.4.16",
+    "title": "2.4.16",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.16",
+    "date": "2026-07-11"
+  },
+  {
+    "id": "v2.4.15",
+    "title": "2.4.15",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.15",
+    "date": "2026-07-07"
+  },
+  {
+    "id": "v2.4.14",
+    "title": "2.4.14",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.14",
+    "date": "2026-07-07"
+  },
+  {
+    "id": "v2.4.13",
+    "title": "2.4.13",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.13",
+    "date": "2026-07-07"
+  },
+  {
+    "id": "v2.4.12",
+    "title": "2.4.12",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.12",
+    "date": "2026-07-07"
+  },
+  {
+    "id": "v2.4.11",
+    "title": "2.4.11",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.11",
+    "date": "2026-07-07"
+  },
+  {
+    "id": "v2.4.10",
+    "title": "2.4.10",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.10",
+    "date": "2026-07-07"
+  },
+  {
+    "id": "v2.4.9",
+    "title": "2.4.9",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.9",
+    "date": "2026-07-06"
+  },
+  {
+    "id": "v2.4.8",
+    "title": "2.4.8",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.8",
+    "date": "2026-07-06"
+  },
+  {
+    "id": "v2.4.7",
+    "title": "2.4.7",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.7",
+    "date": "2026-07-06"
+  },
+  {
+    "id": "v2.4.6",
+    "title": "2.4.6",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.6",
+    "date": "2026-07-06"
+  },
+  {
+    "id": "v2.4.5",
+    "title": "2.4.5",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.5",
+    "date": "2026-06-26"
+  },
+  {
+    "id": "v2.4.4",
+    "title": "2.4.4",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.4",
+    "date": "2026-06-25"
+  },
+  {
+    "id": "v2.4.3",
+    "title": "2.4.3",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.3",
+    "date": "2026-06-25"
+  },
+  {
+    "id": "v2.4.2",
+    "title": "2.4.2",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.2",
+    "date": "2026-06-25"
+  },
+  {
+    "id": "v2.4.1",
+    "title": "2.4.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.1",
+    "date": "2026-06-24"
+  },
+  {
+    "id": "v2.4.0",
+    "title": "2.4.0",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.4.0",
+    "date": "2026-06-23"
+  },
+  {
+    "id": "v2.3.21",
+    "title": "2.3.21",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.21",
+    "date": "2026-06-23"
+  },
+  {
+    "id": "v2.3.20",
+    "title": "2.3.20",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.20",
+    "date": "2026-06-21"
+  },
+  {
+    "id": "v2.3.19",
+    "title": "2.3.19",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.19",
+    "date": "2026-06-21"
+  },
+  {
+    "id": "v2.3.18",
+    "title": "2.3.18",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.18",
+    "date": "2026-06-20"
+  },
+  {
+    "id": "v2.3.17",
+    "title": "2.3.17",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.17",
+    "date": "2026-06-20"
+  },
+  {
+    "id": "v2.3.16",
+    "title": "2.3.16",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.16",
+    "date": "2026-06-20"
+  },
+  {
+    "id": "v2.3.15",
+    "title": "2.3.15",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.15",
+    "date": "2026-06-20"
+  },
+  {
+    "id": "v2.3.14",
+    "title": "2.3.14",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.14",
+    "date": "2026-06-19"
+  },
+  {
+    "id": "v2.3.13",
+    "title": "2.3.13",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.13",
+    "date": "2026-06-19"
+  },
+  {
+    "id": "v2.3.12",
+    "title": "2.3.12",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.12",
+    "date": "2026-06-19"
+  },
+  {
+    "id": "v2.3.11",
+    "title": "2.3.11",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.11",
+    "date": "2026-06-19"
+  },
+  {
+    "id": "v2.3.10",
+    "title": "2.3.10",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.10",
+    "date": "2026-06-19"
+  },
+  {
+    "id": "v2.3.9",
+    "title": "2.3.9",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.9",
+    "date": "2026-06-19"
+  },
+  {
+    "id": "v2.3.8",
+    "title": "2.3.8",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.8",
+    "date": "2026-06-18"
+  },
+  {
+    "id": "v2.3.7",
+    "title": "2.3.7",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.7",
+    "date": "2026-06-18"
+  },
+  {
+    "id": "v2.3.6",
+    "title": "2.3.6",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.6",
+    "date": "2026-06-18"
+  },
+  {
+    "id": "v2.3.5",
+    "title": "2.3.5",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.5",
+    "date": "2026-06-18"
+  },
+  {
+    "id": "v2.3.4",
+    "title": "2.3.4",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.4",
+    "date": "2026-06-18"
+  },
+  {
+    "id": "v2.3.3",
+    "title": "2.3.3",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.3",
+    "date": "2026-06-18"
+  },
+  {
+    "id": "v2.3.2",
+    "title": "2.3.2",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.2",
+    "date": "2026-06-18"
+  },
+  {
+    "id": "v2.3.1",
+    "title": "2.3.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.1",
+    "date": "2026-06-17"
+  },
+  {
+    "id": "v2.3.0",
+    "title": "2.3.0",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.3.0",
+    "date": "2026-06-17"
+  },
+  {
+    "id": "v2.2.12",
+    "title": "2.2.12",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.2.12",
+    "date": "2026-06-17"
+  },
+  {
+    "id": "v2.2.11",
+    "title": "2.2.11",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.2.11",
+    "date": "2026-06-17"
+  },
+  {
+    "id": "v2.2.10",
+    "title": "2.2.10",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.2.10",
+    "date": "2026-06-17"
+  },
+  {
+    "id": "v2.2.9",
+    "title": "2.2.9",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.2.9",
+    "date": "2026-06-17"
+  },
+  {
+    "id": "v2.2.8",
+    "title": "2.2.8",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.2.8",
+    "date": "2026-06-16"
+  },
+  {
+    "id": "v2.2.7",
+    "title": "2.2.7",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.2.7",
+    "date": "2026-06-16"
+  },
+  {
+    "id": "v2.2.6",
+    "title": "2.2.6",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.2.6",
+    "date": "2026-06-15"
+  },
+  {
+    "id": "v2.2.5",
+    "title": "2.2.5",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.2.5",
+    "date": "2026-06-15"
+  },
+  {
+    "id": "v2.2.4",
+    "title": "2.2.4",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.2.4",
+    "date": "2026-06-15"
+  },
+  {
+    "id": "v2.2.3",
+    "title": "2.2.3",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.2.3",
+    "date": "2026-06-15"
+  },
+  {
+    "id": "v2.2.2",
+    "title": "2.2.2",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.2.2",
+    "date": "2026-06-15"
+  },
+  {
+    "id": "v2.2.1",
+    "title": "2.2.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.2.1",
+    "date": "2026-06-13"
+  },
+  {
+    "id": "v2.1.2",
+    "title": "2.1.2",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.1.2",
+    "date": "2026-06-13"
+  },
+  {
+    "id": "v2.1.0",
+    "title": "2.1.0",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.1.0",
+    "date": "2026-06-13"
+  },
+  {
+    "id": "v2.0.9",
+    "title": "2.0.9",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.0.9",
+    "date": "2026-06-13"
+  },
+  {
+    "id": "v2.0.8",
+    "title": "2.0.8",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.0.8",
+    "date": "2026-06-12"
+  },
+  {
+    "id": "v2.0.7",
+    "title": "2.0.7",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.0.7",
+    "date": "2026-06-12"
+  },
+  {
+    "id": "v2.0.6",
+    "title": "2.0.6",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.0.6",
+    "date": "2026-06-12"
+  },
+  {
+    "id": "v2.0.5",
+    "title": "2.0.5",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.0.5",
+    "date": "2026-06-12"
+  },
+  {
+    "id": "v2.0.4",
+    "title": "2.0.4",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.0.4",
+    "date": "2026-06-12"
+  },
+  {
+    "id": "v2.0.3",
+    "title": "2.0.3",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.0.3",
+    "date": "2026-06-12"
+  },
+  {
+    "id": "v2.0.2",
+    "title": "2.0.2",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.0.2",
+    "date": "2026-06-12"
+  },
+  {
+    "id": "v2.0.1",
+    "title": "2.0.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.0.1",
+    "date": "2026-06-03"
+  },
+  {
+    "id": "v2.0.0",
+    "title": "2.0.0",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v2.0.0",
+    "date": "2026-06-03"
+  },
+  {
+    "id": "v1.1.146-nightly.202605230548.e436e4b.24.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605230548.e436e4b.24.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605230548.e436e4b.24.1",
+    "date": "2026-05-23"
+  },
+  {
+    "id": "v1.1.146-nightly.202605230023.9133440.23.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605230023.9133440.23.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605230023.9133440.23.1",
+    "date": "2026-05-23"
+  },
+  {
+    "id": "v1.1.146-nightly.202605222340.82a7ba5.22.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605222340.82a7ba5.22.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605222340.82a7ba5.22.1",
+    "date": "2026-05-22"
+  },
+  {
+    "id": "v1.1.146-nightly.202605222224.5fad52b.21.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605222224.5fad52b.21.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605222224.5fad52b.21.1",
+    "date": "2026-05-22"
+  },
+  {
+    "id": "v1.1.146-nightly.202605222219.0ba991e.20.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605222219.0ba991e.20.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605222219.0ba991e.20.1",
+    "date": "2026-05-22"
+  },
+  {
+    "id": "v1.1.146-nightly.202605222200.f944dcb.19.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605222200.f944dcb.19.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605222200.f944dcb.19.1",
+    "date": "2026-05-22"
+  },
+  {
+    "id": "v1.1.146-nightly.202605222132.01a5042.18.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605222132.01a5042.18.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605222132.01a5042.18.1",
+    "date": "2026-05-22"
+  },
+  {
+    "id": "v1.1.146-nightly.202605222111.fbd020f.17.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605222111.fbd020f.17.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605222111.fbd020f.17.1",
+    "date": "2026-05-22"
+  },
+  {
+    "id": "v1.1.146-nightly.202605222004.0431871.16.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605222004.0431871.16.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605222004.0431871.16.1",
+    "date": "2026-05-22"
+  },
+  {
+    "id": "v1.1.146-nightly.202605221914.fd12667.15.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605221914.fd12667.15.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605221914.fd12667.15.1",
+    "date": "2026-05-22"
+  },
+  {
+    "id": "v1.1.146-nightly.202605220146.4e185bc.14.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605220146.4e185bc.14.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605220146.4e185bc.14.1",
+    "date": "2026-05-22"
+  },
+  {
+    "id": "v1.1.146-nightly.202605212305.ca722cc.13.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605212305.ca722cc.13.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605212305.ca722cc.13.1",
+    "date": "2026-05-21"
+  },
+  {
+    "id": "v1.1.146-nightly.202605212253.0594a42.12.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605212253.0594a42.12.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605212253.0594a42.12.1",
+    "date": "2026-05-21"
+  },
+  {
+    "id": "v1.1.146-nightly.202605212230.d85cf76.11.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605212230.d85cf76.11.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605212230.d85cf76.11.1",
+    "date": "2026-05-21"
+  },
+  {
+    "id": "v1.1.146-nightly.202605212204.e7c8757.9.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605212204.e7c8757.9.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605212204.e7c8757.9.1",
+    "date": "2026-05-21"
+  },
+  {
+    "id": "v1.1.146-nightly.202605212149.94fcd93.8.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605212149.94fcd93.8.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605212149.94fcd93.8.1",
+    "date": "2026-05-21"
+  },
+  {
+    "id": "v1.1.146-nightly.202605201935.870fd14.7.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605201935.870fd14.7.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605201935.870fd14.7.1",
+    "date": "2026-05-20"
+  },
+  {
+    "id": "v1.1.146-nightly.202605201820.9d3cf61.6.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605201820.9d3cf61.6.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605201820.9d3cf61.6.1",
+    "date": "2026-05-20"
+  },
+  {
+    "id": "v1.1.146-nightly.202605201654.824f5cb.5.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605201654.824f5cb.5.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605201654.824f5cb.5.1",
+    "date": "2026-05-20"
+  },
+  {
+    "id": "v1.1.146-nightly.202605190109.bcb1263.4.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605190109.bcb1263.4.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605190109.bcb1263.4.1",
+    "date": "2026-05-19"
+  },
+  {
+    "id": "v1.1.146-nightly.202605190025.b574859.3.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605190025.b574859.3.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605190025.b574859.3.1",
+    "date": "2026-05-19"
+  },
+  {
+    "id": "v1.1.146-nightly.202605182135.774ca01.2.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605182135.774ca01.2.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605182135.774ca01.2.1",
+    "date": "2026-05-18"
+  },
+  {
+    "id": "v1.1.146-nightly.202605180541.53980bf.1.1",
+    "title": "Pane Nightly 1.1.146-nightly.202605180541.53980bf.1.1",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.146-nightly.202605180541.53980bf.1.1",
+    "date": "2026-05-18"
+  },
+  {
+    "id": "v1.1.145",
+    "title": "1.1.145",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.145",
+    "date": "2026-05-16"
+  },
+  {
+    "id": "v1.1.144",
+    "title": "1.1.144",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.144",
+    "date": "2026-05-16"
+  },
+  {
+    "id": "v1.1.143",
+    "title": "1.1.143",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.143",
+    "date": "2026-05-14"
+  },
+  {
+    "id": "v1.1.142",
+    "title": "1.1.142",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.142",
+    "date": "2026-05-13"
+  },
+  {
+    "id": "v1.1.141",
+    "title": "1.1.141",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.141",
+    "date": "2026-05-13"
+  },
+  {
+    "id": "v1.1.140",
+    "title": "1.1.140",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.140",
+    "date": "2026-05-13"
+  },
+  {
+    "id": "v1.1.139",
+    "title": "1.1.139",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.139",
+    "date": "2026-05-13"
+  },
+  {
+    "id": "v1.1.138",
+    "title": "1.1.138",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.138",
+    "date": "2026-05-12"
+  },
+  {
+    "id": "v1.1.137",
+    "title": "1.1.137",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.137",
+    "date": "2026-05-12"
+  },
+  {
+    "id": "v1.1.136",
+    "title": "1.1.136",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.136",
+    "date": "2026-05-11"
+  },
+  {
+    "id": "v1.1.135",
+    "title": "1.1.135",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.135",
+    "date": "2026-05-11"
+  },
+  {
+    "id": "v1.1.134",
+    "title": "1.1.134",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.134",
+    "date": "2026-05-10"
+  },
+  {
+    "id": "v1.1.133",
+    "title": "1.1.133",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.133",
+    "date": "2026-05-08"
+  },
+  {
+    "id": "v1.1.132",
+    "title": "1.1.132",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.132",
+    "date": "2026-05-07"
+  },
+  {
+    "id": "v1.1.131",
+    "title": "1.1.131",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.131",
+    "date": "2026-05-06"
+  },
+  {
+    "id": "v1.1.130",
+    "title": "1.1.130",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.130",
+    "date": "2026-05-06"
+  },
+  {
+    "id": "v1.1.129",
+    "title": "1.1.129",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.129",
+    "date": "2026-05-05"
+  },
+  {
+    "id": "v1.1.128",
+    "title": "1.1.128",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.128",
+    "date": "2026-04-25"
+  },
+  {
+    "id": "v1.1.127",
+    "title": "1.1.127",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.127",
+    "date": "2026-04-25"
+  },
+  {
+    "id": "v1.1.126",
+    "title": "1.1.126",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.126",
+    "date": "2026-04-25"
+  },
+  {
+    "id": "v1.1.125",
+    "title": "1.1.125",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.125",
+    "date": "2026-04-25"
+  },
+  {
+    "id": "v1.1.123",
+    "title": "1.1.123",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.123",
+    "date": "2026-04-25"
+  },
+  {
+    "id": "v1.1.122",
+    "title": "1.1.122",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.122",
+    "date": "2026-04-25"
+  },
+  {
+    "id": "v1.1.121",
+    "title": "1.1.121",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.121",
+    "date": "2026-04-25"
+  },
+  {
+    "id": "v1.1.120",
+    "title": "1.1.120",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.120",
+    "date": "2026-04-22"
+  },
+  {
+    "id": "v1.1.119",
+    "title": "1.1.119",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.119",
+    "date": "2026-04-17"
+  },
+  {
+    "id": "v1.1.118",
+    "title": "1.1.118",
+    "url": "https://github.com/greenfield-inc/Pane/releases/tag/v1.1.118",
+    "date": "2026-04-12"
+  }
+]

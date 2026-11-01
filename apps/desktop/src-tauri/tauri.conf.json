@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Bantu",
+  "version": "0.0.1",
+  "identifier": "dev.bantu.app",
+  "build": {
+    "frontendDist": "../splash"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Bantu",
+        "url": "index.html",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 720,
+        "minHeight": 480
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Run coding agents in parallel git worktrees",
+    "copyright": "Bantu contributors, Apache-2.0",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+name: Changelog watch
+
+# Checks the Conductor and Pane changelogs weekly and opens one
+# `competitor-update` issue per new entry. No LLM, no secrets beyond GITHUB_TOKEN.
+on:
+  schedule:
+    - cron: "0 5 * * 1" # Mondays 05:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: changelog-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Ensure label exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh label create competitor-update --color 5319e7 --description "New entry in a competitor changelog" 2>/dev/null || true
+      - name: Check changelogs
+        id: watch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun scripts/changelog-watch.ts --open-issues
+      - name: Commit snapshots
+        run: |
+          if [ -n "$(git status --porcelain docs/competitive/snapshots)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add docs/competitive/snapshots
+            git commit -m "chore(competitive): update changelog snapshots (${{ steps.watch.outputs.new_count }} new)"
+            git push
+          fi

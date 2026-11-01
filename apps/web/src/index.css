@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-bg: oklch(0.17 0.005 260);
+  --color-panel: oklch(0.2 0.006 260);
+  --color-raised: oklch(0.24 0.007 260);
+  --color-line: oklch(0.3 0.008 260);
+  --color-fg: oklch(0.93 0.005 260);
+  --color-muted: oklch(0.68 0.01 260);
+  --color-faint: oklch(0.52 0.01 260);
+  --color-accent: oklch(0.72 0.13 250);
+  --color-ok: oklch(0.74 0.15 150);
+  --color-warn: oklch(0.8 0.14 80);
+  --color-bad: oklch(0.68 0.18 25);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: oklch(0.72 0.13 250 / 0.35);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}

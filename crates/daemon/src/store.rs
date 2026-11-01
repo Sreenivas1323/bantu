@@ -1,0 +1,299 @@
+//! SQLite-backed event log plus the `repos`/`workspaces` projections.
+//!
+//! Every state change goes through [`Store`]: the projection write and the
+//! event insert share one transaction, and events are broadcast in `seq` order
+//! (writes are serialized by `write_lock`), so SSE subscribers never see gaps
+//! or reordering.
+
+use std::path::Path;
+use std::str::FromStr;
+use std::time::Duration;
+
+use anyhow::{Context, Result};
+use bantu_protocol::{Event, EventData, LogStream, Repo, Workspace, WorkspaceState};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow};
+use sqlx::{Row, Sqlite, SqlitePool, Transaction};
+use tokio::sync::{broadcast, Mutex, MutexGuard};
+
+pub fn now() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+pub struct Store {
+    pool: SqlitePool,
+    events_tx: broadcast::Sender<Event>,
+    write_lock: Mutex<()>,
+}
+
+impl Store {
+    pub async fn open(db_path: &Path) -> Result<Self> {
+        let opts = SqliteConnectOptions::from_str(&format!("sqlite://{}", db_path.display()))?
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(5))
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(8)
+            .connect_with(opts)
+            .await
+            .with_context(|| format!("opening {}", db_path.display()))?;
+        sqlx::migrate!("./migrations").run(&pool).await?;
+        let (events_tx, _) = broadcast::channel(1024);
+        Ok(Self {
+            pool,
+            events_tx,
+            write_lock: Mutex::new(()),
+        })
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<Event> {
+        self.events_tx.subscribe()
+    }
+
+    // ---- writes -----------------------------------------------------------
+
+    pub async fn insert_repo(&self, repo: &Repo) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query(
+            "INSERT INTO repos (id, name, root_path, default_branch, remote_url, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&repo.id)
+        .bind(&repo.name)
+        .bind(&repo.root_path)
+        .bind(&repo.default_branch)
+        .bind(&repo.remote_url)
+        .bind(&repo.created_at)
+        .execute(&mut *tx)
+        .await?;
+        let data = EventData::RepoAdded { repo: repo.clone() };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn delete_repo(&self, repo_id: &str) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query("DELETE FROM workspaces WHERE repo_id = ?")
+            .bind(repo_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM repos WHERE id = ?")
+            .bind(repo_id)
+            .execute(&mut *tx)
+            .await?;
+        let data = EventData::RepoRemoved {
+            repo_id: repo_id.to_string(),
+        };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn upsert_workspace(&self, ws: &Workspace) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query(
+            "INSERT INTO workspaces (id, repo_id, name, branch, base_ref, path, port_base,
+                                     state, error, archive_commit, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name, branch = excluded.branch,
+                base_ref = excluded.base_ref, path = excluded.path,
+                port_base = excluded.port_base, state = excluded.state,
+                error = excluded.error, archive_commit = excluded.archive_commit",
+        )
+        .bind(&ws.id)
+        .bind(&ws.repo_id)
+        .bind(&ws.name)
+        .bind(&ws.branch)
+        .bind(&ws.base_ref)
+        .bind(&ws.path)
+        .bind(ws.port_base as i64)
+        .bind(ws.state.as_str())
+        .bind(&ws.error)
+        .bind(&ws.archive_commit)
+        .bind(&ws.created_at)
+        .execute(&mut *tx)
+        .await?;
+        let data = EventData::WorkspaceUpdated {
+            workspace: ws.clone(),
+        };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn log(&self, workspace_id: &str, stream: LogStream, line: impl Into<String>) {
+        let data = EventData::WorkspaceLog {
+            workspace_id: workspace_id.to_string(),
+            stream,
+            line: line.into(),
+        };
+        let result = async {
+            let (guard, tx) = self.begin().await?;
+            self.finish(guard, tx, data).await
+        }
+        .await;
+        if let Err(e) = result {
+            tracing::warn!("failed to record workspace log: {e:#}");
+        }
+    }
+
+    async fn begin(&self) -> Result<(MutexGuard<'_, ()>, Transaction<'static, Sqlite>)> {
+        let guard = self.write_lock.lock().await;
+        let tx = self.pool.begin().await?;
+        Ok((guard, tx))
+    }
+
+    /// Appends `data` to the event log, commits, then broadcasts while still
+    /// holding the write lock so subscribers see events in `seq` order.
+    async fn finish(
+        &self,
+        _guard: MutexGuard<'_, ()>,
+        mut tx: Transaction<'static, Sqlite>,
+        data: EventData,
+    ) -> Result<Event> {
+        let ts = now();
+        let payload = serde_json::to_string(&data)?;
+        let seq: i64 = sqlx::query_scalar(
+            "INSERT INTO events (ts, kind, payload) VALUES (?, ?, ?) RETURNING seq",
+        )
+        .bind(&ts)
+        .bind(event_kind(&data))
+        .bind(&payload)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let event = Event { seq, ts, data };
+        // No subscribers is fine; they replay from the DB when they connect.
+        let _ = self.events_tx.send(event.clone());
+        Ok(event)
+    }
+
+    // ---- reads ------------------------------------------------------------
+
+    pub async fn last_seq(&self) -> Result<i64> {
+        Ok(
+            sqlx::query_scalar("SELECT COALESCE(MAX(seq), 0) FROM events")
+                .fetch_one(&self.pool)
+                .await?,
+        )
+    }
+
+    pub async fn events_since(&self, since: i64, limit: i64) -> Result<Vec<Event>> {
+        let rows =
+            sqlx::query("SELECT seq, ts, payload FROM events WHERE seq > ? ORDER BY seq LIMIT ?")
+                .bind(since)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?;
+        rows.into_iter()
+            .map(|r| {
+                Ok(Event {
+                    seq: r.get("seq"),
+                    ts: r.get("ts"),
+                    data: serde_json::from_str(r.get::<&str, _>("payload"))?,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn repos(&self) -> Result<Vec<Repo>> {
+        let rows = sqlx::query("SELECT * FROM repos ORDER BY created_at")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.iter().map(repo_from_row).collect())
+    }
+
+    pub async fn repo(&self, id: &str) -> Result<Option<Repo>> {
+        let row = sqlx::query("SELECT * FROM repos WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.as_ref().map(repo_from_row))
+    }
+
+    pub async fn repo_by_root(&self, root_path: &str) -> Result<Option<Repo>> {
+        let row = sqlx::query("SELECT * FROM repos WHERE root_path = ?")
+            .bind(root_path)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.as_ref().map(repo_from_row))
+    }
+
+    pub async fn workspaces(&self) -> Result<Vec<Workspace>> {
+        let rows = sqlx::query("SELECT * FROM workspaces ORDER BY created_at")
+            .fetch_all(&self.pool)
+            .await?;
+        rows.iter().map(workspace_from_row).collect()
+    }
+
+    pub async fn workspace(&self, id: &str) -> Result<Option<Workspace>> {
+        let row = sqlx::query("SELECT * FROM workspaces WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(workspace_from_row).transpose()
+    }
+
+    // ---- idempotency ------------------------------------------------------
+
+    pub async fn idempotent_response(&self, key: &str) -> Result<Option<(u16, String)>> {
+        let row = sqlx::query(
+            "SELECT status, response FROM idempotency
+             WHERE key = ? AND created_at > datetime('now', '-1 day')",
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| (r.get::<i64, _>("status") as u16, r.get("response"))))
+    }
+
+    pub async fn save_idempotent_response(&self, key: &str, status: u16, body: &str) -> Result<()> {
+        sqlx::query("DELETE FROM idempotency WHERE created_at <= datetime('now', '-1 day')")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query(
+            "INSERT OR REPLACE INTO idempotency (key, status, response, created_at)
+             VALUES (?, ?, ?, datetime('now'))",
+        )
+        .bind(key)
+        .bind(status as i64)
+        .bind(body)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+}
+
+fn event_kind(data: &EventData) -> &'static str {
+    match data {
+        EventData::RepoAdded { .. } => "repo.added",
+        EventData::RepoRemoved { .. } => "repo.removed",
+        EventData::WorkspaceUpdated { .. } => "workspace.updated",
+        EventData::WorkspaceLog { .. } => "workspace.log",
+    }
+}
+
+fn repo_from_row(r: &SqliteRow) -> Repo {
+    Repo {
+        id: r.get("id"),
+        name: r.get("name"),
+        root_path: r.get("root_path"),
+        default_branch: r.get("default_branch"),
+        remote_url: r.get("remote_url"),
+        created_at: r.get("created_at"),
+    }
+}
+
+fn workspace_from_row(r: &SqliteRow) -> Result<Workspace> {
+    let state: String = r.get("state");
+    Ok(Workspace {
+        id: r.get("id"),
+        repo_id: r.get("repo_id"),
+        name: r.get("name"),
+        branch: r.get("branch"),
+        base_ref: r.get("base_ref"),
+        path: r.get("path"),
+        port_base: r.get::<i64, _>("port_base") as u16,
+        state: WorkspaceState::parse(&state)
+            .with_context(|| format!("unknown workspace state {state:?}"))?,
+        error: r.get("error"),
+        archive_commit: r.get("archive_commit"),
+        created_at: r.get("created_at"),
+    })
+}

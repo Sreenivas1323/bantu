@@ -1,0 +1,13 @@
+{
+  "name": "bantu",
+  "private": true,
+  "license": "Apache-2.0",
+  "workspaces": ["apps/web", "apps/desktop", "packages/*"],
+  "scripts": {
+    "dev:web": "bun run --cwd apps/web dev",
+    "build:web": "bun run --cwd apps/web build",
+    "typecheck": "bun run --cwd apps/web typecheck",
+    "dev:desktop": "bun run --cwd apps/desktop dev",
+    "build:desktop": "bun run --cwd apps/desktop build"
+  }
+}

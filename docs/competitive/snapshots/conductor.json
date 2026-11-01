@@ -1,0 +1,1097 @@
+[
+  {
+    "id": "0.92.0",
+    "title": "Remote control",
+    "url": "https://www.conductor.build/changelog/0.92.0-remote-control",
+    "date": "2026-10-23"
+  },
+  {
+    "id": "0.91.0",
+    "title": "A (mostly) boring update",
+    "url": "https://www.conductor.build/changelog/0.91.0-a-mostly-boring-update",
+    "date": "2026-10-15"
+  },
+  {
+    "id": "0.90.0",
+    "title": "Conductor for iOS",
+    "url": "https://www.conductor.build/changelog/0.90.0-conductor-for-ios",
+    "date": "2026-10-02"
+  },
+  {
+    "id": "0.89.1",
+    "title": "GPT-6.1 Sol",
+    "url": "https://www.conductor.build/changelog/0.89.1-gpt-6-1-sol",
+    "date": "2026-09-29"
+  },
+  {
+    "id": "0.89.0",
+    "title": "Sign in with ChatGPT",
+    "url": "https://www.conductor.build/changelog/0.89.0-sign-in-with-chatgpt",
+    "date": "2026-09-29"
+  },
+  {
+    "id": "0.87.6",
+    "title": "Claude Sonnet 5.5",
+    "url": "https://www.conductor.build/changelog/0.87.6-claude-sonnet-5-5",
+    "date": "2026-09-28"
+  },
+  {
+    "id": "0.87.5",
+    "title": "Model search",
+    "url": "https://www.conductor.build/changelog/0.87.5-model-search",
+    "date": "2026-09-25"
+  },
+  {
+    "id": "0.87.3",
+    "title": "GPT-6 Sol and GPT-6 Luna",
+    "url": "https://www.conductor.build/changelog/0.87.3-gpt-6-sol-and-gpt-6-luna",
+    "date": "2026-09-22"
+  },
+  {
+    "id": "0.87.2",
+    "title": "Claude Opus 5.5",
+    "url": "https://www.conductor.build/changelog/0.87.2-claude-opus-5-5",
+    "date": "2026-09-22"
+  },
+  {
+    "id": "0.87.1",
+    "title": "Grok 4.7",
+    "url": "https://www.conductor.build/changelog/0.87.1-grok-4-7",
+    "date": "2026-09-21"
+  },
+  {
+    "id": "0.87.0",
+    "title": "Search across files, OpenCode 2.0",
+    "url": "https://www.conductor.build/changelog/0.87.0-search-across-files-opencode-2-0",
+    "date": "2026-09-18"
+  },
+  {
+    "id": "0.86.0",
+    "title": "Share your loadouts",
+    "url": "https://www.conductor.build/changelog/0.86.0-share-your-loadouts",
+    "date": "2026-09-16"
+  },
+  {
+    "id": "0.85.0",
+    "title": "Sections, routines, and a new model picker",
+    "url": "https://www.conductor.build/changelog/0.85.0-sections-routines-and-a-new-model-picker",
+    "date": "2026-09-09"
+  },
+  {
+    "id": "0.84.2",
+    "title": "GPT-6 Astra",
+    "url": "https://www.conductor.build/changelog/0.84.2-gpt-6-astra",
+    "date": "2026-09-04"
+  },
+  {
+    "id": "0.84.0",
+    "title": "Edit files directly in diffs",
+    "url": "https://www.conductor.build/changelog/0.84.0-edit-files-directly-in-diffs",
+    "date": "2026-09-02"
+  },
+  {
+    "id": "0.83.2",
+    "title": "Claude Fable 5.1",
+    "url": "https://www.conductor.build/changelog/0.83.2-claude-fable-5-1",
+    "date": "2026-09-01"
+  },
+  {
+    "id": "0.83.0",
+    "title": "Auto port forwarding",
+    "url": "https://www.conductor.build/changelog/0.83.0-auto-port-forwarding",
+    "date": "2026-08-27"
+  },
+  {
+    "id": "0.82.0",
+    "title": "Conductor MCP",
+    "url": "https://www.conductor.build/changelog/0.82.0-conductor-mcp",
+    "date": "2026-08-20"
+  },
+  {
+    "id": "0.81.0",
+    "title": "Cloud Polish #2",
+    "url": "https://www.conductor.build/changelog/0.81.0-cloud-polish-2",
+    "date": "2026-08-13"
+  },
+  {
+    "id": "0.80.1",
+    "title": "Grok 4.6",
+    "url": "https://www.conductor.build/changelog/0.80.1-grok-4-6",
+    "date": "2026-08-12"
+  },
+  {
+    "id": "0.80.0",
+    "title": "Stacks",
+    "url": "https://www.conductor.build/changelog/0.80.0-stacks",
+    "date": "2026-08-10"
+  },
+  {
+    "id": "0.79.0",
+    "title": "Cloud Polish #1",
+    "url": "https://www.conductor.build/changelog/0.79.0-cloud-polish-1",
+    "date": "2026-08-04"
+  },
+  {
+    "id": "0.78.0",
+    "title": "Introducing Conductor Cloud",
+    "url": "https://www.conductor.build/changelog/0.78.0-introducing-conductor-cloud",
+    "date": "2026-07-30"
+  },
+  {
+    "id": "0.77.2",
+    "title": "Claude Opus 5",
+    "url": "https://www.conductor.build/changelog/0.77.2-claude-opus-5",
+    "date": "2026-07-24"
+  },
+  {
+    "id": "0.77.0",
+    "title": "Early access multiplayer, API, background tasks, performance",
+    "url": "https://www.conductor.build/changelog/0.77.0-early-access-multiplayer-api-background-tasks-performance",
+    "date": "2026-07-23"
+  },
+  {
+    "id": "0.76.0",
+    "title": "Bug Squashathon",
+    "url": "https://www.conductor.build/changelog/0.76.0-bug-squashathon",
+    "date": "2026-07-16"
+  },
+  {
+    "id": "0.75.0",
+    "title": "Polish",
+    "url": "https://www.conductor.build/changelog/0.75.0-polish",
+    "date": "2026-07-13"
+  },
+  {
+    "id": "0.74.0",
+    "title": "Lots of little things",
+    "url": "https://www.conductor.build/changelog/0.74.0-lots-of-little-things",
+    "date": "2026-07-09"
+  },
+  {
+    "id": "0.73.3",
+    "title": "GPT-5.6",
+    "url": "https://www.conductor.build/changelog/0.73.3-gpt-5-6",
+    "date": "2026-07-09"
+  },
+  {
+    "id": "0.73.2",
+    "title": "Grok 4.5",
+    "url": "https://www.conductor.build/changelog/0.73.2-grok-4-5",
+    "date": "2026-07-08"
+  },
+  {
+    "id": "0.73.0",
+    "title": "PR page",
+    "url": "https://www.conductor.build/changelog/0.73.0-pr-page",
+    "date": "2026-07-07"
+  },
+  {
+    "id": "0.72.0",
+    "title": "Polish and fixes",
+    "url": "https://www.conductor.build/changelog/0.72.0-polish-and-fixes",
+    "date": "2026-07-03"
+  },
+  {
+    "id": "0.71.0",
+    "title": "Workspace and Chat Links",
+    "url": "https://www.conductor.build/changelog/0.71.0-workspace-and-chat-links",
+    "date": "2026-07-01"
+  },
+  {
+    "id": "0.70.1",
+    "title": "Claude Sonnet 5",
+    "url": "https://www.conductor.build/changelog/0.70.1-claude-sonnet-5",
+    "date": "2026-06-30"
+  },
+  {
+    "id": "0.70.0",
+    "title": "Multiple Run Scripts",
+    "url": "https://www.conductor.build/changelog/0.70.0-multiple-run-scripts",
+    "date": "2026-06-26"
+  },
+  {
+    "id": "0.69.0",
+    "title": "OpenCode",
+    "url": "https://www.conductor.build/changelog/0.69.0-opencode",
+    "date": "2026-06-23"
+  },
+  {
+    "id": "0.68.0",
+    "title": "Markdown frontmatter",
+    "url": "https://www.conductor.build/changelog/0.68.0-markdown-frontmatter",
+    "date": "2026-06-19"
+  },
+  {
+    "id": "0.67.0",
+    "title": "Fixes and improvements",
+    "url": "https://www.conductor.build/changelog/0.67.0-fixes-and-improvements",
+    "date": "2026-06-17"
+  },
+  {
+    "id": "0.66.0",
+    "title": "Create workspace from issue",
+    "url": "https://www.conductor.build/changelog/0.66.0-create-workspace-from-issue",
+    "date": "2026-06-16"
+  },
+  {
+    "id": "0.65.0",
+    "title": "Codex goal support",
+    "url": "https://www.conductor.build/changelog/0.65.0-codex-goal-support",
+    "date": "2026-06-12"
+  },
+  {
+    "id": "0.64.0",
+    "title": "Claude Fable 5",
+    "url": "https://www.conductor.build/changelog/0.64.0-claude-fable-5",
+    "date": "2026-06-09"
+  },
+  {
+    "id": "0.63.0",
+    "title": "Cursor support & Dispatcher",
+    "url": "https://www.conductor.build/changelog/0.63.0-cursor-support-dispatcher",
+    "date": "2026-06-08"
+  },
+  {
+    "id": "0.62.0",
+    "title": "Repo settings, browser preview",
+    "url": "https://www.conductor.build/changelog/0.62.0-repo-settings-browser-preview",
+    "date": "2026-06-04"
+  },
+  {
+    "id": "0.61.0",
+    "title": "ultracode && git --improve",
+    "url": "https://www.conductor.build/changelog/0.61.0-ultracode-git-improve",
+    "date": "2026-05-29"
+  },
+  {
+    "id": "0.59.0",
+    "title": "Bug fixes",
+    "url": "https://www.conductor.build/changelog/0.59.0-bug-fixes",
+    "date": "2026-05-27"
+  },
+  {
+    "id": "0.58.0",
+    "title": "Polish",
+    "url": "https://www.conductor.build/changelog/0.58.0-polish",
+    "date": "2026-05-25"
+  },
+  {
+    "id": "0.57.0",
+    "title": "Sync agent configs",
+    "url": "https://www.conductor.build/changelog/0.57.0-sync-agent-configs",
+    "date": "2026-05-22"
+  },
+  {
+    "id": "0.56.0",
+    "title": "Settings & scrolls",
+    "url": "https://www.conductor.build/changelog/0.56.0-settings-scrolls",
+    "date": "2026-05-21"
+  },
+  {
+    "id": "0.55.0",
+    "title": "Per-repo Spotlight, HTML previews",
+    "url": "https://www.conductor.build/changelog/0.55.0-per-repo-spotlight-html-previews",
+    "date": "2026-05-20"
+  },
+  {
+    "id": "0.54.0",
+    "title": "New queue, diff diffs",
+    "url": "https://www.conductor.build/changelog/0.54.0-new-queue-diff-diffs",
+    "date": "2026-05-18"
+  },
+  {
+    "id": "0.52.0",
+    "title": "Sounds & colors",
+    "url": "https://www.conductor.build/changelog/0.52.0-sounds-colors",
+    "date": "2026-05-07"
+  },
+  {
+    "id": "0.49.0",
+    "title": "Conductor Allegro, GPT-5.5",
+    "url": "https://www.conductor.build/changelog/0.49.0-conductor-allegro-gpt-5-5",
+    "date": "2026-04-22"
+  },
+  {
+    "id": "0.48.5",
+    "title": "Effort",
+    "url": "https://www.conductor.build/changelog/0.48.5-effort",
+    "date": "2026-04-18"
+  },
+  {
+    "id": "0.48.2",
+    "title": "Claude Opus 4.7",
+    "url": "https://www.conductor.build/changelog/0.48.2-claude-opus-4-7",
+    "date": "2026-04-16"
+  },
+  {
+    "id": "0.48.0",
+    "title": "Big Terminal Mode",
+    "url": "https://www.conductor.build/changelog/0.48.0-big-terminal-mode",
+    "date": "2026-04-14"
+  },
+  {
+    "id": "0.46.0",
+    "title": "Bug Fixes, Instant Archiving, @terminal",
+    "url": "https://www.conductor.build/changelog/0.46.0-bug-fixes-instant-archiving-terminal",
+    "date": "2026-04-05"
+  },
+  {
+    "id": "0.45.0",
+    "title": "File Previews, Codex Personalities",
+    "url": "https://www.conductor.build/changelog/0.45.0-file-previews-codex-personalities",
+    "date": "2026-04-01"
+  },
+  {
+    "id": "0.44.0",
+    "title": "New Sidebar, Rebuilt Composer, Codex Checkpoints",
+    "url": "https://www.conductor.build/changelog/0.44.0-new-sidebar-rebuilt-composer-codex-checkpoints",
+    "date": "2026-03-24"
+  },
+  {
+    "id": "0.41.0",
+    "title": "Tool Approval + Codex Plan Mode Beta",
+    "url": "https://www.conductor.build/changelog/0.41.0-tool-approval-codex-plan-mode-beta",
+    "date": "2026-03-19"
+  },
+  {
+    "id": "0.37.1",
+    "title": "Polish and bug fixes",
+    "url": "https://www.conductor.build/changelog/0.37.1-polish-and-bug-fixes",
+    "date": "2026-03-03"
+  },
+  {
+    "id": "0.51.0",
+    "title": "Codex is more beautiful",
+    "url": "https://www.conductor.build/changelog/0.51.0-codex-is-more-beautiful"
+  },
+  {
+    "id": "0.50.0",
+    "title": "Steering",
+    "url": "https://www.conductor.build/changelog/0.50.0-steering"
+  },
+  {
+    "id": "0.43.0",
+    "title": "Codex: Skills, Plan Mode, Fast Mode",
+    "url": "https://www.conductor.build/changelog/0.43.0-codex-skills-plan-mode-fast-mode"
+  },
+  {
+    "id": "0.40.1",
+    "title": "Fast Mode",
+    "url": "https://www.conductor.build/changelog/0.40.1-fast-mode"
+  },
+  {
+    "id": "0.39.0",
+    "title": "Insta-Summarize, Command Palette, Opus 4.6",
+    "url": "https://www.conductor.build/changelog/0.39.0-insta-summarize-command-palette-opus-4-6"
+  },
+  {
+    "id": "0.38.5",
+    "title": "Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.38.5-bug-fixes"
+  },
+  {
+    "id": "0.38.4",
+    "title": "Direnv Support, Opus 4.6 1M",
+    "url": "https://www.conductor.build/changelog/0.38.4-direnv-support-opus-4-6-1m"
+  },
+  {
+    "id": "0.38.3",
+    "title": "Multiline comments",
+    "url": "https://www.conductor.build/changelog/0.38.3-multiline-comments"
+  },
+  {
+    "id": "0.38.0",
+    "title": "GPT-5.4",
+    "url": "https://www.conductor.build/changelog/0.38.0-gpt-5-4"
+  },
+  {
+    "id": "0.37.0",
+    "title": "Manual Mode™",
+    "url": "https://www.conductor.build/changelog/0.37.0-manual-mode"
+  },
+  {
+    "id": "0.36.9",
+    "title": "Performance Improvements",
+    "url": "https://www.conductor.build/changelog/0.36.9-performance-improvements"
+  },
+  {
+    "id": "0.36.7",
+    "title": "Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.36.7-bug-fixes"
+  },
+  {
+    "id": "0.36.6",
+    "title": "Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.36.6-bug-fixes"
+  },
+  {
+    "id": "0.36.5",
+    "title": "Open from Linear, Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.36.5-open-from-linear-bug-fixes"
+  },
+  {
+    "id": "0.36.4",
+    "title": "Next Workspace",
+    "url": "https://www.conductor.build/changelog/0.36.4-next-workspace"
+  },
+  {
+    "id": "0.36.3",
+    "title": "Submit a Prompt, SDK Memory Leaks",
+    "url": "https://www.conductor.build/changelog/0.36.3-submit-a-prompt-sdk-memory-leaks"
+  },
+  {
+    "id": "0.36.2",
+    "title": "Model Picker, Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.36.2-model-picker-bug-fixes"
+  },
+  {
+    "id": "0.36.1",
+    "title": "Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.36.1-bug-fixes"
+  },
+  {
+    "id": "0.36.0",
+    "title": "Sonnet 4.6, Pierre Diffs",
+    "url": "https://www.conductor.build/changelog/0.36.0-sonnet-4-6-pierre-diffs"
+  },
+  {
+    "id": "0.35.3",
+    "title": "Reliability and performance",
+    "url": "https://www.conductor.build/changelog/0.35.3-reliability-and-performance"
+  },
+  {
+    "id": "0.35.2",
+    "title": "Group workspaces by repo, GPT-5.3-Codex-Spark",
+    "url": "https://www.conductor.build/changelog/0.35.2-group-workspaces-by-repo-gpt-5-3-codex-spark"
+  },
+  {
+    "id": "0.35.1",
+    "title": "Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.35.1-bug-fixes"
+  },
+  {
+    "id": "0.35.0",
+    "title": "Workspace Status",
+    "url": "https://www.conductor.build/changelog/0.35.0-workspace-status"
+  },
+  {
+    "id": "0.34.2",
+    "title": "Chat Summaries, Re-Run Actions, LaTeX",
+    "url": "https://www.conductor.build/changelog/0.34.2-chat-summaries-re-run-actions-latex"
+  },
+  {
+    "id": "0.34.1",
+    "title": "Editable PR titles and descriptions",
+    "url": "https://www.conductor.build/changelog/0.34.1-editable-pr-titles-and-descriptions"
+  },
+  {
+    "id": "0.34.0",
+    "title": "Opus 4.6 and GPT-5.3-Codex",
+    "url": "https://www.conductor.build/changelog/0.34.0-opus-4-6-and-gpt-5-3-codex"
+  },
+  {
+    "id": "0.33.5",
+    "title": "Better archiving",
+    "url": "https://www.conductor.build/changelog/0.33.5-better-archiving"
+  },
+  {
+    "id": "0.33.4",
+    "title": "Git Panel Grouping and Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.33.4-git-panel-grouping-and-bug-fixes"
+  },
+  {
+    "id": "0.33.3",
+    "title": "Performance Improvements, File Context Menu",
+    "url": "https://www.conductor.build/changelog/0.33.3-performance-improvements-file-context-menu"
+  },
+  {
+    "id": "0.33.2",
+    "title": "View GitHub Actions in Conductor",
+    "url": "https://www.conductor.build/changelog/0.33.2-view-github-actions-in-conductor"
+  },
+  {
+    "id": "0.33.1",
+    "title": "Slash command bug fix",
+    "url": "https://www.conductor.build/changelog/0.33.1-slash-command-bug-fix"
+  },
+  {
+    "id": "0.33.0",
+    "title": "Tasks & Typography",
+    "url": "https://www.conductor.build/changelog/0.33.0-tasks-typography"
+  },
+  {
+    "id": "0.32.2",
+    "title": "Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.32.2-bug-fixes"
+  },
+  {
+    "id": "0.32.1",
+    "title": "Rerun setup scripts",
+    "url": "https://www.conductor.build/changelog/0.32.1-rerun-setup-scripts"
+  },
+  {
+    "id": "0.32.0",
+    "title": "GitHub issues, Graphite stacks, continue chats, table of contents",
+    "url": "https://www.conductor.build/changelog/0.32.0-github-issues-graphite-stacks-continue-chats-table-of-contents"
+  },
+  {
+    "id": "0.31.3",
+    "title": "AskUserQuestion improvements",
+    "url": "https://www.conductor.build/changelog/0.31.3-askuserquestion-improvements"
+  },
+  {
+    "id": "0.31.2",
+    "title": "General agent preferences",
+    "url": "https://www.conductor.build/changelog/0.31.2-general-agent-preferences"
+  },
+  {
+    "id": "0.31.1",
+    "title": "Checks tab",
+    "url": "https://www.conductor.build/changelog/0.31.1-checks-tab"
+  },
+  {
+    "id": "0.31.0",
+    "title": "Search chats, add scripts in the UI, and view setup script logs",
+    "url": "https://www.conductor.build/changelog/0.31.0-search-chats-add-scripts-in-the-ui-and-view-setup-script-logs"
+  },
+  {
+    "id": "0.30.0",
+    "title": "Bug Fixes, Claude Code for Chrome, Hand off plans",
+    "url": "https://www.conductor.build/changelog/0.30.0-bug-fixes-claude-code-for-chrome-hand-off-plans"
+  },
+  {
+    "id": "0.29.5",
+    "title": "Bug Fixes, Claude can now read your terminal",
+    "url": "https://www.conductor.build/changelog/0.29.5-bug-fixes-claude-can-now-read-your-terminal"
+  },
+  {
+    "id": "0.29.4",
+    "title": "PR Checks, New Shortcuts",
+    "url": "https://www.conductor.build/changelog/0.29.4-pr-checks-new-shortcuts"
+  },
+  {
+    "id": "0.29.3",
+    "title": "Composer Improvements, Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.29.3-composer-improvements-bug-fixes"
+  },
+  {
+    "id": "0.29.2",
+    "title": "Vercel deployments, simplified thinking levels",
+    "url": "https://www.conductor.build/changelog/0.29.2-vercel-deployments-simplified-thinking-levels"
+  },
+  {
+    "id": "0.29.1",
+    "title": "Customize prompts, mark files as viewed",
+    "url": "https://www.conductor.build/changelog/0.29.1-customize-prompts-mark-files-as-viewed"
+  },
+  {
+    "id": "0.29.0",
+    "title": "Claude can now comment on your code",
+    "url": "https://www.conductor.build/changelog/0.29.0-claude-can-now-comment-on-your-code"
+  },
+  {
+    "id": "0.28.7",
+    "title": "Change Target Branch",
+    "url": "https://www.conductor.build/changelog/0.28.7-change-target-branch"
+  },
+  {
+    "id": "0.28.6",
+    "title": "Bug Fix",
+    "url": "https://www.conductor.build/changelog/0.28.6-bug-fix"
+  },
+  {
+    "id": "0.28.5",
+    "title": "Bug Fix",
+    "url": "https://www.conductor.build/changelog/0.28.5-bug-fix"
+  },
+  {
+    "id": "0.28.4",
+    "title": "Todos",
+    "url": "https://www.conductor.build/changelog/0.28.4-todos"
+  },
+  {
+    "id": "0.28.3",
+    "title": "Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.28.3-bug-fixes"
+  },
+  {
+    "id": "0.28.2",
+    "title": "Bug Fixes, Legendary Cities, An Experiment",
+    "url": "https://www.conductor.build/changelog/0.28.2-bug-fixes-legendary-cities-an-experiment"
+  },
+  {
+    "id": "0.28.1",
+    "title": "Context Directory, Set Working Directories",
+    "url": "https://www.conductor.build/changelog/0.28.1-context-directory-set-working-directories"
+  },
+  {
+    "id": "0.28.0",
+    "title": "Workspaces Page, Claude’s Context, Interactive Planning, Keyboard Nav, and more!",
+    "url": "https://www.conductor.build/changelog/0.28.0-workspaces-page-claude-s-context-interactive-planning-keyboard-nav-and-more"
+  },
+  {
+    "id": "0.27.2",
+    "title": "Onboarding Bug Fix",
+    "url": "https://www.conductor.build/changelog/0.27.2-onboarding-bug-fix"
+  },
+  {
+    "id": "0.27.1",
+    "title": "Clickable File Mentions",
+    "url": "https://www.conductor.build/changelog/0.27.1-clickable-file-mentions"
+  },
+  {
+    "id": "0.27.0",
+    "title": "Notes Tab, GPT-5.2-Codex, More Fonts",
+    "url": "https://www.conductor.build/changelog/0.27.0-notes-tab-gpt-5-2-codex-more-fonts"
+  },
+  {
+    "id": "0.26.0",
+    "title": "Search Workspaces, View Files from Chat",
+    "url": "https://www.conductor.build/changelog/0.26.0-search-workspaces-view-files-from-chat"
+  },
+  {
+    "id": "0.25.13",
+    "title": "Performance Improvements",
+    "url": "https://www.conductor.build/changelog/0.25.13-performance-improvements"
+  },
+  {
+    "id": "0.25.12",
+    "title": "Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.25.12-bug-fixes"
+  },
+  {
+    "id": "0.25.11",
+    "title": "Fetch Comments from GitHub, Mark Workspaces as Unread",
+    "url": "https://www.conductor.build/changelog/0.25.11-fetch-comments-from-github-mark-workspaces-as-unread"
+  },
+  {
+    "id": "0.25.10",
+    "title": "Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.25.10-bug-fixes"
+  },
+  {
+    "id": "0.25.9",
+    "title": "Onboarding Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.25.9-onboarding-bug-fixes"
+  },
+  {
+    "id": "0.25.8",
+    "title": "GPT-5.2",
+    "url": "https://www.conductor.build/changelog/0.25.8-gpt-5-2"
+  },
+  {
+    "id": "0.25.7",
+    "title": ".env Bug Fix, Vercel CI Status Checks",
+    "url": "https://www.conductor.build/changelog/0.25.7-env-bug-fix-vercel-ci-status-checks"
+  },
+  {
+    "id": "0.25.6",
+    "title": "Multiple Git Repos, Fork Workspaces",
+    "url": "https://www.conductor.build/changelog/0.25.6-multiple-git-repos-fork-workspaces"
+  },
+  {
+    "id": "0.25.5",
+    "title": "Approve Plans with Feedback, Perf Improvements, GH_TOKEN Support",
+    "url": "https://www.conductor.build/changelog/0.25.5-approve-plans-with-feedback-perf-improvements-gh-token-support"
+  },
+  {
+    "id": "0.25.4",
+    "title": "Sync PR Comments from GitHub",
+    "url": "https://www.conductor.build/changelog/0.25.4-sync-pr-comments-from-github"
+  },
+  {
+    "id": "0.25.3",
+    "title": "Pinned Workspaces",
+    "url": "https://www.conductor.build/changelog/0.25.3-pinned-workspaces"
+  },
+  {
+    "id": "0.25.2",
+    "title": "Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.25.2-bug-fixes"
+  },
+  {
+    "id": "0.25.1",
+    "title": "Conductor Wrapped",
+    "url": "https://www.conductor.build/changelog/0.25.1-conductor-wrapped"
+  },
+  {
+    "id": "0.25.0",
+    "title": "Workspace Storage Improvements, AI Response Metadata, and Slash Commands",
+    "url": "https://www.conductor.build/changelog/0.25.0-workspace-storage-improvements-ai-response-metadata-and-slash-commands"
+  },
+  {
+    "id": "0.24.0",
+    "title": "Improved Codex, Quick Start",
+    "url": "https://www.conductor.build/changelog/0.24.0-improved-codex-quick-start"
+  },
+  {
+    "id": "0.23.3",
+    "title": "Repo Details",
+    "url": "https://www.conductor.build/changelog/0.23.3-repo-details"
+  },
+  {
+    "id": "0.23.2",
+    "title": "Checkpointing Fixes",
+    "url": "https://www.conductor.build/changelog/0.23.2-checkpointing-fixes"
+  },
+  {
+    "id": "0.23.1",
+    "title": "Opus 4.5 Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.23.1-opus-4-5-bug-fixes"
+  },
+  {
+    "id": "0.23.0",
+    "title": "Opus 4.5 and Better Scrolling",
+    "url": "https://www.conductor.build/changelog/0.23.0-opus-4-5-and-better-scrolling"
+  },
+  {
+    "id": "0.22.8",
+    "title": "Onboarding Improvements",
+    "url": "https://www.conductor.build/changelog/0.22.8-onboarding-improvements"
+  },
+  {
+    "id": "0.22.7",
+    "title": "Send Plans to New Chats",
+    "url": "https://www.conductor.build/changelog/0.22.7-send-plans-to-new-chats"
+  },
+  {
+    "id": "0.22.6",
+    "title": "Conversation Summaries, Codex Diffs, and Custom Review Models",
+    "url": "https://www.conductor.build/changelog/0.22.6-conversation-summaries-codex-diffs-and-custom-review-models"
+  },
+  {
+    "id": "0.22.5",
+    "title": "GPT 5.1 Codex Max, Improved Diff Viewer",
+    "url": "https://www.conductor.build/changelog/0.22.5-gpt-5-1-codex-max-improved-diff-viewer"
+  },
+  {
+    "id": "0.22.4",
+    "title": "Expand Terminal, Env Vars, and GitHub Enterprise",
+    "url": "https://www.conductor.build/changelog/0.22.4-expand-terminal-env-vars-and-github-enterprise"
+  },
+  {
+    "id": "0.22.2",
+    "title": "Codex Cancellation",
+    "url": "https://www.conductor.build/changelog/0.22.2-codex-cancellation"
+  },
+  {
+    "id": "0.22.1",
+    "title": "GPT-5.1",
+    "url": "https://www.conductor.build/changelog/0.22.1-gpt-5-1"
+  },
+  {
+    "id": "0.22.0",
+    "title": "Code Review and Historical Diffs",
+    "url": "https://www.conductor.build/changelog/0.22.0-code-review-and-historical-diffs"
+  },
+  {
+    "id": "0.21.0",
+    "title": "Plan mode",
+    "url": "https://www.conductor.build/changelog/0.21.0-plan-mode"
+  },
+  {
+    "id": "0.20.0",
+    "title": "File picker and chat titles",
+    "url": "https://www.conductor.build/changelog/0.20.0-file-picker-and-chat-titles"
+  },
+  {
+    "id": "0.19.0",
+    "title": "Checkpoints",
+    "url": "https://www.conductor.build/changelog/0.19.0-checkpoints"
+  },
+  {
+    "id": "0.18.4",
+    "title": "Better Create PR Prompt",
+    "url": "https://www.conductor.build/changelog/0.18.4-better-create-pr-prompt"
+  },
+  {
+    "id": "0.18.3",
+    "title": "Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.18.3-bug-fixes"
+  },
+  {
+    "id": "0.18.0",
+    "title": "Codex",
+    "url": "https://www.conductor.build/changelog/0.18.0-codex"
+  },
+  {
+    "id": "0.17.5",
+    "title": "Tab Beautification",
+    "url": "https://www.conductor.build/changelog/0.17.5-tab-beautification"
+  },
+  {
+    "id": "0.17.4",
+    "title": "Git Status in Sidebar",
+    "url": "https://www.conductor.build/changelog/0.17.4-git-status-in-sidebar"
+  },
+  {
+    "id": "0.17.3",
+    "title": "Performance Improvements",
+    "url": "https://www.conductor.build/changelog/0.17.3-performance-improvements"
+  },
+  {
+    "id": "0.17.2",
+    "title": "Misc Fixes",
+    "url": "https://www.conductor.build/changelog/0.17.2-misc-fixes"
+  },
+  {
+    "id": "0.17.1",
+    "title": "Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.17.1-bug-fixes"
+  },
+  {
+    "id": "0.17.0",
+    "title": "Multiple Chats",
+    "url": "https://www.conductor.build/changelog/0.17.0-multiple-chats"
+  },
+  {
+    "id": "0.16.1",
+    "title": "Diff Viewer Bug Fixes",
+    "url": "https://www.conductor.build/changelog/0.16.1-diff-viewer-bug-fixes"
+  },
+  {
+    "id": "0.16.0",
+    "title": "Diff Viewer + File Explorer",
+    "url": "https://www.conductor.build/changelog/0.16.0-diff-viewer-file-explorer"
+  },
+  {
+    "id": "0.15.2",
+    "title": "Create workspace from PR",
+    "url": "https://www.conductor.build/changelog/0.15.2-create-workspace-from-pr"
+  },
+  {
+    "id": "0.15.1",
+    "title": "Claude's Thinking",
+    "url": "https://www.conductor.build/changelog/0.15.1-claude-s-thinking"
+  },
+  {
+    "id": "0.15.0",
+    "title": "Linear",
+    "url": "https://www.conductor.build/changelog/0.15.0-linear"
+  },
+  {
+    "id": "0.14.7",
+    "title": "Git Diff Improvements",
+    "url": "https://www.conductor.build/changelog/0.14.7-git-diff-improvements"
+  },
+  {
+    "id": "0.14.6",
+    "title": "Markdown Preview",
+    "url": "https://www.conductor.build/changelog/0.14.6-markdown-preview"
+  },
+  {
+    "id": "0.14.5",
+    "title": "Zoom Improvements",
+    "url": "https://www.conductor.build/changelog/0.14.5-zoom-improvements"
+  },
+  {
+    "id": "0.14.3",
+    "title": "Performance Improvements",
+    "url": "https://www.conductor.build/changelog/0.14.3-performance-improvements"
+  },
+  {
+    "id": "0.14.1",
+    "title": "New Diff Viewer",
+    "url": "https://www.conductor.build/changelog/0.14.1-new-diff-viewer"
+  },
+  {
+    "id": "0.14.0",
+    "title": "Command Palette",
+    "url": "https://www.conductor.build/changelog/0.14.0-command-palette"
+  },
+  {
+    "id": "0.13.8",
+    "title": "Fixes for Fish Users",
+    "url": "https://www.conductor.build/changelog/0.13.8-fixes-for-fish-users"
+  },
+  {
+    "id": "0.13.6",
+    "title": "Run on Bedrock, Vertex, or custom provider",
+    "url": "https://www.conductor.build/changelog/0.13.6-run-on-bedrock-vertex-or-custom-provider"
+  },
+  {
+    "id": "0.13.2",
+    "title": "Sonnet 4.5 + new workspace page",
+    "url": "https://www.conductor.build/changelog/0.13.2-sonnet-4-5-new-workspace-page"
+  },
+  {
+    "id": "0.12.1",
+    "title": "Improved Plan Mode",
+    "url": "https://www.conductor.build/changelog/0.12.1-improved-plan-mode"
+  },
+  {
+    "id": "0.12.0",
+    "title": "Forward Failing Checks to Claude",
+    "url": "https://www.conductor.build/changelog/0.12.0-forward-failing-checks-to-claude"
+  },
+  {
+    "id": "0.11.6",
+    "title": "Improved Cancelling",
+    "url": "https://www.conductor.build/changelog/0.11.6-improved-cancelling"
+  },
+  {
+    "id": "0.11.4",
+    "title": "The Return of Big Terminal Mode",
+    "url": "https://www.conductor.build/changelog/0.11.4-the-return-of-big-terminal-mode"
+  },
+  {
+    "id": "0.11.3",
+    "title": "New Onboarding",
+    "url": "https://www.conductor.build/changelog/0.11.3-new-onboarding"
+  },
+  {
+    "id": "0.11.0",
+    "title": "conductor.json",
+    "url": "https://www.conductor.build/changelog/0.11.0-conductor-json"
+  },
+  {
+    "id": "0.10.5",
+    "title": "Terminal Performance Pt. 2",
+    "url": "https://www.conductor.build/changelog/0.10.5-terminal-performance-pt-2"
+  },
+  {
+    "id": "0.10.3",
+    "title": "Terminal Performance",
+    "url": "https://www.conductor.build/changelog/0.10.3-terminal-performance"
+  },
+  {
+    "id": "0.10.2",
+    "title": "Toggle Big Terminal Mode",
+    "url": "https://www.conductor.build/changelog/0.10.2-toggle-big-terminal-mode"
+  },
+  {
+    "id": "0.10.1",
+    "title": "Checkout PRs in Conductor",
+    "url": "https://www.conductor.build/changelog/0.10.1-checkout-prs-in-conductor"
+  },
+  {
+    "id": "0.10.0",
+    "title": "Code Review",
+    "url": "https://www.conductor.build/changelog/0.10.0-code-review"
+  },
+  {
+    "id": "0.9.3",
+    "title": "New Diff Review Panel, Faster Claude",
+    "url": "https://www.conductor.build/changelog/0.9.3-new-diff-review-panel-faster-claude"
+  },
+  {
+    "id": "0.9.2",
+    "title": "Bug Fixes!",
+    "url": "https://www.conductor.build/changelog/0.9.2-bug-fixes"
+  },
+  {
+    "id": "0.9.1",
+    "title": "Open dev scripts and more performant long chats",
+    "url": "https://www.conductor.build/changelog/0.9.1-open-dev-scripts-and-more-performant-long-chats"
+  },
+  {
+    "id": "0.9.0",
+    "title": "Run script, hooks, and custom fonts",
+    "url": "https://www.conductor.build/changelog/0.9.0-run-script-hooks-and-custom-fonts"
+  },
+  {
+    "id": "0.8.2",
+    "title": "Performance Improvements",
+    "url": "https://www.conductor.build/changelog/0.8.2-performance-improvements"
+  },
+  {
+    "id": "0.8.1",
+    "title": "Suggested Git Actions",
+    "url": "https://www.conductor.build/changelog/0.8.1-suggested-git-actions"
+  },
+  {
+    "id": "0.8.0",
+    "title": "Integrate with Linear, Faster Claude",
+    "url": "https://www.conductor.build/changelog/0.8.0-integrate-with-linear-faster-claude"
+  },
+  {
+    "id": "0.7.3",
+    "title": "Plan Mode",
+    "url": "https://www.conductor.build/changelog/0.7.3-plan-mode"
+  },
+  {
+    "id": "0.7.2",
+    "title": "Add terminal context to chat",
+    "url": "https://www.conductor.build/changelog/0.7.2-add-terminal-context-to-chat"
+  },
+  {
+    "id": "0.7.0",
+    "title": "We no longer burn your CPU (hopefully)",
+    "url": "https://www.conductor.build/changelog/0.7.0-we-no-longer-burn-your-cpu-hopefully"
+  },
+  {
+    "id": "0.6.1",
+    "title": "Bug Fixes!",
+    "url": "https://www.conductor.build/changelog/0.6.1-bug-fixes"
+  },
+  {
+    "id": "0.6.0",
+    "title": "A New Look",
+    "url": "https://www.conductor.build/changelog/0.6.0-a-new-look"
+  },
+  {
+    "id": "0.5.0",
+    "title": "GPT-5",
+    "url": "https://www.conductor.build/changelog/0.5.0-gpt-5"
+  },
+  {
+    "id": "0.3.2",
+    "title": "Opus 4.1",
+    "url": "https://www.conductor.build/changelog/0.3.2-opus-4-1"
+  },
+  {
+    "id": "0.3.1",
+    "title": "Bug Fixes!",
+    "url": "https://www.conductor.build/changelog/0.3.1-bug-fixes"
+  },
+  {
+    "id": "0.3.0",
+    "title": "Git Diff View",
+    "url": "https://www.conductor.build/changelog/0.3.0-git-diff-view"
+  },
+  {
+    "id": "0.2.2",
+    "title": "Bugfixes",
+    "url": "https://www.conductor.build/changelog/0.2.2-bugfixes"
+  },
+  {
+    "id": "0.2.0",
+    "title": "Local Repositories + Agents",
+    "url": "https://www.conductor.build/changelog/0.2.0-local-repositories-agents"
+  },
+  {
+    "id": "0.1.1",
+    "title": "Slash Commands + Custom Providers",
+    "url": "https://www.conductor.build/changelog/0.1.1-slash-commands-custom-providers"
+  },
+  {
+    "id": "0.1.0",
+    "title": "MCPs + Message Queues",
+    "url": "https://www.conductor.build/changelog/0.1.0-mcps-message-queues"
+  },
+  {
+    "id": "0.0.21",
+    "title": "Fine-grained GitHub permissions",
+    "url": "https://www.conductor.build/changelog/0.0.21-fine-grained-github-permissions"
+  },
+  {
+    "id": "0.0.20",
+    "title": "Attachments",
+    "url": "https://www.conductor.build/changelog/0.0.20-attachments"
+  },
+  {
+    "id": "0.0.19",
+    "title": "Misc Improvements",
+    "url": "https://www.conductor.build/changelog/0.0.19-misc-improvements"
+  },
+  {
+    "id": "0.0.17",
+    "title": "GitHub Integration",
+    "url": "https://www.conductor.build/changelog/0.0.17-github-integration"
+  },
+  {
+    "id": "0.0.16",
+    "title": "Terminal Improvements",
+    "url": "https://www.conductor.build/changelog/0.0.16-terminal-improvements"
+  }
+]

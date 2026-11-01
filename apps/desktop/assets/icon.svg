@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Bantu (బంటు) also means "pawn": a faithful piece that moves forward. -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#16181d"/>
+  <g fill="#7fb2ff">
+    <circle cx="512" cy="330" r="110"/>
+    <path d="M436 460 h152 l56 250 h-264 z"/>
+    <rect x="320" y="730" width="384" height="84" rx="28"/>
+  </g>
+</svg>
