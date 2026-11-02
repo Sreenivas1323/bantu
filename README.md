@@ -5,8 +5,9 @@ or in your own cloud. Free and open source.**
 
 *Bantu* is Telugu for the faithful helper who does the work while you direct it.
 
-> Status: **early, milestone M0** (foundations). Not usable for real work yet. Watch or
-> star the repo to follow along; see the [roadmap](docs/ROADMAP.md).
+> Status: **early, milestone M1** (daily driver).
+> You can already run Claude Code agents in parallel workspaces, review their diffs and open PRs, but there are no installers yet.
+> Watch or star the repo to follow along; see the [roadmap](docs/ROADMAP.md).
 
 ## Why
 
@@ -21,11 +22,15 @@ or in your own cloud. Free and open source.**
 
 | Area | Status |
 |---|---|
-| Protocol v1 (HTTP commands + resumable SSE events) | M0 — in progress |
-| Repos, worktree workspaces, setup/archive scripts, port ranges | M0 — in progress |
-| Web UI + Tauri desktop shell | M0 — in progress |
-| Agent chat (Claude, then Codex/ACP), diff review, PRs, terminal | M1 |
-| Checkpoints/rewind, checks, MCP server, chat ⇄ terminal | M2 |
+| Protocol v1 (HTTP commands + resumable SSE events, idempotent retries) | ✅ |
+| Repos, worktree workspaces, setup/archive/run scripts, port ranges | ✅ |
+| Web UI + Tauri desktop shell | ✅ (no installer yet) |
+| Claude Code chat: tool cards, live streaming, queue, stop, plan mode, model picker | ✅ |
+| Permission prompts answered in Bantu; desktop notifications | ✅ |
+| Diff review with line comments sent to the agent; Create PR; PR checks summary | ✅ |
+| Terminals and run scripts (PTY over WebSocket) | ✅ |
+| Per-turn checkpoints and "restore files to before this turn" | ✅ |
+| Codex/ACP agents, chat ⇄ terminal, checks forwarding, MCP server | M2 |
 | Remote daemons, phone/PWA, pairing, AWS one-click | M3 |
 | Orchestrator, conflict radar, definition-of-done, cross-agent review | M4 |
 
@@ -50,7 +55,7 @@ The project itself costs about $99 a year to run (Apple code signing). See
                           |
    bantud — one Rust binary on macOS, Linux, EC2 or a sandbox
      ├─ workspaces   git worktrees, scripts, port ranges
-     ├─ agents       Claude SDK · Codex app-server · ACP · any CLI in a pty
+     ├─ agents       your own `claude` CLI today · Codex app-server · ACP · any CLI
      ├─ checkpoints  per-turn snapshots in private git refs
      └─ SQLite       append-only event log
 ```
@@ -60,24 +65,41 @@ Details: [ARCHITECTURE.md](docs/ARCHITECTURE.md) · [PROTOCOL.md](docs/PROTOCOL.
 
 ## Quickstart (development)
 
-Requirements: [Rust](https://rustup.rs) stable, [Bun](https://bun.sh), git. macOS or Linux.
+Requirements: [Rust](https://rustup.rs) stable, [Bun](https://bun.sh), git, and
+[Claude Code](https://claude.com/claude-code) logged in. macOS or Linux.
 
 ```sh
 git clone https://github.com/Sreenivas1323/bantu && cd bantu
 
-cargo run -p bantud            # daemon on 127.0.0.1:47800
-cargo run -p bantud -- --print-token
-
-cd apps/web && bun install && bun dev
+bun install && bun run build:web   # the daemon serves the built web app
+cargo run -p bantud                # prints http://127.0.0.1:47800/#token=… — open it
 ```
+
+For UI work, `bun run dev:web` serves the app with hot reload; it proxies `/v1` to the daemon.
+
+Agents run through **your own `claude` CLI and its login**. Bantu never sees your
+credentials, and usage counts against your own Claude plan or API key.
+
+To develop without spending tokens, point the daemon at the bundled stand-in:
+
+```sh
+BANTU_CLAUDE_BIN=$PWD/scripts/fake-claude.sh cargo run -p bantud
+```
+
+It speaks the same `stream-json` as Claude Code. Prompts containing "slow" take 3 s,
+"edit" changes files, and "permission" asks for approval.
 
 Configure a repo by adding `.bantu/settings.toml` (an existing `.conductor/settings.toml` also works):
 
 ```toml
 [scripts]
-setup = "bun install"
-archive = "docker compose down"
+setup = "bun install"                  # runs when a workspace is created
+run = "bun dev --port $BANTU_PORT"      # the ▶ Run button
+archive = "docker compose down"        # runs when a workspace is archived
 ```
+
+Each workspace gets 10 ports from `$BANTU_PORT`. Gitignored `.env*` files, and anything
+listed in `.worktreeinclude`, are copied into new workspaces.
 
 ## Keeping up with the field
 

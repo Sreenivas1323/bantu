@@ -1,36 +1,44 @@
 # Bantu protocol v1
 
-Every Bantu client — desktop app, web/PWA, CLI, an agent calling over MCP — talks to
-`bantud` through this protocol. It is the same locally and remotely.
+Every Bantu client talks to `bantud` through this protocol: the desktop app, the web/PWA, the CLI, and agents calling over MCP. It is the same locally and remotely.
 
 - **Commands** go in as `POST /v1/commands`.
 - **State** comes out as an append-only, resumable event stream: `GET /v1/events` (Server-Sent Events).
 - `GET /v1/state` returns a snapshot so a client can render at once, then follow events from `last_seq`.
+- A few read-only endpoints compute things on demand (history, diff, PR status), and terminals use a WebSocket.
 
 Wire types are defined in Rust in [`crates/protocol/src/lib.rs`](../crates/protocol/src/lib.rs).
-TypeScript bindings are generated into `packages/protocol/src/generated/` by
-`cargo test -p bantu-protocol`. If this document and the Rust types disagree, the Rust
-types win; please fix this document.
+`cargo test -p bantu-protocol` generates TypeScript bindings into `packages/protocol/src/generated/`. If this document and the Rust types disagree, the Rust types win; please fix this document.
 
-`PROTOCOL_VERSION` is `1`. Breaking changes bump it; additive changes (new optional
-fields, new command or event types) don't, so clients must ignore unknown event types
-and unknown fields.
+`PROTOCOL_VERSION` is `1`. Breaking changes bump it. Additive changes (new optional fields, new command or event types) don't, so clients must ignore unknown event types and unknown fields.
 
 ## Transport and auth
 
 | | |
 |---|---|
-| Default address | `127.0.0.1:47800` (`--host`, `--port`). Non-loopback hosts are refused unless `--allow-remote` is passed; expose a daemon remotely through Tailscale Serve, Cloudflare Tunnel or CloudFront instead. |
+| Default address | `127.0.0.1:47800` (`--host`, `--port`). Non-loopback hosts are refused unless `--allow-remote` is passed; expose a daemon remotely through Tailscale Serve, Cloudflare Tunnel or CloudFront instead. Requests whose `Host` isn't loopback are rejected too (DNS-rebinding protection). |
 | Data dir | `~/.bantu` (override with `BANTU_HOME`): `bantu.db` (SQLite) and `local-token` (mode 0600) |
-| Auth | `Authorization: Bearer <token>`, or `?token=<token>` on the query string (needed for `EventSource`, which can't set headers) |
+| Auth | `Authorization: Bearer <token>`, or `?token=<token>` on the query string (needed for `EventSource` and browser WebSockets, which can't set headers) |
 | Token | `bantud --print-token` prints it |
 | Web app | The daemon serves the built web app at `/` (`--web-dir` or `BANTU_WEB_DIR`) |
 
-All bodies are JSON (`content-type: application/json`).
+All bodies are JSON (`content-type: application/json`). Errors are JSON too: `{ "ok": false, "result": null, "error": "…" }`.
 
 ## Endpoints
 
-### `GET /v1/health` (no auth)
+| Method and path | Auth | Returns |
+|---|---|---|
+| `GET /v1/health` | none | `Health` |
+| `GET /v1/state` | token | `StateSnapshot` |
+| `POST /v1/commands` | token | `CommandResponse` |
+| `GET /v1/events?since=<seq>` | token | SSE stream of `Event` (plus `delta` frames) |
+| `GET /v1/workspaces/{id}/history?limit=<n>` | token | `Event[]`, oldest first |
+| `GET /v1/workspaces/{id}/diff` | token | `WorkspaceDiff` |
+| `GET /v1/workspaces/{id}/pr` | token | `PullRequest` or `null` |
+| `GET /v1/terminals/{id}/ws` | token | WebSocket of raw PTY bytes |
+| `POST /v1/hooks/permission?session=<id>` | hook token | Claude Code hook response (internal) |
+
+### `GET /v1/health`
 ```json
 { "ok": true, "protocol_version": 1, "daemon_version": "0.0.1" }
 ```
@@ -42,37 +50,71 @@ All bodies are JSON (`content-type: application/json`).
   "daemon_version": "0.0.1",
   "last_seq": 42,
   "repos": [Repo, ...],
-  "workspaces": [Workspace, ...]
+  "workspaces": [Workspace, ...],
+  "sessions": [Session, ...],
+  "comments": [DiffComment, ...],
+  "terminals": [Terminal, ...],
+  "permissions": [PermissionRequest, ...]
 }
 ```
-Render this, then open `/v1/events?since=42`.
+Render this, then open `/v1/events?since=42`. The snapshot carries no logs or transcripts; fetch those per workspace from `/history`. `terminals` and `permissions` live in the daemon's memory and are empty after a restart.
 
 ### `POST /v1/commands` → `CommandResponse`
-The body is one `Command`. An optional `Idempotency-Key` header makes retries safe:
-the daemon stores the response for 24 hours and replays it for the same key without
-running the command again. Clients on flaky networks (phones, CloudFront) should always
-send one, e.g. a UUID per user action.
+The body is one `Command`. An optional `Idempotency-Key` header makes retries safe. The daemon stores the response for 24 hours and replays it for the same key without running the command again. Server errors (5xx) aren't stored, so they can be retried. Clients on flaky networks (phones, CloudFront) should always send one, e.g. a UUID per user action.
 
 ```json
 { "ok": true, "result": { ... }, "error": null }
-{ "ok": false, "result": null, "error": "repository not found: r_123" }
+{ "ok": false, "result": null, "error": "no repository r_123" }
 ```
-`result` is command-specific (see below). Long-running work, such as creating a
-worktree and running its setup script, completes asynchronously: the command returns
-right away and progress arrives as events.
+Status codes:
 
-### `GET /v1/events?since=<seq>` → SSE stream of `Event`
-- Replays every stored event with `seq > since` from the database, then streams live events.
-- Each SSE message has `id: <seq>` and `data: <Event JSON>`.
+| Code | Meaning |
+|---|---|
+| 200 | Success |
+| 400 | Bad input |
+| 404 | Unknown id |
+| 409 | Wrong state, e.g. workspace not ready or agent running |
+| 500 | Daemon error |
+
+`result` is command-specific (see below). Long-running work, such as creating a worktree or running an agent turn, finishes asynchronously: the command returns right away and progress arrives as events.
+
+### `GET /v1/events?since=<seq>` → SSE
+- Replays every stored event with `seq > since` from the database, then streams live events. `Last-Event-ID` is honored too.
+- Each stored event is an SSE message with `id: <seq>` and `data: <Event JSON>`.
+- `seq` is monotonic and gap-free per daemon. To resume after a disconnect, reconnect with `since=<last seq you processed>`; a gap means you missed something, so resync from `/v1/state`.
 - A comment line is sent every 15 seconds as a keepalive.
 - `since` defaults to `0` (full replay).
-- To resume after a disconnect, reconnect with `since=<last seq you processed>`.
-- `seq` is monotonic and gap-free per daemon.
 
 ```
 id: 43
 data: {"seq":43,"ts":"2026-11-01T10:00:00Z","data":{"type":"workspace.updated","workspace":{...}}}
 ```
+
+**Live text deltas.** While an agent writes, the stream also carries frames named `delta` with a `StreamDelta` payload and **no `id`**:
+```
+event: delta
+data: {"session_id":"s1","workspace_id":"w1","turn":3,"text":"Riv"}
+```
+Deltas are display-only. They are never stored or replayed and don't advance `seq`. The complete text always arrives afterwards as a `session.item` with an `assistant` item, which replaces the preview. With `EventSource`, listen for them with `addEventListener("delta", …)`; `onmessage` only receives stored events.
+
+### `GET /v1/workspaces/{id}/history?limit=<n>`
+The most recent `n` events for one workspace (default 2000, max 10000), oldest first. That covers its logs, chat items, session, comment, terminal and permission events. Clients call this when opening a workspace, merge by `seq`, and rely on the live stream after that.
+
+### `GET /v1/workspaces/{id}/diff` → `WorkspaceDiff`
+Everything the branch changed relative to its merge-base with `base_ref`: commits, uncommitted edits and untracked (non-ignored) files. It's computed with a throwaway index, so the user's staging area is never touched.
+
+### `GET /v1/workspaces/{id}/pr` → `PullRequest | null`
+The branch's pull request and a summary of its checks, from `gh pr view`. It is `null` when there's no PR, no `origin` remote, or `gh` isn't installed.
+
+### `GET /v1/terminals/{id}/ws`
+A WebSocket attached to a PTY.
+- **Binary frames** carry raw bytes both ways: keystrokes in, terminal output out.
+- **Text frames** carry JSON control messages: `{"type":"resize","cols":120,"rows":40}`, or `{"type":"input","data":"ls\n"}` as an alternative to binary input.
+- On connect the server first sends the terminal's scrollback (up to 512 KB), so reopening a tab loses nothing.
+- Any number of viewers can attach. Closing the socket doesn't stop the process; `terminal.close` does.
+
+### `POST /v1/hooks/permission?session=<id>` (internal)
+This is Claude Code's `PermissionRequest` HTTP hook (see [Agent sessions](#agent-sessions)). It is authenticated with a per-process **hook token**, not the client token. It blocks until the user answers and returns Claude's hook response. Clients never call it.
 
 ## Types
 
@@ -91,35 +133,128 @@ data: {"seq":43,"ts":"2026-11-01T10:00:00Z","data":{"type":"workspace.updated","
 |---|---|---|
 | `id` | string | |
 | `repo_id` | string | |
-| `name` | string | Human name, by default an unused city (`lisbon`) |
-| `branch` | string | `bantu/<name>` |
+| `name` | string | Human name; by default an unused city (`lisbon`) |
+| `branch` | string | `bantu/<name>` at first; renamed after the task on the first message (see below) |
 | `base_ref` | string | What the branch was created from, and the PR target, e.g. `origin/main` |
-| `path` | string | `~/bantu/workspaces/<repo>/<name>` |
+| `path` | string | `~/bantu/workspaces/<repo>/<name>` (canonical, e.g. `/private/tmp/…` on macOS) |
 | `port_base` | number | First of 10 reserved ports (`BANTU_PORT` .. `BANTU_PORT+9`), allocated from 55000 in steps of 10 |
-| `state` | `WorkspaceState` | |
+| `state` | `WorkspaceState` | `"creating" \| "ready" \| "failed" \| "archiving" \| "archived"` |
 | `error` | string \| null | Set when `state` is `failed` |
 | `archive_commit` | string \| null | Commit holding uncommitted tracked changes at archive time |
 | `created_at` | string | RFC 3339 |
 
-### `WorkspaceState`
-`"creating" | "ready" | "failed" | "archiving" | "archived"`
+### `Session`
+One chat with an agent in a workspace. Every workspace gets one automatically when it becomes ready.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | |
+| `workspace_id` | string | |
+| `agent` | `"claude"` | More agents later |
+| `title` | string | `"New chat"` until the first message, which becomes the title |
+| `model` | string \| null | `null` uses the agent's default (e.g. `opus`, `sonnet`, `haiku`, or a full model id) |
+| `permission_mode` | `PermissionMode` | See below |
+| `status` | `"idle" \| "running"` | |
+| `queued` | number | Messages waiting for the current turn to finish |
+| `turns` | number | Turns started so far |
+| `total_cost_usd` | number | Sum of the agent's reported turn costs |
+| `created_at` | string | RFC 3339 |
+
+### `PermissionMode`
+| Value | Claude mode | Meaning |
+|---|---|---|
+| `auto` (default) | `auto` | A classifier approves safe actions; anything it won't approve becomes a `PermissionRequest` |
+| `ask` | `default` | Ask in Bantu before edits, commands and other risky actions |
+| `accept_edits` | `acceptEdits` | File edits are allowed; other risky actions ask |
+| `plan` | `plan` | Read-only planning; the agent proposes instead of changing files |
+| `bypass_permissions` | `bypassPermissions` | Everything is allowed. Only for trusted repos. |
+
+### `ChatItem`
+One transcript entry, normalized across agents and tagged by `kind`:
+
+| `kind` | Fields | Notes |
+|---|---|---|
+| `user` | `text` | What was sent to the agent (may include a Bantu note after a rewind) |
+| `assistant` | `text` | Markdown |
+| `thinking` | `text` | Only when the model's thinking is visible |
+| `tool_use` | `id`, `name`, `input` | e.g. `Bash {command}`, `Edit {file_path, …}` |
+| `tool_result` | `tool_use_id`, `content`, `is_error` | Text output, truncated to 20,000 characters |
+| `turn_end` | `is_error`, `duration_ms`, `cost_usd`, `input_tokens`, `output_tokens` | `input_tokens` includes cache reads and writes |
+| `rewound` | `to_turn` | Files were restored to before `to_turn` |
+| `error` | `message` | Bantu-side problems: the agent couldn't start, crashed, or was stopped (`"Stopped"`) |
+
+### `StreamDelta`
+`{ session_id, workspace_id, turn, text }`: a fragment of assistant text, only on the live stream (see above).
+
+### `PermissionRequest`
+`{ id, session_id, workspace_id, tool_name, tool_input, created_at }`: an agent waiting for the user to allow or deny a tool call.
+
+### `WorkspaceDiff` and `FileDiff`
+`WorkspaceDiff`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `workspace_id`, `base_ref`, `merge_base` | string | |
+| `ahead` | number | Commits on the branch that aren't on `base_ref` |
+| `behind` | number | Commits on `base_ref` that the branch doesn't have |
+| `uncommitted` | number | Files with uncommitted changes, tracked or untracked |
+| `files` | `FileDiff[]` | |
+
+`FileDiff`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `path` | string | |
+| `old_path` | string \| null | Set for renames |
+| `status` | `"added" \| "modified" \| "deleted" \| "renamed"` | |
+| `additions`, `deletions` | number | |
+| `binary` | boolean | |
+| `patch` | string | Unified diff hunks from the first `@@` |
+| `truncated` | boolean | The patch was cut at about 200 KB |
+
+### `DiffComment`
+`{ id, workspace_id, path, line, body, created_at, sent_at }`
+- `line` is a line number in the new version of the file.
+- `sent_at` is `null` while the comment is a draft.
+
+### `PullRequest`
+`{ number, url, title, state, is_draft, review_decision, checks_passing, checks_failing, checks_pending }`
+- `state` is `OPEN`, `CLOSED` or `MERGED`.
+- `review_decision` is `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED` or `null`.
+
+### `Terminal`
+`{ id, workspace_id, kind, title, command, exited, exit_code, created_at }`
+- `kind` is `"shell"` (an interactive login shell) or `"run"` (the repo's run script, with its `command`).
 
 ### `LogStream`
 `"stdout" | "stderr" | "system"`
 
 ## Commands
 
-Commands are tagged by `type`.
+Commands are tagged by `type`. Optional fields may be `null` or omitted.
 
 | `type` | Fields | `result` | What it does |
 |---|---|---|---|
-| `repo.add` | `path` | `Repo` | Registers a local git repo. Any path inside the repo works. |
-| `repo.remove` | `repo_id` | — | Forgets a repo. Files on disk are untouched. |
-| `workspace.create` | `repo_id`, `name?`, `base_ref?` | `Workspace` (state `creating`) | Creates a worktree and branch; see below. |
-| `workspace.archive` | `workspace_id` | `Workspace` (state `archiving`) | Archives a workspace; see below. |
+| `repo.add` | `path` | `Repo` | Registers a local git repo. Any path inside it works; adding the same repo again returns the existing one. |
+| `repo.remove` | `repo_id` | — | Forgets a repo. Fails with 409 while it has unarchived workspaces. Files on disk are untouched. |
+| `workspace.create` | `repo_id`, `name?`, `base_ref?` | `Workspace` (`creating`) | Creates a worktree and branch; see below. |
+| `workspace.archive` | `workspace_id` | `Workspace` (`archiving`) | Stops its agents and terminals, then archives; see below. |
+| `workspace.run` | `workspace_id` | `Terminal` | Starts the repo's run script in a `run` terminal, or returns the one already running. 400 if there's no run script. |
+| `workspace.create_pr` | `workspace_id`, `session_id` | `Session` | Asks the agent to commit, push and `gh pr create` against `base_ref`. 400 without an `origin` remote. |
+| `session.create` | `workspace_id`, `model?`, `permission_mode?` | `Session` | Opens another chat in a ready workspace. |
+| `session.send` | `session_id`, `text` | `Session` | Sends a message. If a turn is running it's queued (`queued` goes up) and runs afterwards, in order. |
+| `session.cancel` | `session_id` | `Session` | Stops the running turn (it ends with an `error` item `"Stopped"`), drops queued messages, and denies pending permission requests. |
+| `session.update` | `session_id`, `title?`, `model?`, `permission_mode?` | `Session` | Changes settings; they apply from the next turn. |
+| `session.rewind` | `session_id`, `turn` | `Session` | Restores the workspace files to the checkpoint taken just before `turn` started; see below. 409 while the agent is running. |
+| `permission.respond` | `request_id`, `allow`, `message?` | — | Answers a `PermissionRequest`. `message` tells the agent why it was denied. 404 if already answered. |
+| `comment.add` | `workspace_id`, `path`, `line`, `body` | `DiffComment` | Adds a draft review comment. |
+| `comment.delete` | `comment_id` | — | |
+| `comments.send` | `workspace_id`, `session_id` | `Session` | Sends every draft comment to the agent as one message (sorted by file and line), then marks them sent. 400 if there are none. |
+| `terminal.open` | `workspace_id`, `cols?`, `rows?` | `Terminal` | Opens an interactive login shell in the worktree. |
+| `terminal.close` | `terminal_id` | — | Hangs up the terminal's whole process group and forgets it. |
 
 ```json
-{ "type": "workspace.create", "repo_id": "r_123", "name": null, "base_ref": null }
+{ "type": "session.send", "session_id": "s_123", "text": "Fix the flaky login test" }
 ```
 
 ### `workspace.create`
@@ -131,14 +266,39 @@ Commands are tagged by `type`.
    - those matching the globs in the repo's `.worktreeinclude`;
    - `.env*` files, by default.
 6. Runs the repo's setup script, if any. Its output streams as `workspace.log` events.
-7. Ends in state `ready`, or `failed` with `error` set.
+7. Ends in state `ready` with one idle `Session`, or in `failed` with `error` set.
 
 ### `workspace.archive`
-1. Runs the archive script, if any.
-2. Saves uncommitted tracked changes with `git stash create` to `refs/bantu/archive/<id>` and records the commit as `archive_commit`. Untracked files are not saved.
-3. Removes the worktree.
-4. Keeps the branch.
-5. Ends in state `archived`.
+1. Stops running agent turns and closes terminals.
+2. Runs the archive script, if any. A failing archive script is logged and doesn't block archiving.
+3. Saves uncommitted tracked changes with `git stash create` to `refs/bantu/archive/<id>` and records the commit as `archive_commit`. Untracked files are not saved.
+4. Removes the worktree and the session checkpoint refs.
+5. Keeps the branch.
+6. Ends in state `archived`.
+
+## Agent sessions
+
+Each turn runs the user's own `claude` CLI. The daemon doesn't use an SDK or its own API key: whatever Claude Code is logged in with is what the agent uses.
+
+```
+claude -p --output-format stream-json --verbose --include-partial-messages \
+  --permission-prompts none --permission-mode <mode> \
+  --session-id <uuid> | --resume <uuid> \
+  --append-system-prompt <workspace context> [--model <m>] \
+  --settings <PermissionRequest hook JSON>
+```
+
+- **One process per turn.** The prompt goes in over stdin. The first turn uses `--session-id`; every later turn uses `--resume` with the same id, so the conversation continues. A daemon restart never strands a process: turns that were running are marked with an `error` item `"Interrupted by a daemon restart"`, and the next message simply resumes.
+- **Output** is parsed line by line into `ChatItem`s (`session.item` events). Partial text becomes `delta` frames.
+- **Workspace context** is appended to the system prompt: the workspace name, branch, base, and its reserved ports.
+- **Environment**: `BANTU_PORT`, `BANTU_WORKSPACE_ID`, `BANTU_WORKSPACE_NAME`, `BANTU_WORKSPACE_PATH`, `BANTU_SESSION_ID`.
+- **Permission prompts.** `--settings` installs a `PermissionRequest` HTTP hook pointing at `POST /v1/hooks/permission?session=<id>`.
+  - The hook token travels in the `BANTU_HOOK_TOKEN` environment variable (referenced as `$BANTU_HOOK_TOKEN` in the hook's headers), never in argv.
+  - The daemon publishes a `permission.requested` event and waits for `permission.respond`, a stop, or about 10 minutes, whichever comes first.
+  - With nothing answering, Claude would deny the call; that's what `--permission-prompts none` would otherwise do.
+- **Branch naming.** On the first message, a placeholder branch (`bantu/<city>`) that has never been pushed is renamed to a slug of the message, e.g. "Please fix the login redirect bug" → `bantu/fix-login-redirect-bug`. Duplicates get `-2`, `-3`, and so on.
+- **Checkpoints.** Before each turn the daemon snapshots the worktree to `refs/bantu/cp/<session>/<turn>`: tracked and untracked (non-ignored) files, as a commit whose parent is `HEAD`. It uses a temporary index, so the user's index, branch and files are untouched. It's skipped while a merge or rebase is in progress.
+- **Rewind.** `session.rewind` resets the branch to the checkpoint's parent, restores the snapshot's files (ignored files such as `node_modules` are left alone), and adds a `rewound` item. Claude can't rewind part of a conversation, so the next message is prefixed with a note telling the agent which turn the files went back to.
 
 ## Events
 
@@ -148,8 +308,16 @@ Commands are tagged by `type`.
 |---|---|---|
 | `repo.added` | `repo` | A repo was registered |
 | `repo.removed` | `repo_id` | A repo was forgotten |
-| `workspace.updated` | `workspace` | A workspace was created or changed. It always carries the full workspace, so clients just replace their copy. |
+| `workspace.updated` | `workspace` | A workspace was created or changed. It always carries the full object, so clients just replace their copy. |
 | `workspace.log` | `workspace_id`, `stream`, `line` | One line of setup or archive script output, or a daemon progress message (`system`) |
+| `session.updated` | `session` | A session was created or changed (full object) |
+| `session.item` | `session_id`, `workspace_id`, `turn`, `item: ChatItem` | One transcript entry; `turn` starts at 1 |
+| `comment.updated` | `comment` | A draft was added or a comment was sent (full object) |
+| `comment.deleted` | `comment_id`, `workspace_id` | |
+| `permission.requested` | `request` | An agent is waiting for approval |
+| `permission.resolved` | `request_id`, `session_id`, `workspace_id`, `allowed` | Answered, stopped or timed out |
+| `terminal.updated` | `terminal` | A terminal opened or its process exited (full object) |
+| `terminal.closed` | `terminal_id`, `workspace_id` | Closed by the user, by archiving, or by a daemon restart |
 
 ## Repo configuration: `.bantu/settings.toml`
 
@@ -157,12 +325,16 @@ Commands are tagged by `type`.
 [scripts]
 setup = "bun install"
 archive = "docker compose down"
+run = "bun dev --port $BANTU_PORT"
+
+# or Conductor-style named run actions (the first one is used for now):
+# [scripts.run.dev]
+# command = "bun dev --port $BANTU_PORT"
 ```
 
-If `.bantu/settings.toml` is missing, Bantu reads `.conductor/settings.toml` using the same
-keys, so existing Conductor setups work unchanged.
+Bantu looks for settings first in the worktree (the branch's committed config), then in the main checkout. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.
 
-Scripts run with `sh -c` in the workspace directory with these environment variables:
+Scripts run in the user's login shell (`$SHELL -lc`) in the workspace directory, with these environment variables:
 
 | Variable | Value |
 |---|---|
@@ -170,28 +342,33 @@ Scripts run with `sh -c` in the workspace directory with these environment varia
 | `BANTU_WORKSPACE_ID` | Workspace id |
 | `BANTU_WORKSPACE_NAME` | Workspace name |
 | `BANTU_WORKSPACE_PATH` | Worktree path |
-| `BANTU_ROOT_PATH` | Main checkout path |
-| `BANTU_BASE_REF` | e.g. `origin/main` |
+| `BANTU_ROOT_PATH` | Main checkout path (setup and archive scripts) |
+| `BANTU_BASE_REF` | e.g. `origin/main` (setup and archive scripts) |
+
+When `bantud` starts, it adopts the `PATH` of the user's login shell. A daemon started from the Dock therefore finds `claude`, `bun`, `node` and friends just like a terminal would. Set `BANTU_SKIP_SHELL_ENV=1` to skip this.
 
 ## Example session
 
 ```sh
 TOKEN=$(bantud --print-token)
 H="Authorization: Bearer $TOKEN"
+J='content-type: application/json'
 
 curl -s 127.0.0.1:47800/v1/health
-curl -s -H "$H" -H 'content-type: application/json' \
-  -d '{"type":"repo.add","path":"/Users/me/code/app"}' 127.0.0.1:47800/v1/commands
-curl -s -H "$H" -H 'content-type: application/json' -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"type":"workspace.create","repo_id":"<id>"}' 127.0.0.1:47800/v1/commands
+curl -s -H "$H" -H "$J" -d '{"type":"repo.add","path":"/Users/me/code/app"}' 127.0.0.1:47800/v1/commands
+curl -s -H "$H" -H "$J" -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"type":"workspace.create","repo_id":"<repo id>"}' 127.0.0.1:47800/v1/commands
+curl -s -H "$H" 127.0.0.1:47800/v1/state                       # find the session id
+curl -s -H "$H" -H "$J" \
+  -d '{"type":"session.send","session_id":"<session id>","text":"Add a health check endpoint"}' \
+  127.0.0.1:47800/v1/commands
 curl -N -H "$H" '127.0.0.1:47800/v1/events?since=0'
 ```
 
-## Planned (not in v1 yet)
+## Planned
 
-- Agent sessions: `session.create`, `session.send`, `session.cancel`, plus normalized agent events (`turn.*`, `tool.*`, `permission.*`, `usage`) — M1
-- `GET /v1/pty/<id>` WebSocket for raw terminal bytes — M1
-- Checkpoints, diff comments and checks — M2
-- Pairing codes for remote clients — M3
+- More agents: Codex (`codex app-server`), ACP agents (OpenCode, Cursor, Gemini), any CLI in a terminal — M2
+- Checks view with CI failures forwarded to the agent; the Bantu MCP server — M2
+- Pairing codes for remote clients, Web Push — M3
 
 See [ROADMAP.md](ROADMAP.md).

@@ -18,17 +18,20 @@ Clients (thin, static, no backend of ours)
                + WebSocket only for raw PTY bytes and port forwarding
                                         |
 bantud: ONE Rust binary, the same on macOS, Linux, EC2, a sandbox (Windows later)
-  ├─ workspace manager  git worktrees, spare-worktree pool, 10-port ranges, .worktreeinclude,
-  │                     setup/run/archive scripts from .bantu/settings.toml
-  ├─ agent drivers      trait AgentDriver → normalized events (turn/text/tool/permission/usage/plan)
-  │     claude-sdk  (Bun sidecar, Claude Agent SDK)    codex (app-server JSON-RPC, from Rust)
-  │     acp         (OpenCode, Cursor, Gemini, any ACP agent)    terminal (any CLI in a pty)
-  ├─ pty manager        portable-pty + headless terminal state, so a terminal can be restored after a restart
+  ├─ workspace manager  git worktrees, 10-port ranges, .worktreeinclude + .env* copy,
+  │                     setup/run/archive scripts from .bantu/settings.toml, branch naming
+  ├─ agent sessions     normalized ChatItems; message queue; cancel; permission requests
+  │     claude      (the user's `claude` CLI, stream-json, one process per turn)   ← today
+  │     codex       (app-server JSON-RPC, from Rust)   acp (OpenCode, Cursor, Gemini)   ← M2
+  │     terminal    (any CLI in a pty)   ← M2
+  ├─ permissions        Claude PermissionRequest HTTP hook → approval in any client
+  ├─ review             diff vs merge-base (throwaway index), line comments → agent, PR status via gh
+  ├─ pty manager        portable-pty, 512 KB scrollback replayed to every viewer, process-group kill
   ├─ checkpoints        temp GIT_INDEX_FILE → write-tree/commit-tree → refs/bantu/cp/<session>/<turn>
-  ├─ git intelligence   conflict radar (git merge-tree --write-tree across active branches), busy-check
-  ├─ MCP server         diff, comments, terminal, notify/ask, spawn_workspace, send, wait_report, lock
-  ├─ scheduler          cron loops, GitHub triggers (polled via gh; no webhook server), idle auto-stop
-  └─ SQLite (WAL)       append-only event log + projections; blobs on disk
+  ├─ git intelligence   busy-check today; conflict radar (git merge-tree --write-tree) later
+  ├─ MCP server         (M2) diff, comments, terminal, notify/ask, spawn_workspace, send, wait_report
+  ├─ scheduler          (M4) cron loops, GitHub triggers (polled via gh; no webhook server), idle auto-stop
+  └─ SQLite (WAL)       append-only event log + projections
 ```
 
 Why:
@@ -36,12 +39,16 @@ Why:
 - **Local and remote share one code path.** Every client works against any daemon, on your laptop or in your cloud.
 - **HTTP + SSE passes through every free front door**: CloudFront, Tailscale Serve, Cloudflare Tunnel, plain localhost. It also resumes cleanly on flaky phone networks.
 - **Idempotency keys make retries safe**, and the event log makes reconnects lossless (`?since=<seq>`).
+- **Agents use the user's PATH.** At startup the daemon adopts its login shell's `PATH`. A daemon launched from the Dock therefore finds `claude`, `bun` and `node` just like a terminal does.
 
 **State model.**
 - Every change is an `Event` appended to SQLite with a gap-free `seq`.
 - Tables like `repos` and `workspaces` are projections, updated in the same transaction as the event.
 - Clients load a snapshot (`/v1/state`), then follow events.
 - This also gives us an audit log and lets a session be replayed.
+- Some state is deliberately *not* in the log:
+  - Live text deltas go out as SSE `event: delta` frames with no `seq`, so the log doesn't fill with fragments.
+  - Terminals and pending permission requests live in memory and end with the process. On startup the daemon records any terminal the log still thinks is open as closed.
 
 ## 2. Structured by default, terminal when you want it
 
@@ -49,10 +56,29 @@ Every agent session is structured chat by default: tool-call cards, plan approva
 message queue, rewind, a context-usage dial. One click switches the **same conversation**
 to a raw terminal (`claude --resume <id>`, `codex resume`) and back.
 
-- **Structured** drivers speak each agent's own machine interface: the Claude Agent SDK, Codex `app-server`, or ACP. Their output is normalized into one event schema.
+- **Structured** drivers speak each agent's own machine interface: Claude Code's `stream-json` output, Codex `app-server`, or ACP. Their output is normalized into one schema (`ChatItem`).
 - **The terminal driver** runs any CLI in a pty. It's the escape hatch for agents with no structured interface, and for people who just want the TUI.
 
 Conductor has no terminal mode for agents, and Pane's chat mode is experimental. Bantu treats both as first class.
+
+### Why the Claude driver uses the CLI, not a Bun sidecar
+
+Conductor embeds the Claude Agent SDK in a roughly 100 MB Bun sidecar. Bantu instead runs the user's own `claude` CLI once per turn:
+- `claude -p --output-format stream-json --include-partial-messages`;
+- the first turn uses `--session-id <uuid>`, and later turns `--resume <uuid>`.
+
+| | CLI per turn (Bantu) | SDK sidecar |
+|---|---|---|
+| Size | Nothing extra to ship | ~100 MB runtime |
+| Login | Whatever the user's Claude Code uses (subscription or API key) | Usually an API key for third-party apps |
+| Restarts | Stateless: the next turn resumes by id | A long-lived process to supervise |
+| Permission prompts | `PermissionRequest` HTTP hook via `--settings` | In-process `canUseTool` callback |
+| Rewind | Files only (checkpoints); the agent is told | Same |
+| Cost | ~1–3 s of CLI startup per turn; no in-process SDK hooks | — |
+
+The rest of the turn plumbing:
+- **Hook token.** The permission hook's token travels in the environment (`BANTU_HOOK_TOKEN`), never in argv, so other users can't read it from `ps`.
+- **Undoing a turn.** Each turn starts with a checkpoint of the worktree (`refs/bantu/cp/<session>/<turn>`). `session.rewind` restores it and tells the agent on its next message.
 
 ## 3. The intelligence layer
 
@@ -60,7 +86,7 @@ What makes the product feel smart is mostly structure plus good built-in prompts
 
 **Parity with Conductor:**
 - Per-repo prompts: review, create PR, fix CI, resolve conflicts, rename branch.
-- The agent names the branch from the first message.
+- The branch is named after the task from the first message (`bantu/hyderabad` → `bantu/fix-login-redirect`).
 - A derived workspace status, and a checks view (git status, `gh pr checks`, Actions logs, deploy status).
 - Failing checks and PR comments are forwarded to the agent; diff comments go to the agent.
 - Plan mode, effort and fast mode, model loadouts, several chats per workspace, forking a chat.
@@ -111,9 +137,9 @@ Hard rule: **no feature may require a server run by the project.**
 
 | Part | Choice |
 |---|---|
-| Daemon | Rust: tokio, axum, sqlx (SQLite, WAL), portable-pty, the `git` CLI (not libgit2, so behavior matches the user's git), `ts-rs` for TS bindings, `agent-client-protocol` |
-| Agent sidecar | TypeScript with the Claude Agent SDK, compiled with `bun build --compile` |
-| UI | React + Vite + Tailwind; xterm.js; a diff viewer; bun for tooling |
+| Daemon | Rust: tokio, axum (HTTP, SSE, WebSocket), sqlx (SQLite, WAL), portable-pty, the `git` CLI (not libgit2, so behavior matches the user's git), `ts-rs` for TS bindings |
+| Agents | The user's own CLIs: `claude` today; `codex app-server` and ACP agents next |
+| UI | React + Vite + Tailwind; react-markdown; xterm.js; a small unified-diff viewer; bun for tooling |
 | Desktop | Tauri 2 (updater, `bantu://` deep links) |
 | Mobile | PWA first; a native wrapper later |
 | Deploy | CloudFormation YAML (Launch Stack URL), `install.sh`, `@vercel/sandbox` runner |
@@ -127,14 +153,12 @@ crates/daemon      bantud
 apps/web           React web UI (also served by bantud)
 apps/desktop       Tauri 2 shell
 docs/              architecture, protocol, roadmap, competitive research
-scripts/           changelog watcher and other tooling
+scripts/           changelog watcher, fake-claude.sh (offline Claude stand-in for UI work and tests)
 deploy/            (M3) install.sh, AWS CloudFormation, Vercel Sandbox runner
 ```
 
 ## Known risks
 
-- **Claude subscription login in third-party apps.** Anthropic's Agent SDK terms may require API keys, rather than claude.ai login, for third-party products without approval. We will check the current wording before shipping the structured Claude driver.
-  - The terminal driver always works with the user's own `claude` CLI login.
-  - The structured driver uses whatever the local Claude Code is authenticated with, or an API key.
+- **Claude login.** Bantu never handles Claude credentials. It runs the user's own `claude` CLI, which uses whatever the user logged in with (a subscription or an API key). We still keep an eye on Anthropic's terms for third-party tools.
 - **Clean-room only.** Conductor is proprietary and Pane is AGPL-3.0. We study public docs and changelogs and never copy code or assets.
-- **Sidecar size.** The Bun sidecar is about 100 MB. That's acceptable for v1; later we may speak Claude's stream-json directly from Rust.
+- **CLI output format drift.** We parse Claude Code's `stream-json` and hook schemas. A parser unit test, an integration test with `scripts/fake-claude.sh`, and occasional real-CLI smoke runs catch changes.

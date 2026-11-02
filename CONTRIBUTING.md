@@ -1,6 +1,6 @@
 # Contributing to Bantu
 
-Thanks for helping. Bantu is early (milestone M0), so the fastest way to help is to
+Thanks for helping. Bantu is early (milestone M1), so the fastest way to help is to
 try it, open issues, and pick up anything labelled `good first issue`.
 
 ## Setup
@@ -10,11 +10,15 @@ macOS and Linux are supported; Windows comes later.
 
 ```sh
 git clone https://github.com/Sreenivas1323/bantu && cd bantu
-cargo run -p bantud                 # daemon on 127.0.0.1:47800
-bun install && bun run dev:web      # web UI (Vite dev server)
+bun install
+BANTU_CLAUDE_BIN=$PWD/scripts/fake-claude.sh cargo run -p bantud   # daemon on 127.0.0.1:47800
+bun run dev:web                                                     # web UI with hot reload
 ```
 
-`bantud --print-token` prints the local auth token the web UI asks for.
+`scripts/fake-claude.sh` stands in for Claude Code so UI work costs nothing; drop
+`BANTU_CLAUDE_BIN` to use your real `claude` CLI. `bantud --print-token` prints the local
+auth token the web UI asks for. The integration tests in `crates/daemon/tests/api.rs`
+use the same fake.
 
 ## Before you open a PR
 
@@ -30,7 +34,8 @@ CI runs the same checks on macOS and Ubuntu.
 ## Changing the protocol
 
 Wire types live in `crates/protocol/src/lib.rs`. After changing them, regenerate the
-TypeScript bindings and update `docs/PROTOCOL.md` in the same PR:
+TypeScript bindings, export any new type from `packages/protocol/src/index.ts` (a test
+checks this), and update `docs/PROTOCOL.md` in the same PR:
 
 ```sh
 cargo test -p bantu-protocol    # writes packages/protocol/src/generated/*.ts
