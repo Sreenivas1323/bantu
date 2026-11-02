@@ -122,6 +122,10 @@ impl Daemon {
             Command::WorkspaceRun { workspace_id } => {
                 serde_json::to_value(self.run_workspace(&workspace_id).await?)
             }
+            Command::WorkspaceFixChecks {
+                workspace_id,
+                session_id,
+            } => serde_json::to_value(self.fix_checks(&workspace_id, &session_id).await?),
             Command::WorkspaceCreatePr {
                 workspace_id,
                 session_id,

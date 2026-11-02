@@ -435,6 +435,13 @@ pub enum Command {
     /// Start the repo's run script, or return it if it's already running.
     #[serde(rename = "workspace.run")]
     WorkspaceRun { workspace_id: String },
+    /// Collect the PR's failing checks (with failed-job logs from GitHub
+    /// Actions) and ask the session's agent to fix them.
+    #[serde(rename = "workspace.fix_checks")]
+    WorkspaceFixChecks {
+        workspace_id: String,
+        session_id: String,
+    },
     /// Ask the session's agent to commit, push and open a pull request.
     #[serde(rename = "workspace.create_pr")]
     WorkspaceCreatePr {

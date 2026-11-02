@@ -108,6 +108,10 @@ export function WorkspaceView({
               if (!active) return;
               if (await run({ type: "workspace.create_pr", workspace_id: workspace.id, session_id: active.id })) setTab("chat");
             }}
+            onFixChecks={async () => {
+              if (!active) return;
+              if (await run({ type: "workspace.fix_checks", workspace_id: workspace.id, session_id: active.id })) setTab("chat");
+            }}
           />
         )}
         {canArchive &&

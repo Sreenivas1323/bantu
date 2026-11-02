@@ -50,7 +50,8 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Codex driver (`codex exec --json`, resumed by thread id; sandbox per permission mode) — not yet verified against the live service
 - [ ] Generic ACP driver (OpenCode, Cursor, Gemini)
 - [ ] Terminal driver; switch chat ⇄ terminal in the same conversation
-- [ ] Checks view: git status, `gh pr checks`, Actions logs; forward failures to the agent
+- [x] Fix failing checks: `gh pr checks` + failed-step logs from GitHub Actions (cleaned, last 120 lines) sent to the agent in one click
+- [ ] Full checks tab (deployments, PR comments, todos)
 - [ ] Per-repo prompts: review, create PR, fix errors, resolve conflicts, rename branch
 - [ ] Bantu MCP server injected into every session (diff, comments, terminal, notify)
 - [ ] Model picker (done) and loadouts; effort/fast mode; several chats per workspace (done); fork a chat

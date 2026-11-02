@@ -8,6 +8,7 @@ export function GitStatus({
   canCreatePr,
   createPrBlocked,
   onCreatePr,
+  onFixChecks,
 }: {
   diff: WorkspaceDiff | null;
   pr: PullRequest | null;
@@ -15,6 +16,7 @@ export function GitStatus({
   /** Why Create PR is unavailable, shown as its tooltip. */
   createPrBlocked?: string;
   onCreatePr: () => Promise<void>;
+  onFixChecks: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   return (
@@ -38,7 +40,26 @@ export function GitStatus({
           <span>#{pr.number}</span>
           <Checks pr={pr} />
         </a>
-      ) : (
+      ) : null}
+      {pr && pr.state === "OPEN" && pr.checks_failing > 0 && (
+        <button
+          type="button"
+          disabled={!canCreatePr || busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await onFixChecks();
+            } finally {
+              setBusy(false);
+            }
+          }}
+          title="Send the failing checks and their logs to the agent"
+          className="rounded-md border border-bad/50 px-2.5 py-1 text-bad hover:bg-bad/10 disabled:opacity-40"
+        >
+          Fix checks
+        </button>
+      )}
+      {pr ? null : (
         <button
           type="button"
           disabled={!canCreatePr || busy}

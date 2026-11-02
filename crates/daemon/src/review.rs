@@ -144,6 +144,63 @@ impl Daemon {
         self.send_message(session_id, prompt).await
     }
 
+    pub async fn fix_checks(
+        self: &Arc<Self>,
+        workspace_id: &str,
+        session_id: &str,
+    ) -> CmdResult<Session> {
+        let ws = self.require_workspace(workspace_id).await?;
+        let repo = self
+            .store
+            .repo(&ws.repo_id)
+            .await?
+            .ok_or_else(|| CommandError::NotFound(format!("no repository {}", ws.repo_id)))?;
+        let out = gh(
+            &repo.root_path,
+            &[
+                "pr",
+                "checks",
+                &ws.branch,
+                "--json",
+                "name,bucket,link,workflow,description",
+            ],
+        )
+        .await;
+        // `gh pr checks` exits 8 while checks are pending but still prints JSON.
+        let checks: Vec<Value> = out
+            .as_deref()
+            .and_then(|o| serde_json::from_str(o).ok())
+            .ok_or_else(|| {
+                CommandError::BadRequest("this branch has no pull request with checks".into())
+            })?;
+        let failing: Vec<&Value> = checks.iter().filter(|c| c["bucket"] == "fail").collect();
+        if failing.is_empty() {
+            return Err(CommandError::BadRequest("no checks are failing".into()));
+        }
+        let mut sections = Vec::new();
+        for check in failing.iter().take(MAX_CHECKS_WITH_LOGS) {
+            let log = match actions_job(check["link"].as_str().unwrap_or("")) {
+                Some((run, job)) => gh(
+                    &repo.root_path,
+                    &["run", "view", &run, "--job", &job, "--log-failed"],
+                )
+                .await
+                .map(|l| tail_lines(&clean_actions_log(&l), LOG_TAIL_LINES)),
+                None => None,
+            };
+            sections.push(FailingCheck {
+                name: check["name"].as_str().unwrap_or("check").to_string(),
+                workflow: check["workflow"].as_str().unwrap_or("").to_string(),
+                link: check["link"].as_str().unwrap_or("").to_string(),
+                description: check["description"].as_str().unwrap_or("").to_string(),
+                log,
+            });
+        }
+        let more = failing.len().saturating_sub(MAX_CHECKS_WITH_LOGS);
+        self.send_message(session_id, fix_checks_message(&ws.branch, &sections, more))
+            .await
+    }
+
     /// The open (or most recent) PR for the workspace's branch, if any.
     pub async fn pull_request(&self, workspace_id: &str) -> CmdResult<Option<PullRequest>> {
         let ws = self.require_workspace(workspace_id).await?;
@@ -178,6 +235,111 @@ impl Daemon {
         let v: Value = serde_json::from_slice(&out.stdout).map_err(anyhow::Error::from)?;
         Ok(parse_pr(&v))
     }
+}
+
+const MAX_CHECKS_WITH_LOGS: usize = 5;
+const LOG_TAIL_LINES: usize = 120;
+
+struct FailingCheck {
+    name: String,
+    workflow: String,
+    link: String,
+    description: String,
+    log: Option<String>,
+}
+
+/// Runs `gh` in `dir`; `None` if it's missing or produced nothing usable.
+async fn gh(dir: &str, args: &[&str]) -> Option<String> {
+    let out = tokio::process::Command::new("gh")
+        .args(args)
+        .current_dir(dir)
+        .env("GH_PROMPT_DISABLED", "1")
+        .output()
+        .await
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    (!stdout.trim().is_empty()).then_some(stdout)
+}
+
+/// `(run_id, job_id)` from a GitHub Actions job URL.
+fn actions_job(link: &str) -> Option<(String, String)> {
+    let rest = link.split("/actions/runs/").nth(1)?;
+    let mut parts = rest.split('/');
+    let run = parts.next()?.to_string();
+    (parts.next()? == "job").then_some(())?;
+    let job = parts.next()?.split(['?', '#']).next()?.to_string();
+    Some((run, job))
+}
+
+/// `gh run view --log-failed` prefixes every line with job, step and a
+/// timestamp, and keeps ANSI colors; the agent only needs the message.
+fn clean_actions_log(raw: &str) -> String {
+    raw.lines()
+        .map(|line| {
+            let msg = line.splitn(3, '\t').nth(2).unwrap_or(line);
+            // "2026-11-02T06:00:34.6455480Z message"
+            let msg = match msg.split_once(' ') {
+                Some((ts, rest))
+                    if ts.len() > 20 && ts.ends_with('Z') && ts.as_bytes()[4] == b'-' =>
+                {
+                    rest
+                }
+                _ => msg,
+            };
+            strip_ansi(msg)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            // Skip parameters until the final byte (a letter).
+            for c in chars.by_ref() {
+                if c.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn tail_lines(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(n)..].join("\n")
+}
+
+fn fix_checks_message(branch: &str, checks: &[FailingCheck], more: usize) -> String {
+    let mut msg = format!(
+        "CI checks are failing on the pull request for `{branch}`. Find the cause, fix it, \
+         run the relevant checks locally if you can, then commit and push.\n"
+    );
+    for c in checks {
+        let title = if c.workflow.is_empty() {
+            c.name.clone()
+        } else {
+            format!("{} / {}", c.workflow, c.name)
+        };
+        msg.push_str(&format!("\n### {title}\n{}\n", c.link));
+        if !c.description.is_empty() {
+            msg.push_str(&format!("{}\n", c.description));
+        }
+        match &c.log {
+            Some(log) => msg.push_str(&format!("\nFailed steps (last lines):\n```\n{log}\n```\n")),
+            None => msg.push_str("(No log available; open the link above.)\n"),
+        }
+    }
+    if more > 0 {
+        msg.push_str(&format!("\n…and {more} more failing check(s) not shown.\n"));
+    }
+    msg
 }
 
 fn review_message(comments: &[DiffComment]) -> String {
@@ -363,6 +525,37 @@ Binary files /dev/null and b/logo.png differ
             (2, 1, 1)
         );
         assert_eq!(pr.review_decision, None);
+    }
+
+    #[test]
+    fn finds_actions_jobs_and_builds_fix_prompt() {
+        assert_eq!(
+            actions_job("https://github.com/o/r/actions/runs/123/job/456?pr=7"),
+            Some(("123".into(), "456".into()))
+        );
+        assert_eq!(actions_job("https://vercel.com/o/r/deployments/x"), None);
+        let msg = fix_checks_message(
+            "bantu/fix-login",
+            &[FailingCheck {
+                name: "Rust (macos-latest)".into(),
+                workflow: "CI".into(),
+                link: "https://x/1".into(),
+                description: String::new(),
+                log: Some("error: test failed".into()),
+            }],
+            2,
+        );
+        assert!(msg.contains("`bantu/fix-login`"));
+        assert!(msg.contains("### CI / Rust (macos-latest)"));
+        assert!(msg.contains("```\nerror: test failed\n```"));
+        assert!(msg.contains("and 2 more failing check(s)"));
+        assert_eq!(tail_lines("a\nb\nc", 2), "b\nc");
+        let raw = "Rust (macos)\tRun cargo test\t2026-11-02T06:00:34.6346140Z \u{1b}[1m\u{1b}[91merror\u{1b}[0m: test failed\n\
+                   Rust (macos)\tRun cargo test\t2026-11-02T06:00:34.6455480Z ##[error]Process completed";
+        assert_eq!(
+            clean_actions_log(raw),
+            "error: test failed\n##[error]Process completed"
+        );
     }
 
     #[test]
