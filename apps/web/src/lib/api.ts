@@ -5,6 +5,7 @@ import type {
   Health,
   PullRequest,
   StateSnapshot,
+  StreamDelta,
   WorkspaceDiff,
 } from "@bantu/protocol";
 import type { Connection } from "./connection.ts";
@@ -85,7 +86,13 @@ export class DaemonClient {
   }
 
   /** Opens the SSE stream from `since`. Returns a function that closes it. */
-  events(since: number, onEvent: (ev: Event) => void, onError: () => void, onOpen: () => void) {
+  events(
+    since: number,
+    onEvent: (ev: Event) => void,
+    onError: () => void,
+    onOpen: () => void,
+    onDelta: (d: StreamDelta) => void = () => {},
+  ) {
     const qs = new URLSearchParams({ since: String(since), token: this.conn.token });
     const source = new EventSource(this.url(`/v1/events?${qs}`));
     source.onopen = onOpen;
@@ -96,6 +103,14 @@ export class DaemonClient {
         // Ignore malformed frames; keepalives are SSE comments and never reach here.
       }
     };
+    // Live text fragments: separate SSE event name, no seq, never replayed.
+    source.addEventListener("delta", (msg) => {
+      try {
+        onDelta(JSON.parse((msg as MessageEvent<string>).data) as StreamDelta);
+      } catch {
+        // Ignore malformed frames.
+      }
+    });
     source.onerror = () => {
       // We reconnect ourselves so the resume point is always our own last seq.
       source.close();

@@ -10,7 +10,7 @@ import type {
   Workspace,
 } from "@bantu/protocol";
 import type { DaemonClient } from "../lib/api.ts";
-import type { ChatEntry, LogLine } from "../lib/store.ts";
+import type { ChatEntry, DaemonState, LogLine } from "../lib/store.ts";
 import { useWorkspaceGit } from "../lib/useWorkspaceGit.ts";
 import { ChangesPanel } from "./changes/ChangesPanel.tsx";
 import { ChatPanel } from "./chat/ChatPanel.tsx";
@@ -28,6 +28,7 @@ export function WorkspaceView({
   logs,
   sessions,
   chat,
+  streaming,
   comments,
   terminals,
   permissions,
@@ -40,6 +41,7 @@ export function WorkspaceView({
   logs: LogLine[];
   sessions: Session[];
   chat: Record<string, ChatEntry[]>;
+  streaming: DaemonState["streaming"];
   /** This workspace's diff comments. */
   comments: DiffComment[];
   /** This workspace's terminals, oldest first. */
@@ -173,6 +175,7 @@ export function WorkspaceView({
           active={active}
           onSelect={setActiveId}
           chat={chat}
+          streaming={streaming}
           permissions={permissions}
           run={run}
         />

@@ -93,6 +93,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             logs={state.logs[selected.id] ?? []}
             sessions={sessionsByWorkspace[selected.id] ?? []}
             chat={state.chat}
+            streaming={state.streaming}
             comments={Object.values(state.comments).filter((c) => c.workspace_id === selected.id)}
             permissions={Object.values(state.permissions).filter((p) => p.workspace_id === selected.id)}
             terminals={Object.values(state.terminals)

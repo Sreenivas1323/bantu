@@ -10,11 +10,14 @@ type ToolResult = Extract<ChatItem, { kind: "tool_result" }>;
 export function Transcript({
   entries,
   session,
+  streaming,
   workspacePath,
   onRewind,
 }: {
   entries: ChatEntry[];
   session: Session;
+  /** Assistant text arriving live, before the complete item lands. */
+  streaming?: { turn: number; text: string };
   workspacePath: string;
   /** Restore files to the checkpoint taken just before `turn`. */
   onRewind: (turn: number) => Promise<void>;
@@ -39,7 +42,7 @@ export function Transcript({
   useEffect(() => {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [entries, running]);
+  }, [entries, running, streaming?.text]);
   useEffect(() => {
     stick.current = true;
   }, [session.id]);
@@ -69,6 +72,12 @@ export function Transcript({
             ))}
           </section>
         ))}
+        {running && streaming && streaming.text && (
+          <div aria-live="polite">
+            {/* The caret rides at the end of the text so it sits inline even inside lists. */}
+            <Markdown text={`${streaming.text}\u2009▍`} />
+          </div>
+        )}
         {running && <Working queued={session.queued} />}
       </div>
     </div>

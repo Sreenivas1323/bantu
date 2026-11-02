@@ -7,6 +7,7 @@ import type {
   Repo,
   Session,
   StateSnapshot,
+  StreamDelta,
   Terminal,
   Workspace,
 } from "@bantu/protocol";
@@ -30,6 +31,8 @@ export type DaemonState = {
   terminals: Record<string, Terminal>;
   /** Tool calls waiting for the user to allow or deny, by request id. */
   permissions: Record<string, PermissionRequest>;
+  /** Assistant text still being written, per session. Cleared when the full item lands. */
+  streaming: Record<string, { turn: number; text: string }>;
 };
 
 export const emptyState: DaemonState = {
@@ -43,6 +46,7 @@ export const emptyState: DaemonState = {
   comments: {},
   terminals: {},
   permissions: {},
+  streaming: {},
 };
 
 export type Action =
@@ -50,6 +54,7 @@ export type Action =
   | { type: "event"; event: Event }
   /** Older events for one workspace, merged into logs and transcripts by seq. */
   | { type: "history"; events: Event[] }
+  | { type: "delta"; delta: StreamDelta }
   | { type: "reset" };
 
 export function reducer(state: DaemonState, action: Action): DaemonState {
@@ -70,12 +75,19 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         // History isn't in the snapshot; it's backfilled per workspace.
         logs: state.logs,
         chat: state.chat,
+        streaming: state.streaming,
       };
     }
     case "event":
       return applyEvent(state, action.event);
     case "history":
       return mergeHistory(state, action.events);
+    case "delta": {
+      const { session_id, turn, text } = action.delta;
+      const prev = state.streaming[session_id];
+      const sofar = prev && prev.turn === turn ? prev.text : "";
+      return { ...state, streaming: { ...state.streaming, [session_id]: { turn, text: sofar + text } } };
+    }
   }
 }
 
@@ -138,8 +150,10 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
       return { ...next, sessions: { ...state.sessions, [data.session.id]: data.session } };
     case "session.item": {
       const prev = state.chat[data.session_id] ?? [];
+      // Any real item means the streamed text has been delivered in full.
+      const { [data.session_id]: _streamed, ...streaming } = state.streaming;
       const entry: ChatEntry = { seq: ev.seq, ts: ev.ts, turn: data.turn, item: data.item };
-      return { ...next, chat: { ...state.chat, [data.session_id]: [...prev, entry] } };
+      return { ...next, streaming, chat: { ...state.chat, [data.session_id]: [...prev, entry] } };
     }
     case "comment.updated":
       return { ...next, comments: { ...state.comments, [data.comment.id]: data.comment } };

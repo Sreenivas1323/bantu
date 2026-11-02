@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Command, CommandResponse, PermissionRequest, Session, Workspace } from "@bantu/protocol";
-import type { ChatEntry } from "../../lib/store.ts";
+import type { ChatEntry, DaemonState } from "../../lib/store.ts";
 import { Composer } from "./Composer.tsx";
 import { PermissionCard } from "./PermissionCard.tsx";
 import { Transcript } from "./Transcript.tsx";
@@ -13,6 +13,7 @@ export function ChatPanel({
   active,
   onSelect: setActiveId,
   chat,
+  streaming,
   permissions,
   run,
 }: {
@@ -23,6 +24,7 @@ export function ChatPanel({
   active: Session | undefined;
   onSelect: (sessionId: string) => void;
   chat: Record<string, ChatEntry[]>;
+  streaming: DaemonState["streaming"];
   /** Pending permission requests for this workspace. */
   permissions: PermissionRequest[];
   run: Run;
@@ -100,6 +102,7 @@ export function ChatPanel({
       <Transcript
         entries={chat[active.id] ?? []}
         session={active}
+        streaming={streaming[active.id]}
         workspacePath={workspace.path}
         onRewind={async (turn) => {
           await run({ type: "session.rewind", session_id: active.id, turn });

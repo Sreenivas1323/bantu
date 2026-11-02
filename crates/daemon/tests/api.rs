@@ -168,6 +168,10 @@ impl Harness {
             buf.push_str(&String::from_utf8_lossy(&chunk));
             while let Some(end) = buf.find("\n\n") {
                 let frame: String = buf.drain(..end + 2).collect();
+                // Live text deltas aren't log events; `deltas()` covers them.
+                if frame.lines().any(|l| l == "event: delta") {
+                    continue;
+                }
                 for line in frame.lines() {
                     if let Some(data) = line.strip_prefix("data:") {
                         out.push(serde_json::from_str(data.trim()).unwrap());
@@ -1082,4 +1086,87 @@ async fn permission_prompts() {
         .await
         .unwrap();
     assert_eq!(res.status(), 401);
+}
+
+#[tokio::test]
+async fn streams_text_deltas_live() {
+    let h = Harness::start().await;
+    let (_fixture, clone) = fixture();
+    let (_, body) = h
+        .command(json!({"type": "repo.add", "path": clone}), None)
+        .await;
+    let repo_id = body["result"]["id"].as_str().unwrap().to_string();
+    let (_, body) = h
+        .command(
+            json!({"type": "workspace.create", "repo_id": repo_id}),
+            None,
+        )
+        .await;
+    let ws: Workspace = serde_json::from_value(body["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws.id)
+        {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+
+    // Subscribe first: deltas are only delivered to connected clients.
+    let since = h.state().await.last_seq;
+    let res = h
+        .http
+        .get(format!(
+            "{}/v1/events?since={since}&token={}",
+            h.base, h.token
+        ))
+        .send()
+        .await
+        .unwrap();
+    let mut stream = res.bytes_stream();
+    h.command(
+        json!({"type": "session.send", "session_id": session.id, "text": "stream it"}),
+        None,
+    )
+    .await;
+
+    let mut buf = String::new();
+    let mut deltas = Vec::new();
+    while deltas.len() < 2 {
+        let chunk = tokio::time::timeout(Duration::from_secs(10), stream.next())
+            .await
+            .expect("timed out waiting for deltas")
+            .unwrap()
+            .unwrap();
+        buf.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(end) = buf.find("\n\n") {
+            let frame: String = buf.drain(..end + 2).collect();
+            if frame.lines().any(|l| l == "event: delta") {
+                let data = frame.lines().find_map(|l| l.strip_prefix("data:")).unwrap();
+                let d: Value = serde_json::from_str(data.trim()).unwrap();
+                assert_eq!(d["session_id"], json!(session.id));
+                assert!(
+                    frame.lines().all(|l| !l.starts_with("id:")),
+                    "deltas carry no seq"
+                );
+                deltas.push(d["text"].as_str().unwrap().to_string());
+            }
+        }
+    }
+    assert_eq!(deltas.concat(), "echo: ");
+
+    // Deltas never enter the log; the full text arrives as a normal item.
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(items.contains(&ChatItem::Assistant {
+        text: "echo: stream it".into()
+    }));
 }

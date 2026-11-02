@@ -303,6 +303,18 @@ pub struct Terminal {
     pub created_at: String,
 }
 
+/// A fragment of assistant text as the model writes it. Sent only on the live
+/// stream as SSE `event: delta` (never stored or replayed); the complete text
+/// arrives afterwards as a normal `ChatItem::Assistant`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct StreamDelta {
+    pub session_id: String,
+    pub workspace_id: String,
+    pub turn: u32,
+    pub text: String,
+}
+
 /// An agent waiting for the user to allow or deny a tool call.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
@@ -563,6 +575,7 @@ mod tests {
             "Session",
             "SessionStatus",
             "StateSnapshot",
+            "StreamDelta",
             "Terminal",
             "TerminalKind",
             "Workspace",

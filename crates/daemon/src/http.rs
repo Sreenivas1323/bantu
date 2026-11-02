@@ -349,6 +349,25 @@ async fn get_events(
     let (tx, rx) = mpsc::channel::<Result<SseEvent, Infallible>>(256);
     let daemon = state.daemon.clone();
 
+    // Deltas are fire-and-forget: forwarded while connected, never replayed.
+    let mut deltas = daemon.subscribe_deltas();
+    let delta_tx = tx.clone();
+    tokio::spawn(async move {
+        loop {
+            match deltas.recv().await {
+                Ok(d) => {
+                    let ev = SseEvent::default()
+                        .event("delta")
+                        .data(serde_json::to_string(&d).unwrap_or_default());
+                    if delta_tx.send(Ok(ev)).await.is_err() {
+                        return;
+                    }
+                }
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => return,
+            }
+        }
+    });
     tokio::spawn(async move {
         let mut live = daemon.store.subscribe();
         let mut last = since;

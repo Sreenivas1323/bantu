@@ -12,7 +12,8 @@ use std::sync::Arc;
 use anyhow::{anyhow, Context};
 use bantu_git as git;
 use bantu_protocol::{
-    AgentKind, ChatItem, PermissionMode, Session, SessionStatus, Workspace, WorkspaceState,
+    AgentKind, ChatItem, PermissionMode, Session, SessionStatus, StreamDelta, Workspace,
+    WorkspaceState,
 };
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -26,9 +27,19 @@ const MAX_TOOL_RESULT_CHARS: usize = 20_000;
 const DEFAULT_TITLE: &str = "New chat";
 
 /// In-memory state for sessions with a turn in flight.
-#[derive(Default)]
 pub struct Running {
     turns: Mutex<HashMap<String, RunningSession>>,
+    /// Live text fragments; never persisted.
+    deltas: tokio::sync::broadcast::Sender<StreamDelta>,
+}
+
+impl Default for Running {
+    fn default() -> Self {
+        Self {
+            turns: Mutex::new(HashMap::new()),
+            deltas: tokio::sync::broadcast::channel(1024).0,
+        }
+    }
 }
 
 struct RunningSession {
@@ -243,6 +254,10 @@ impl Daemon {
         }
     }
 
+    pub fn subscribe_deltas(&self) -> tokio::sync::broadcast::Receiver<StreamDelta> {
+        self.running.deltas.subscribe()
+    }
+
     /// Stops every session in a workspace (used before archiving).
     pub async fn cancel_workspace_sessions(&self, workspace_id: &str) -> anyhow::Result<()> {
         for s in self.store.sessions().await? {
@@ -359,6 +374,7 @@ impl Daemon {
 
         let mut cmd = tokio::process::Command::new(&self.config.claude_bin);
         cmd.args(["-p", "--output-format", "stream-json", "--verbose"])
+            .arg("--include-partial-messages")
             .args(["--permission-prompts", "none"])
             .args([
                 "--permission-mode",
@@ -412,6 +428,15 @@ impl Daemon {
                 line = lines.next_line() => {
                     let Some(line) = line? else { break };
                     let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+                    if let Some(text) = text_delta(&v) {
+                        let _ = self.running.deltas.send(StreamDelta {
+                            session_id: s.id.clone(),
+                            workspace_id: s.workspace_id.clone(),
+                            turn,
+                            text,
+                        });
+                        continue;
+                    }
                     for item in parse_stream_line(&v) {
                         if let ChatItem::TurnEnd { cost_usd, .. } = &item {
                             cost = cost_usd.unwrap_or(0.0);
@@ -532,6 +557,18 @@ fn title_from(text: &str) -> String {
     } else {
         title
     }
+}
+
+/// Text fragment from a top-level `--include-partial-messages` event.
+/// Subagent output (`parent_tool_use_id` set) isn't streamed.
+fn text_delta(v: &Value) -> Option<String> {
+    if v["type"] != "stream_event" || !v["parent_tool_use_id"].is_null() {
+        return None;
+    }
+    let delta = &v["event"]["delta"];
+    (v["event"]["type"] == "content_block_delta" && delta["type"] == "text_delta")
+        .then(|| delta["text"].as_str().map(str::to_string))
+        .flatten()
 }
 
 /// Maps one line of Claude's `stream-json` output to transcript items.
@@ -665,6 +702,13 @@ mod tests {
         );
 
         assert!(parse_stream_line(&json!({"type":"system","subtype":"init"})).is_empty());
+
+        let delta = json!({"type":"stream_event","parent_tool_use_id":null,
+            "event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Riv"}}});
+        assert_eq!(text_delta(&delta).as_deref(), Some("Riv"));
+        let sub = json!({"type":"stream_event","parent_tool_use_id":"toolu_1",
+            "event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"x"}}});
+        assert_eq!(text_delta(&sub), None);
     }
 
     #[test]

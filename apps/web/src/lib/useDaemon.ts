@@ -62,6 +62,7 @@ export function useDaemon(conn: Connection) {
             attempt = 0;
             setStatus("live");
           },
+          (delta) => dispatch({ type: "delta", delta }),
         );
       } catch (err) {
         if (cancelled) return;

@@ -30,7 +30,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Normalized agent events in the protocol (`ChatItem`)
 - [x] Claude sessions, driving the user's own `claude` CLI (stream-json, one process per turn, resumed by id — no sidecar needed):
   - [x] tool-call cards paired with results; Markdown answers; thinking
-  - [ ] token-by-token streaming (`--include-partial-messages`)
+  - [x] token-by-token streaming (`--include-partial-messages` → SSE `event: delta`, never stored)
   - [x] message queue
   - [x] plan mode and other permission modes
   - [x] permission prompts answered from the UI (Claude `PermissionRequest` HTTP hook → approval card; new "Ask first" mode)
