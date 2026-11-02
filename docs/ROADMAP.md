@@ -47,7 +47,8 @@ Feature-by-feature status against Conductor and Pane lives in
 ## M2 — Conductor parity (weeks 4–5)
 
 - [x] Per-turn checkpoints in private refs; rewind code (the agent is told; Claude has no partial-conversation rewind)
-- [ ] Codex driver (`codex app-server`) and generic ACP driver (OpenCode, Cursor, Gemini)
+- [x] Codex driver (`codex exec --json`, resumed by thread id; sandbox per permission mode) — not yet verified against the live service
+- [ ] Generic ACP driver (OpenCode, Cursor, Gemini)
 - [ ] Terminal driver; switch chat ⇄ terminal in the same conversation
 - [ ] Checks view: git status, `gh pr checks`, Actions logs; forward failures to the agent
 - [ ] Per-repo prompts: review, create PR, fix errors, resolve conflicts, rename branch

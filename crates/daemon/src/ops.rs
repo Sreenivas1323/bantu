@@ -72,10 +72,11 @@ impl Daemon {
             }
             Command::SessionCreate {
                 workspace_id,
+                agent,
                 model,
                 permission_mode,
             } => serde_json::to_value(
-                self.create_session(&workspace_id, model, permission_mode)
+                self.create_session(&workspace_id, agent, model, permission_mode)
                     .await?,
             ),
             Command::SessionSend { session_id, text } => {
@@ -350,7 +351,7 @@ impl Daemon {
         }
         // Every ready workspace starts with one chat, like opening a new tab.
         if ws.state == WorkspaceState::Ready {
-            if let Err(e) = self.create_session(&ws.id, None, None).await {
+            if let Err(e) = self.create_session(&ws.id, None, None, None).await {
                 tracing::error!("failed to create session for {}: {e:#}", ws.id);
             }
         }

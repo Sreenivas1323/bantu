@@ -10,7 +10,10 @@ const MODES: { value: PermissionMode; label: string }[] = [
   { value: "bypass_permissions", label: "Bypass permissions" },
 ];
 
-const MODELS = ["opus", "sonnet", "haiku"];
+const MODELS: Record<Session["agent"], string[]> = {
+  claude: ["opus", "sonnet", "haiku"],
+  codex: ["gpt-5-codex", "gpt-5"],
+};
 const CUSTOM = "__custom__";
 
 export function Composer({
@@ -70,7 +73,8 @@ export function Composer({
   };
 
   const model = session.model ?? "";
-  const modelOptions = model && !MODELS.includes(model) ? [...MODELS, model] : MODELS;
+  const known = MODELS[session.agent];
+  const modelOptions = model && !known.includes(model) ? [...known, model] : known;
 
   return (
     <div className="border-t border-line bg-panel/60 px-5 pt-3 pb-3">

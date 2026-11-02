@@ -28,6 +28,9 @@ struct Args {
     /// Claude Code CLI used for agent sessions.
     #[arg(long, env = "BANTU_CLAUDE_BIN", default_value = "claude")]
     claude_bin: PathBuf,
+    /// OpenAI Codex CLI used for agent sessions.
+    #[arg(long, env = "BANTU_CODEX_BIN", default_value = "codex")]
+    codex_bin: PathBuf,
     /// Accept non-loopback binds and Host headers. Only use behind an
     /// authenticated tunnel (Tailscale, Cloudflare Tunnel, CloudFront).
     #[arg(long)]
@@ -72,6 +75,7 @@ async fn main() -> Result<()> {
         web_dir: args.web_dir.or_else(default_web_dir),
         branch_prefix: args.branch_prefix,
         claude_bin: args.claude_bin,
+        codex_bin: args.codex_bin,
     };
     let web_dir = config.web_dir.clone();
     let started = bantud::start(config, args.allow_remote).await?;

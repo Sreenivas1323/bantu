@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 
 /// Stands in for Claude Code (see the script for what each prompt does).
 const FAKE_CLAUDE: &str = include_str!("../../../scripts/fake-claude.sh");
+const FAKE_CODEX: &str = include_str!("../../../scripts/fake-codex.sh");
 
 struct Harness {
     base: String,
@@ -43,12 +44,27 @@ impl Harness {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&claude_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
+        let codex_bin = home.path().join("fake-codex");
+        std::fs::write(
+            &codex_bin,
+            FAKE_CODEX.replace(
+                "${BANTU_FAKE_CODEX_LOG:-/dev/null}",
+                home.path().join("codex-calls.log").to_str().unwrap(),
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&codex_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         let config = bantud::Config {
             home: home.path().to_path_buf(),
             workspaces_dir: workspaces.path().to_path_buf(),
             web_dir: None,
             branch_prefix: "bantu/".into(),
             claude_bin,
+            codex_bin,
         };
         let started = bantud::start(config, false).await.unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -87,6 +103,15 @@ impl Harness {
             .json()
             .await
             .unwrap()
+    }
+
+    fn codex_calls(&self) -> Vec<String> {
+        let log = self.claude_calls.with_file_name("codex-calls.log");
+        std::fs::read_to_string(log)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
     }
 
     async fn history(&self, workspace_id: &str) -> Vec<Event> {
@@ -1169,4 +1194,76 @@ async fn streams_text_deltas_live() {
     assert!(items.contains(&ChatItem::Assistant {
         text: "echo: stream it".into()
     }));
+}
+
+#[tokio::test]
+async fn codex_sessions() {
+    let h = Harness::start().await;
+    let (_fixture, clone) = fixture();
+    let (_, body) = h
+        .command(json!({"type": "repo.add", "path": clone}), None)
+        .await;
+    let repo_id = body["result"]["id"].as_str().unwrap().to_string();
+    let (_, body) = h
+        .command(
+            json!({"type": "workspace.create", "repo_id": repo_id}),
+            None,
+        )
+        .await;
+    let ws: Workspace = serde_json::from_value(body["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+
+    let (status, body) = h
+        .command(
+            json!({"type": "session.create", "workspace_id": ws.id, "agent": "codex", "model": null, "permission_mode": "plan"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["result"]["agent"], "codex");
+    let id = body["result"]["id"].as_str().unwrap().to_string();
+    let send = |text: &str| json!({"type": "session.send", "session_id": id, "text": text});
+
+    h.command(send("first task"), None).await;
+    h.wait_session(&id, |s| s.status == SessionStatus::Idle && s.turns == 1)
+        .await;
+    let items = chat(&h.history(&ws.id).await, &id);
+    assert!(matches!(&items[1], ChatItem::ToolUse { name, .. } if name == "Bash"));
+    assert!(matches!(&items[2], ChatItem::ToolResult { content, .. } if content == "README.md"));
+    assert_eq!(
+        items[3],
+        ChatItem::Assistant {
+            text: "codex: first task".into()
+        }
+    );
+    assert!(matches!(
+        items[4],
+        ChatItem::TurnEnd {
+            is_error: false,
+            input_tokens: Some(10),
+            ..
+        }
+    ));
+
+    // The second turn resumes the thread Codex reported.
+    h.command(send("second task"), None).await;
+    h.wait_session(&id, |s| s.status == SessionStatus::Idle && s.turns == 2)
+        .await;
+    let calls = h.codex_calls();
+    assert!(
+        calls[0].starts_with("exec --json --sandbox read-only -"),
+        "{}",
+        calls[0]
+    );
+    assert!(
+        calls[0].contains("| You are running inside Bantu"),
+        "first turn is briefed: {}",
+        calls[0]
+    );
+    assert!(
+        calls[1].starts_with("exec resume th_fake --json"),
+        "{}",
+        calls[1]
+    );
+    assert!(calls[1].ends_with("| second task"), "{}", calls[1]);
 }

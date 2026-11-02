@@ -83,7 +83,27 @@ pub struct Workspace {
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum AgentKind {
+    /// Claude Code (`claude`), using the user's own login.
     Claude,
+    /// OpenAI Codex CLI (`codex exec --json`), using the user's own login.
+    Codex,
+}
+
+impl AgentKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "claude" => Self::Claude,
+            "codex" => Self::Codex,
+            _ => return None,
+        })
+    }
 }
 
 /// How much the agent may do without asking. Anything that needs approval
@@ -354,6 +374,9 @@ pub enum Command {
     #[serde(rename = "session.create")]
     SessionCreate {
         workspace_id: String,
+        /// Defaults to Claude.
+        #[serde(default)]
+        agent: Option<AgentKind>,
         model: Option<String>,
         permission_mode: Option<PermissionMode>,
     },

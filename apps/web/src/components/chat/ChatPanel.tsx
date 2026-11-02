@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Command, CommandResponse, PermissionRequest, Session, Workspace } from "@bantu/protocol";
+import type { AgentKind, Command, CommandResponse, PermissionRequest, Session, Workspace } from "@bantu/protocol";
 import type { ChatEntry, DaemonState } from "../../lib/store.ts";
 import { Composer } from "./Composer.tsx";
 import { PermissionCard } from "./PermissionCard.tsx";
@@ -39,8 +39,8 @@ export function ChatPanel({
   }, [pendingNew, sessions]);
 
   const ready = workspace.state === "ready";
-  const newChat = async () => {
-    const res = await run({ type: "session.create", workspace_id: workspace.id, model: null, permission_mode: null });
+  const newChat = async (agent: AgentKind) => {
+    const res = await run({ type: "session.create", workspace_id: workspace.id, agent, model: null, permission_mode: null });
     const created = res?.result as Session | undefined;
     if (created?.id) setPendingNew(created.id);
   };
@@ -51,9 +51,14 @@ export function ChatPanel({
         {ready ? (
           <div>
             <p>No chat in this workspace yet.</p>
-            <button type="button" onClick={() => void newChat()} className="mt-3 rounded-md bg-accent px-3 py-1.5 font-medium text-bg">
-              Start a chat
-            </button>
+            <div className="mt-3 flex justify-center gap-2">
+              <button type="button" onClick={() => void newChat("claude")} className="rounded-md bg-accent px-3 py-1.5 font-medium text-bg">
+                Start a Claude chat
+              </button>
+              <button type="button" onClick={() => void newChat("codex")} className="rounded-md border border-line px-3 py-1.5 text-muted hover:text-fg">
+                Codex
+              </button>
+            </div>
           </div>
         ) : (
           <p>The chat opens once the workspace is ready.</p>
@@ -84,18 +89,25 @@ export function ChatPanel({
                 ) : (
                   s.status === "running" && <span aria-label="running" className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
                 )}
+                {s.agent === "codex" && <span className="shrink-0 text-[10.5px] uppercase tracking-wide text-faint">codex</span>}
                 <span className="truncate">{s.title}</span>
               </button>
             ))}
           {ready && (
-            <button
-              type="button"
-              onClick={() => void newChat()}
-              className="ml-1 shrink-0 rounded px-2 py-1 text-muted hover:bg-raised hover:text-fg"
-              title="New chat in this workspace"
-            >
-              + New chat
-            </button>
+            <span className="ml-1 flex shrink-0 items-center gap-0.5 text-muted">
+              <span className="px-1">+ New chat:</span>
+              {(["claude", "codex"] as const).map((agent) => (
+                <button
+                  key={agent}
+                  type="button"
+                  onClick={() => void newChat(agent)}
+                  className="rounded px-2 py-1 capitalize hover:bg-raised hover:text-fg"
+                  title={`New ${agent === "claude" ? "Claude Code" : "Codex"} chat in this workspace (uses your own ${agent} login)`}
+                >
+                  {agent}
+                </button>
+              ))}
+            </span>
           )}
         </div>
       )}

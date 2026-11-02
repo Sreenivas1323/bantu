@@ -1,5 +1,6 @@
 //! The Bantu daemon (`bantud`). See `docs/ARCHITECTURE.md`.
 
+pub mod codex;
 pub mod http;
 pub mod names;
 pub mod ops;
@@ -29,6 +30,8 @@ pub struct Config {
     pub branch_prefix: String,
     /// The Claude Code CLI used for agent sessions.
     pub claude_bin: PathBuf,
+    /// The OpenAI Codex CLI used for agent sessions.
+    pub codex_bin: PathBuf,
 }
 
 pub struct Started {

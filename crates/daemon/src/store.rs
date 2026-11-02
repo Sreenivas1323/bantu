@@ -151,7 +151,7 @@ impl Store {
         )
         .bind(&s.id)
         .bind(&s.workspace_id)
-        .bind("claude")
+        .bind(s.agent.as_str())
         .bind(&s.title)
         .bind(&s.model)
         .bind(s.permission_mode.as_str())
@@ -165,6 +165,20 @@ impl Store {
         .await?;
         let data = EventData::SessionUpdated { session: s.clone() };
         self.finish(guard, tx, data).await
+    }
+
+    /// Codex only reveals its thread id once the first turn starts.
+    pub async fn set_agent_session_id(
+        &self,
+        session_id: &str,
+        agent_session_id: &str,
+    ) -> Result<()> {
+        sqlx::query("UPDATE sessions SET agent_session_id = ? WHERE id = ?")
+            .bind(agent_session_id)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn session_item(&self, s: &Session, turn: u32, item: ChatItem) -> Result<Event> {
@@ -512,7 +526,7 @@ fn session_from_row(r: &SqliteRow) -> Result<Session> {
     Ok(Session {
         id: r.get("id"),
         workspace_id: r.get("workspace_id"),
-        agent: AgentKind::Claude,
+        agent: AgentKind::parse(r.get::<&str, _>("agent")).unwrap_or(AgentKind::Claude),
         title: r.get("title"),
         model: r.get("model"),
         permission_mode: PermissionMode::parse(&mode)

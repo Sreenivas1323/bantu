@@ -19,6 +19,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, Notify};
 
+use crate::codex;
 use crate::ops::{new_id, CommandError, Daemon};
 use crate::store::now;
 
@@ -54,6 +55,7 @@ impl Daemon {
     pub async fn create_session(
         &self,
         workspace_id: &str,
+        agent: Option<AgentKind>,
         model: Option<String>,
         permission_mode: Option<PermissionMode>,
     ) -> CmdResult<Session> {
@@ -67,7 +69,7 @@ impl Daemon {
         let session = Session {
             id: new_id(),
             workspace_id: ws.id,
-            agent: AgentKind::Claude,
+            agent: agent.unwrap_or(AgentKind::Claude),
             title: DEFAULT_TITLE.into(),
             model: model.filter(|m| !m.trim().is_empty()),
             permission_mode: permission_mode.unwrap_or_default(),
@@ -372,23 +374,43 @@ impl Daemon {
         let ws = self.require_workspace(&s.workspace_id).await?;
         let resume = self.store.session_has_agent_output(&s.id).await?;
 
-        let mut cmd = tokio::process::Command::new(&self.config.claude_bin);
-        cmd.args(["-p", "--output-format", "stream-json", "--verbose"])
-            .arg("--include-partial-messages")
-            .args(["--permission-prompts", "none"])
-            .args([
-                "--permission-mode",
-                claude_permission_mode(s.permission_mode),
-            ])
-            .args([if resume { "--resume" } else { "--session-id" }, agent_id])
-            .args(["--append-system-prompt", &workspace_context(&ws)]);
-        if let Some(m) = &s.model {
-            cmd.args(["--model", m]);
-        }
-        if let Some(settings) = self.permission_hook_settings(&s.id) {
-            cmd.args(["--settings", &settings])
-                .env("BANTU_HOOK_TOKEN", &self.permissions.hook_token);
-        }
+        let (bin, mut cmd, prompt) = match s.agent {
+            AgentKind::Claude => {
+                let mut cmd = tokio::process::Command::new(&self.config.claude_bin);
+                cmd.args(["-p", "--output-format", "stream-json", "--verbose"])
+                    .arg("--include-partial-messages")
+                    .args(["--permission-prompts", "none"])
+                    .args([
+                        "--permission-mode",
+                        claude_permission_mode(s.permission_mode),
+                    ])
+                    .args([if resume { "--resume" } else { "--session-id" }, agent_id])
+                    .args(["--append-system-prompt", &workspace_context(&ws)]);
+                if let Some(m) = &s.model {
+                    cmd.args(["--model", m]);
+                }
+                if let Some(settings) = self.permission_hook_settings(&s.id) {
+                    cmd.args(["--settings", &settings])
+                        .env("BANTU_HOOK_TOKEN", &self.permissions.hook_token);
+                }
+                (&self.config.claude_bin, cmd, text.to_string())
+            }
+            AgentKind::Codex => {
+                let mut cmd = tokio::process::Command::new(&self.config.codex_bin);
+                cmd.args(codex::args(
+                    s.permission_mode,
+                    s.model.as_deref(),
+                    resume.then_some(agent_id),
+                ));
+                // Codex has no system-prompt flag; brief it on the first turn.
+                let prompt = if resume {
+                    text.to_string()
+                } else {
+                    format!("{}\n\n{text}", workspace_context(&ws))
+                };
+                (&self.config.codex_bin, cmd, prompt)
+            }
+        };
         let mut child = cmd
             .current_dir(&ws.path)
             .env("BANTU_PORT", ws.port_base.to_string())
@@ -403,14 +425,14 @@ impl Daemon {
             .spawn()
             .with_context(|| {
                 format!(
-                    "couldn't start `{}` — is Claude Code installed and on PATH?",
-                    self.config.claude_bin.display()
+                    "couldn't start `{}` — is it installed and on PATH?",
+                    bin.display()
                 )
             })?;
 
         // The prompt goes over stdin so long messages never hit argv limits.
         let mut stdin = child.stdin.take().expect("piped");
-        stdin.write_all(text.as_bytes()).await?;
+        stdin.write_all(prompt.as_bytes()).await?;
         drop(stdin);
 
         let mut stderr = child.stderr.take().expect("piped");
@@ -423,21 +445,38 @@ impl Daemon {
         let mut lines = BufReader::new(child.stdout.take().expect("piped")).lines();
         let mut cost = 0.0;
         let mut saw_result = false;
+        let mut codex = codex::Parser::default();
         loop {
             tokio::select! {
                 line = lines.next_line() => {
                     let Some(line) = line? else { break };
-                    let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
-                    if let Some(text) = text_delta(&v) {
-                        let _ = self.running.deltas.send(StreamDelta {
-                            session_id: s.id.clone(),
-                            workspace_id: s.workspace_id.clone(),
-                            turn,
-                            text,
-                        });
+                    let Ok(v) = serde_json::from_str::<Value>(&line) else {
                         continue;
-                    }
-                    for item in parse_stream_line(&v) {
+                    };
+                    let items = match s.agent {
+                        AgentKind::Claude => {
+                            if let Some(text) = text_delta(&v) {
+                                let _ = self.running.deltas.send(StreamDelta {
+                                    session_id: s.id.clone(),
+                                    workspace_id: s.workspace_id.clone(),
+                                    turn,
+                                    text,
+                                });
+                                continue;
+                            }
+                            parse_stream_line(&v)
+                        }
+                        AgentKind::Codex => {
+                            let items = codex.feed(&v);
+                            if let Some(id) = codex.thread_id.take() {
+                                if id != agent_id {
+                                    self.store.set_agent_session_id(&s.id, &id).await?;
+                                }
+                            }
+                            items
+                        }
+                    };
+                    for item in items {
                         if let ChatItem::TurnEnd { cost_usd, .. } = &item {
                             cost = cost_usd.unwrap_or(0.0);
                             saw_result = true;
@@ -465,7 +504,8 @@ impl Daemon {
                 .rev()
                 .collect();
             return Err(anyhow!(
-                "claude exited ({status}) without finishing the turn. {tail}"
+                "{} exited ({status}) without finishing the turn. {tail}",
+                s.agent.as_str()
             ));
         }
         Ok(cost)
