@@ -58,7 +58,9 @@ on your own AWS account for ≈ $7/month with idle auto-stop, see [docs/AWS.md](
 | Remote daemons, phone/PWA, pairing, AWS one-click | M3 |
 | Orchestration: a chat starts, watches and reviews other workspaces via Bantu's MCP tools | ✅ |
 | Conflict radar: warns when workspaces (or a workspace and its base) will conflict | ✅ |
-| Definition-of-done loop, cross-agent review, orchestrator board | M4 |
+| Definition of done: a repo `check` runs after agent edits; failures go back to the agent | ✅ |
+| One-click review in a read-only chat (Claude or Codex) | ✅ |
+| Orchestrator board, automatic cross-agent review before "Ready" | M4 |
 
 ## Your own cloud, at cost
 
@@ -122,6 +124,8 @@ Configure a repo by adding `.bantu/settings.toml` (an existing `.conductor/setti
 setup = "bun install"                  # runs when a workspace is created
 run = "bun dev --port $BANTU_PORT"      # the ▶ Run button
 archive = "docker compose down"        # runs when a workspace is archived
+check = "bun run typecheck && bun test" # after each agent turn that changed files;
+                                        # failures go back to the agent (twice at most)
 ```
 
 Each workspace gets 10 ports from `$BANTU_PORT`. Gitignored `.env*` files, and anything

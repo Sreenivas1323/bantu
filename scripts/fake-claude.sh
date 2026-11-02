@@ -4,8 +4,9 @@
 #
 #   BANTU_CLAUDE_BIN=$PWD/scripts/fake-claude.sh cargo run -p bantud
 #
-# Prompts containing "slow" take 3 s, "edit" changes files, and "permission"
-# asks Bantu for approval through the PermissionRequest hook.
+# Prompts containing "slow" take 3 s, "edit" changes files, "permission"
+# asks Bantu for approval through the PermissionRequest hook, and a failed
+# check report makes it "fix" things by writing fixed.txt.
 # Set BANTU_FAKE_CLAUDE_LOG to record each invocation's arguments.
 { printf '%s ' "$@" | tr '\n' ' '; echo; } >> "${BANTU_FAKE_CLAUDE_LOG:-/dev/null}"
 settings=""; prev=""
@@ -19,6 +20,7 @@ case "$prompt" in *permission*)
 esac
 case "$prompt" in *slow*) sleep 3 ;; esac
 case "$prompt" in *edit*) echo agent-was-here >> README.md; echo new > agent-file.txt ;; esac
+case "$prompt" in *"repo's check"*) echo fixed > fixed.txt; date +%s%N >> attempts.txt ;; esac
 echo '{"type":"system","subtype":"init"}'
 echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}'
 echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"README.md","is_error":false}]}}'

@@ -76,7 +76,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Orchestration: any chat can split work into new workspaces with their own agents, wait for them and review their diffs (verified with real Claude); children inherit model and permission mode; max 10 active workspaces per repo
 - [ ] Orchestrator UI: a lead chat with a live board of its child workspaces; integrate results into one branch
 - [x] Conflict radar: snapshots every ready workspace (uncommitted work included) and test-merges each pair and each against its base with `git merge-tree`; reruns after turns; ⚠ in the sidebar + banner
-- [ ] Definition-of-done loop before "Ready"
+- [x] Definition of done: `[scripts] check` runs after every agent turn that changed files (not in plan mode, not when the user queued a message); failures go back to the agent up to 2 times in a row
 - [x] Review: a fresh read-only (plan mode) chat reviews the workspace diff; Shift-click to review with Codex
 - [ ] Automatic cross-agent review before "Ready", findings sent back to the author chat
 - [ ] Loops / routines: cron, GitHub triggers

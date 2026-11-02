@@ -1726,3 +1726,104 @@ async fn review_chat() {
         .unwrap();
     assert_eq!(after.branch, ws.branch);
 }
+
+#[tokio::test]
+async fn definition_of_done_check() {
+    let h = Harness::start().await;
+    let (_fixture, clone) = fixture();
+    let (_, body) = h
+        .command(json!({"type": "repo.add", "path": clone}), None)
+        .await;
+    let repo_id = body["result"]["id"].as_str().unwrap().to_string();
+    let (_, body) = h
+        .command(
+            json!({"type": "workspace.create", "repo_id": repo_id}),
+            None,
+        )
+        .await;
+    let ws = h
+        .wait_for(
+            body["result"]["id"].as_str().unwrap(),
+            WorkspaceState::Ready,
+        )
+        .await;
+    let path = Path::new(&ws.path);
+    let set_check = |check: &str| {
+        std::fs::write(
+            path.join(".bantu/settings.toml"),
+            format!("[scripts]\ncheck = \"{check}\"\n"),
+        )
+        .unwrap()
+    };
+    let session = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws.id)
+        {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let send = |text: &str| json!({"type": "session.send", "session_id": session.id, "text": text});
+    let checks = |items: &[ChatItem]| -> Vec<bool> {
+        items
+            .iter()
+            .filter_map(|i| match i {
+                ChatItem::Check { passed, .. } => Some(*passed),
+                _ => None,
+            })
+            .collect()
+    };
+
+    // A turn that changes files is checked; the failure goes back to the
+    // agent, which fixes it; the next check passes and the turn ends.
+    set_check("test -f fixed.txt || { echo 'fixed.txt is missing'; exit 1; }");
+    h.command(send("please edit the readme"), None).await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert_eq!(checks(&items), [false, true]);
+    assert!(items.iter().any(
+        |i| matches!(i, ChatItem::Check { output, .. } if output.contains("fixed.txt is missing"))
+    ));
+    assert!(items.iter().any(
+        |i| matches!(i, ChatItem::User { text } if text.starts_with("[Bantu] The repo's check"))
+    ));
+
+    // A turn that changes nothing isn't checked.
+    h.command(send("just a question"), None).await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 3
+    })
+    .await;
+    assert_eq!(
+        checks(&chat(&h.history(&ws.id).await, &session.id)).len(),
+        2
+    );
+
+    // A check that never passes is retried twice, then handed to the user.
+    set_check("echo nope; exit 1");
+    h.command(send("edit again"), None).await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 6
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let s = h
+        .state()
+        .await
+        .sessions
+        .into_iter()
+        .find(|s| s.id == session.id)
+        .unwrap();
+    assert_eq!(s.turns, 6, "1 user turn + 2 automatic fixes");
+    assert_eq!(
+        checks(&chat(&h.history(&ws.id).await, &session.id)),
+        [false, true, false, false, false]
+    );
+}

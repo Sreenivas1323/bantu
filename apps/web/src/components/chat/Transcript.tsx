@@ -112,6 +112,8 @@ function Item({
       return null;
     case "turn_end":
       return <TurnFooter item={item} />;
+    case "check":
+      return <CheckResult item={item} />;
     case "rewound":
       return (
         <p className="border-l-2 border-warn/60 pl-3 text-[12.5px] text-muted">
@@ -165,6 +167,25 @@ function RewindButton({ turn, onRewind }: { turn: number; onRewind: (turn: numbe
     >
       ↺ Restore files to before this turn
     </button>
+  );
+}
+
+function CheckResult({ item }: { item: Extract<ChatItem, { kind: "check" }> }) {
+  const [open, setOpen] = useState(!item.passed);
+  return (
+    <div className={`rounded-md border px-3 py-2 text-[12.5px] ${item.passed ? "border-ok/30 bg-ok/5" : "border-bad/40 bg-bad/5"}`}>
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-2 text-left">
+        <span className={item.passed ? "text-ok" : "text-bad"}>{item.passed ? "✓ Checks passed" : "✗ Checks failed"}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-muted" title={item.command}>
+          {item.command}
+        </span>
+        <span className="shrink-0 tabular-nums text-faint">{formatDuration(item.duration_ms)}</span>
+      </button>
+      {open && item.output && (
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-bg p-2 font-mono text-[12px] text-muted">{item.output}</pre>
+      )}
+      {!item.passed && <p className="mt-1.5 text-[11.5px] text-faint">Sent back to the agent (at most twice in a row).</p>}
+    </div>
   );
 }
 

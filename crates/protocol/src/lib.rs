@@ -213,6 +213,16 @@ pub enum ChatItem {
         #[ts(type = "number | null")]
         output_tokens: Option<u64>,
     },
+    /// The repo's `check` script ran after the agent changed files
+    /// ("definition of done"). Failures are sent back to the agent.
+    Check {
+        command: String,
+        passed: bool,
+        /// Last part of the combined output.
+        output: String,
+        #[ts(type = "number")]
+        duration_ms: u64,
+    },
     /// The user restored the files to how they were before `to_turn`.
     Rewound {
         to_turn: u32,

@@ -4,6 +4,7 @@
 //! [scripts]
 //! setup = "bun install"
 //! archive = "docker compose down"
+//! check = "bun run typecheck && bun test"
 //! ```
 //!
 //! `.conductor/settings.toml` is read as a fallback so Conductor users can
@@ -24,6 +25,9 @@ pub struct Scripts {
     pub setup: Option<String>,
     pub archive: Option<String>,
     pub run: Option<RunScript>,
+    /// "Definition of done": run after every agent turn that changed files;
+    /// failures go back to the agent. E.g. `bun run typecheck && bun test`.
+    pub check: Option<String>,
 }
 
 /// `run = "bun dev"`, or Conductor-style named actions:

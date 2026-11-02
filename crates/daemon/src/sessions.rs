@@ -26,6 +26,10 @@ use crate::store::now;
 /// Tool output beyond this is cut; the agent already saw the full text.
 const MAX_TOOL_RESULT_CHARS: usize = 20_000;
 const DEFAULT_TITLE: &str = "New chat";
+/// How many times a failing check is sent back before handing over to the user.
+const MAX_AUTO_FIXES: u32 = 2;
+const CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+const CHECK_OUTPUT_CHARS: usize = 6_000;
 
 /// In-memory state for sessions with a turn in flight.
 pub struct Running {
@@ -241,6 +245,85 @@ impl Daemon {
         Ok(())
     }
 
+    /// Runs the repo's `check` script if this turn changed files. Returns a
+    /// message for the agent when it fails.
+    async fn run_done_check(&self, s: &Session, turn: u32) -> Option<String> {
+        let ws = self.require_workspace(&s.workspace_id).await.ok()?;
+        let repo = self.store.repo(&ws.repo_id).await.ok()??;
+        let path = std::path::Path::new(&ws.path);
+        let settings =
+            crate::settings::load(&[path, std::path::Path::new(&repo.root_path)]).ok()?;
+        let command = settings.scripts.check?;
+
+        // Skip turns that didn't touch the worktree (questions, plans, reviews).
+        let before = git::git_opt(
+            path,
+            &[
+                "rev-parse",
+                &format!("{}^{{tree}}", checkpoint_ref(&s.id, turn)),
+            ],
+        )
+        .await
+        .ok()
+        .flatten();
+        if let Some(before) = before {
+            let now = git::snapshot(path).await.ok()?;
+            let now_tree = git::git(path, &["rev-parse", &format!("{now}^{{tree}}")])
+                .await
+                .ok()?;
+            if now_tree == before {
+                return None;
+            }
+        }
+
+        let started = std::time::Instant::now();
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+        let run = tokio::process::Command::new(&shell)
+            .arg("-lc")
+            .arg(format!("{{ {command}\n}} 2>&1"))
+            .current_dir(&ws.path)
+            .env("BANTU_PORT", ws.port_base.to_string())
+            .env("BANTU_WORKSPACE_PATH", &ws.path)
+            .env("CI", "1")
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .output();
+        let (passed, output) = match tokio::time::timeout(CHECK_TIMEOUT, run).await {
+            Ok(Ok(out)) => (
+                out.status.success(),
+                String::from_utf8_lossy(&out.stdout).to_string(),
+            ),
+            Ok(Err(e)) => (false, format!("couldn't run the check: {e}")),
+            Err(_) => (
+                false,
+                format!(
+                    "the check timed out after {} minutes",
+                    CHECK_TIMEOUT.as_secs() / 60
+                ),
+            ),
+        };
+        let tail = tail_chars(&output, CHECK_OUTPUT_CHARS);
+        let _ = self
+            .store
+            .session_item(
+                s,
+                turn,
+                ChatItem::Check {
+                    command: command.clone(),
+                    passed,
+                    output: tail.clone(),
+                    duration_ms: started.elapsed().as_millis() as u64,
+                },
+            )
+            .await;
+        (!passed).then(|| {
+            format!(
+                "[Bantu] The repo's check `{command}` failed after your changes. Fix the cause \
+                 (not the check), then finish when it passes.\n\n```\n{tail}\n```"
+            )
+        })
+    }
+
     /// Snapshot the worktree before a turn so it can be rewound. Best effort:
     /// a turn still runs if git is mid-merge or the snapshot fails.
     async fn checkpoint_turn(&self, s: &Session, turn: u32) {
@@ -305,6 +388,7 @@ impl Daemon {
         stop: Arc<Notify>,
     ) {
         let mut text = first;
+        let mut auto_fixes = 0;
         loop {
             s.turns += 1;
             if let Err(e) = self.store.upsert_session(&s, &agent_id).await {
@@ -317,8 +401,11 @@ impl Daemon {
                 .await;
             self.checkpoint_turn(&s, turn).await;
 
-            match self.run_turn(&s, &agent_id, turn, &text, &stop).await {
-                Ok(cost) => s.total_cost_usd += cost,
+            let turn_ok = match self.run_turn(&s, &agent_id, turn, &text, &stop).await {
+                Ok(cost) => {
+                    s.total_cost_usd += cost;
+                    true
+                }
                 Err(e) => {
                     let _ = self
                         .store
@@ -330,14 +417,37 @@ impl Daemon {
                             },
                         )
                         .await;
+                    false
+                }
+            };
+
+            // Definition of done: verify the agent's changes before letting
+            // the turn end, unless the user already queued something.
+            let mut auto_next = None;
+            if turn_ok && s.permission_mode != PermissionMode::Plan {
+                let user_waiting = self
+                    .running
+                    .turns
+                    .lock()
+                    .await
+                    .get(&s.id)
+                    .is_none_or(|r| r.stopped || !r.queue.is_empty());
+                if !user_waiting {
+                    if let Some(failure) = self.run_done_check(&s, turn).await {
+                        if auto_fixes < MAX_AUTO_FIXES {
+                            auto_fixes += 1;
+                            auto_next = Some(failure);
+                        }
+                    }
                 }
             }
 
             let mut running = self.running.turns.lock().await;
-            let next = running
-                .get_mut(&s.id)
-                .filter(|r| !r.stopped)
-                .and_then(|r| r.queue.pop_front());
+            let next = match running.get_mut(&s.id).filter(|r| !r.stopped) {
+                None => None,
+                Some(_) if auto_next.is_some() => auto_next,
+                Some(r) => r.queue.pop_front().inspect(|_| auto_fixes = 0),
+            };
             // Reload: title, model or mode may have changed mid-turn.
             if let Ok(Some((fresh, _))) = self.store.session(&s.id).await {
                 s.title = fresh.title;
@@ -697,6 +807,15 @@ fn tool_result_text(content: &Value) -> String {
         Value::Null => String::new(),
         other => other.to_string(),
     }
+}
+
+fn tail_chars(s: &str, n: usize) -> String {
+    let count = s.chars().count();
+    if count <= n {
+        return s.trim_end().to_string();
+    }
+    let tail: String = s.chars().skip(count - n).collect();
+    format!("…{}", tail.trim_end())
 }
 
 fn truncate(s: String) -> String {
