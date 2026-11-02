@@ -5,9 +5,22 @@ or in your own cloud. Free and open source.**
 
 *Bantu* is Telugu for the faithful helper who does the work while you direct it.
 
-> Status: **early, milestone M1** (daily driver).
-> You can already run Claude Code agents in parallel workspaces, review their diffs and open PRs, but there are no installers yet.
-> Watch or star the repo to follow along; see the [roadmap](docs/ROADMAP.md).
+> Status: **alpha** (end of M1, early M2). You can run Claude Code and Codex agents in parallel
+> workspaces, approve their actions, review diffs, fix CI and open PRs. Expect rough edges;
+> see the [roadmap](docs/ROADMAP.md).
+
+## Install (macOS and Linux)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Sreenivas1323/bantu/main/deploy/install.sh | sh
+```
+
+This installs `bantud` and the web app to `~/.local`, checks the download against the
+release's SHA256SUMS, starts it as a background service (launchd or systemd), and prints the
+link to open. You need `git`, and [Claude Code](https://claude.com/claude-code) (or Codex)
+signed in with your own account. Bantu never sees your credentials; it runs your CLI.
+
+`bantud url --open` opens the app again later; `bantud service uninstall` removes the service.
 
 ## Why
 
@@ -24,13 +37,17 @@ or in your own cloud. Free and open source.**
 |---|---|
 | Protocol v1 (HTTP commands + resumable SSE events, idempotent retries) | ✅ |
 | Repos, worktree workspaces, setup/archive/run scripts, port ranges | ✅ |
-| Web UI + Tauri desktop shell | ✅ (no installer yet) |
+| Web UI; one-line installer and background service for macOS/Linux | ✅ |
+| Tauri desktop app | shell only (not packaged yet) |
 | Claude Code chat: tool cards, live streaming, queue, stop, plan mode, model picker | ✅ |
+| Codex chat (`codex exec --json`) | ✅ (not yet verified against the live service) |
+| Workspaces from a branch, PR or GitHub issue; descriptive branch names | ✅ |
+| Fix failing CI checks in one click (logs sent to the agent) | ✅ |
 | Permission prompts answered in Bantu; desktop notifications | ✅ |
 | Diff review with line comments sent to the agent; Create PR; PR checks summary | ✅ |
 | Terminals and run scripts (PTY over WebSocket) | ✅ |
 | Per-turn checkpoints and "restore files to before this turn" | ✅ |
-| Codex/ACP agents, chat ⇄ terminal, checks forwarding, MCP server | M2 |
+| ACP agents (OpenCode, Cursor, Gemini), chat ⇄ terminal, MCP server | M2 |
 | Remote daemons, phone/PWA, pairing, AWS one-click | M3 |
 | Orchestrator, conflict radar, definition-of-done, cross-agent review | M4 |
 
