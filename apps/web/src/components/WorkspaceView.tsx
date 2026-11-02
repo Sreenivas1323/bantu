@@ -106,6 +106,25 @@ export function WorkspaceView({
             ▶ Run
           </button>
         )}
+        {ready && (git.diff?.files.length ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={async (e) => {
+              // Shift-click asks Codex for a second opinion.
+              const agent = e.shiftKey ? "codex" : "claude";
+              const res = await run({ type: "workspace.review", workspace_id: workspace.id, agent });
+              const s = res?.result as Session | undefined;
+              if (s?.id) {
+                setActiveId(s.id);
+                setTab("chat");
+              }
+            }}
+            title="Start a read-only chat that reviews these changes (Shift-click: review with Codex)"
+            className="rounded-md border border-line px-2.5 py-1 text-[12px] text-muted hover:bg-raised hover:text-fg"
+          >
+            Review
+          </button>
+        )}
         {ready && (
           <GitStatus
             diff={git.diff}

@@ -77,7 +77,8 @@ Feature-by-feature status against Conductor and Pane lives in
 - [ ] Orchestrator UI: a lead chat with a live board of its child workspaces; integrate results into one branch
 - [x] Conflict radar: snapshots every ready workspace (uncommitted work included) and test-merges each pair and each against its base with `git merge-tree`; reruns after turns; ⚠ in the sidebar + banner
 - [ ] Definition-of-done loop before "Ready"
-- [ ] Cross-agent review (Claude writes, Codex reviews, or the reverse)
+- [x] Review: a fresh read-only (plan mode) chat reviews the workspace diff; Shift-click to review with Codex
+- [ ] Automatic cross-agent review before "Ready", findings sent back to the author chat
 - [ ] Loops / routines: cron, GitHub triggers
 - [ ] Vercel Sandbox burst runners
 - [ ] Import sessions from Conductor and Pane

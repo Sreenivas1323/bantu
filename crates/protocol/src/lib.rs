@@ -473,6 +473,14 @@ pub enum Command {
         workspace_id: String,
         session_id: String,
     },
+    /// Start a fresh, read-only (plan mode) chat that reviews the workspace's
+    /// changes against its base. Pick a different agent for a second opinion.
+    #[serde(rename = "workspace.review")]
+    WorkspaceReview {
+        workspace_id: String,
+        #[serde(default)]
+        agent: Option<AgentKind>,
+    },
     /// Ask the session's agent to commit, push and open a pull request.
     #[serde(rename = "workspace.create_pr")]
     WorkspaceCreatePr {

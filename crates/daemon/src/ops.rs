@@ -135,6 +135,10 @@ impl Daemon {
                 workspace_id,
                 session_id,
             } => serde_json::to_value(self.fix_checks(&workspace_id, &session_id).await?),
+            Command::WorkspaceReview {
+                workspace_id,
+                agent,
+            } => serde_json::to_value(self.review_workspace(&workspace_id, agent).await?),
             Command::WorkspaceCreatePr {
                 workspace_id,
                 session_id,

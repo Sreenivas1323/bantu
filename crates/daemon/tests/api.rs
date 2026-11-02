@@ -1678,3 +1678,51 @@ async fn mcp_orchestration_tools() {
         .unwrap();
     assert_eq!(res.status(), 401);
 }
+
+#[tokio::test]
+async fn review_chat() {
+    let h = Harness::start().await;
+    let (_fixture, clone) = fixture();
+    let (_, body) = h
+        .command(json!({"type": "repo.add", "path": clone}), None)
+        .await;
+    let repo_id = body["result"]["id"].as_str().unwrap().to_string();
+    let (_, body) = h
+        .command(
+            json!({"type": "workspace.create", "repo_id": repo_id}),
+            None,
+        )
+        .await;
+    let ws = h
+        .wait_for(
+            body["result"]["id"].as_str().unwrap(),
+            WorkspaceState::Ready,
+        )
+        .await;
+    std::fs::write(Path::new(&ws.path).join("README.md"), "changed\n").unwrap();
+
+    let (status, body) = h
+        .command(
+            json!({"type": "workspace.review", "workspace_id": ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["result"]["title"], "Review");
+    assert_eq!(body["result"]["permission_mode"], "plan");
+    let id = body["result"]["id"].as_str().unwrap().to_string();
+    h.wait_session(&id, |s| s.status == SessionStatus::Idle && s.turns == 1)
+        .await;
+    let items = chat(&h.history(&ws.id).await, &id);
+    assert!(matches!(&items[0], ChatItem::User { text }
+        if text.contains(&format!("Review the changes on `{}`", ws.branch)) && text.contains("Don't change any files")));
+    // A review chat doesn't rename the branch after itself.
+    let after = h
+        .state()
+        .await
+        .workspaces
+        .into_iter()
+        .find(|w| w.id == ws.id)
+        .unwrap();
+    assert_eq!(after.branch, ws.branch);
+}

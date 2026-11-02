@@ -5,7 +5,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use bantu_git as git;
-use bantu_protocol::{DiffComment, FileDiff, FileStatus, PullRequest, Session, WorkspaceDiff};
+use bantu_protocol::{
+    AgentKind, DiffComment, FileDiff, FileStatus, PermissionMode, PullRequest, Session,
+    WorkspaceDiff,
+};
 use serde_json::Value;
 
 use crate::ops::{new_id, CommandError, Daemon};
@@ -111,6 +114,30 @@ impl Daemon {
             self.store.upsert_comment(&c).await?;
         }
         Ok(session)
+    }
+
+    pub async fn review_workspace(
+        self: &Arc<Self>,
+        workspace_id: &str,
+        agent: Option<AgentKind>,
+    ) -> CmdResult<Session> {
+        let ws = self.require_workspace(workspace_id).await?;
+        let merge_base = git::merge_base(Path::new(&ws.path), "HEAD", &ws.base_ref)
+            .await
+            .map_err(|_| {
+                CommandError::Conflict("couldn't find where this branch started".into())
+            })?;
+        let session = self
+            .create_session(workspace_id, agent, None, Some(PermissionMode::Plan))
+            .await?;
+        let session = self
+            .update_session(&session.id, Some("Review".into()), None, None)
+            .await?;
+        self.send_message(
+            &session.id,
+            review_prompt(&ws.branch, &ws.base_ref, &merge_base),
+        )
+        .await
     }
 
     pub async fn create_pr(
@@ -340,6 +367,18 @@ fn fix_checks_message(branch: &str, checks: &[FailingCheck], more: usize) -> Str
         msg.push_str(&format!("\n…and {more} more failing check(s) not shown.\n"));
     }
     msg
+}
+
+fn review_prompt(branch: &str, base: &str, merge_base: &str) -> String {
+    format!(
+        "Review the changes on `{branch}` against `{base}`: everything since `{merge_base}`, \
+         including uncommitted work (`git diff {merge_base}` plus untracked files from \
+         `git status`). Read the surrounding code where needed. Don't change any files.\n\n\
+         Report only real problems: bugs, edge cases that break, security issues, data loss, \
+         missing error handling, and tests that don't test what they claim. Skip style nits.\n\n\
+         Format: a numbered list, most severe first, each as `path:line` — what's wrong — \
+         how to fix it. If you find nothing significant, say so in one line."
+    )
 }
 
 fn review_message(comments: &[DiffComment]) -> String {
