@@ -21,6 +21,7 @@ link to open. You need `git`, and [Claude Code](https://claude.com/claude-code) 
 signed in with your own account. Bantu never sees your credentials; it runs your CLI.
 
 `bantud url --open` opens the app again later; `bantud service uninstall` removes the service.
+To use it from your phone or another machine, see [docs/REMOTE.md](docs/REMOTE.md).
 
 ## Why
 

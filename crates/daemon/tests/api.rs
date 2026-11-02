@@ -65,6 +65,7 @@ impl Harness {
             branch_prefix: "bantu/".into(),
             claude_bin,
             codex_bin,
+            allowed_hosts: vec!["box.tail1234.ts.net".into()],
         };
         let started = bantud::start(config, false).await.unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -298,6 +299,16 @@ async fn auth_and_host_checks() {
         .await
         .unwrap();
     assert_eq!(res.status(), 403);
+
+    // Hosts the user allowed (e.g. a Tailscale name) are accepted.
+    let res = h
+        .http
+        .get(format!("{}/v1/health", h.base))
+        .header("Host", "BOX.tail1234.ts.net")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
 }
 
 #[tokio::test]

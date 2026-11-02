@@ -60,12 +60,12 @@ Feature-by-feature status against Conductor and Pane lives in
 
 ## M3 — Anywhere (weeks 6–7)
 
-- [ ] Linux packages + `install.sh`; launchd/systemd service
-- [ ] Pairing by QR code (daemon URL + token; the daemon stores only a hash)
+- [x] Release builds (macOS arm64/x64, Linux x64/arm64) + `install.sh` with checksums; launchd/systemd service
+- [x] Pairing by QR code (`bantud url --qr`, with `BANTU_PUBLIC_URL`)
 - [ ] Web/PWA client deployable as a static site; phone layout
 - [ ] Web Push from the daemon (VAPID) for the Notify inbox
 - [ ] AWS Launch Stack: EC2 t4g + CloudFront + idle auto-stop + Lambda wake URL
-- [ ] Guides: Tailscale Serve, Cloudflare Tunnel
+- [x] Guides: Tailscale Serve, Cloudflare Tunnel, SSH ([REMOTE.md](REMOTE.md)); `--allowed-host` instead of all-or-nothing
 - [ ] Port forwarding for dev-server previews on remote daemons
 
 ## M4 — Beyond (weeks 8–10)

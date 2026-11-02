@@ -54,7 +54,16 @@ type CmdResult<T> = Result<T, CommandError>;
 
 impl Daemon {
     /// Call once the HTTP listener is bound so agent turns can reach the hook.
-    pub fn set_listen_addr(&self, addr: std::net::SocketAddr) {
+    pub fn set_listen_addr(&self, mut addr: std::net::SocketAddr) {
+        // Agents run on this machine, so call back over loopback even when
+        // the daemon listens on every interface.
+        if addr.ip().is_unspecified() {
+            addr.set_ip(if addr.is_ipv4() {
+                std::net::Ipv4Addr::LOCALHOST.into()
+            } else {
+                std::net::Ipv6Addr::LOCALHOST.into()
+            });
+        }
         let _ = self.permissions.base_url.set(format!("http://{addr}"));
     }
 

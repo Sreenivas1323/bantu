@@ -31,10 +31,21 @@ struct Args {
     /// OpenAI Codex CLI used for agent sessions.
     #[arg(long, env = "BANTU_CODEX_BIN", default_value = "codex")]
     codex_bin: PathBuf,
-    /// Accept non-loopback binds and Host headers. Only use behind an
-    /// authenticated tunnel (Tailscale, Cloudflare Tunnel, CloudFront).
+    /// Accept non-loopback binds and any Host header. Prefer --allowed-host.
     #[arg(long)]
     allow_remote: bool,
+    /// Accept requests for this hostname too (repeatable), e.g. the name a
+    /// Tailscale Serve, Cloudflare Tunnel or CloudFront proxy forwards.
+    #[arg(
+        long = "allowed-host",
+        env = "BANTU_ALLOWED_HOSTS",
+        value_delimiter = ','
+    )]
+    allowed_hosts: Vec<String>,
+    /// URL other devices use to reach this daemon (e.g. https://box.tail1234.ts.net).
+    /// Its host is allowed automatically and `bantud url` prints it.
+    #[arg(long, env = "BANTU_PUBLIC_URL")]
+    public_url: Option<String>,
     /// Print the local access token and exit.
     #[arg(long)]
     print_token: bool,
@@ -53,6 +64,9 @@ enum Cmd {
     Url {
         #[arg(long)]
         open: bool,
+        /// Also print a QR code to scan with a phone.
+        #[arg(long)]
+        qr: bool,
     },
 }
 
@@ -95,11 +109,23 @@ async fn main() -> Result<()> {
                 ServiceAction::Status => bantud::service::status(),
             };
         }
-        Some(Cmd::Url { open }) => {
+        Some(Cmd::Url { open, qr }) => {
             std::fs::create_dir_all(&home)?;
             let token = bantud::load_or_create_token(&home)?;
-            let url = format!("http://127.0.0.1:{}/#token={token}", args.port);
+            let base = args
+                .public_url
+                .clone()
+                .unwrap_or_else(|| format!("http://127.0.0.1:{}", args.port));
+            let url = format!("{}/#token={token}", base.trim_end_matches('/'));
             println!("{url}");
+            if *qr {
+                println!("\n{}", qr_code(&url)?);
+                if args.public_url.is_none() {
+                    println!(
+                        "This is a loopback URL; set BANTU_PUBLIC_URL to pair another device."
+                    );
+                }
+            }
             if *open {
                 let opener = if cfg!(target_os = "macos") {
                     "open"
@@ -121,6 +147,12 @@ async fn main() -> Result<()> {
         bail!("refusing to bind {} without --allow-remote", args.host);
     }
 
+    let mut allowed_hosts = args.allowed_hosts.clone();
+    if let Some(url) = &args.public_url {
+        if let Some(host) = url_host(url) {
+            allowed_hosts.push(host);
+        }
+    }
     let config = Config {
         home,
         workspaces_dir: args
@@ -130,6 +162,7 @@ async fn main() -> Result<()> {
         branch_prefix: args.branch_prefix,
         claude_bin: args.claude_bin,
         codex_bin: args.codex_bin,
+        allowed_hosts,
     };
     let web_dir = config.web_dir.clone();
     let started = bantud::start(config, args.allow_remote).await?;
@@ -197,5 +230,64 @@ async fn adopt_login_shell_path() {
         // Safe: called at startup before any other threads read the environment.
         std::env::set_var("PATH", path);
         tracing::debug!("using PATH from {shell}: {path}");
+    }
+}
+
+/// `https://box.example.ts.net:8443/x` → `box.example.ts.net`.
+fn url_host(url: &str) -> Option<String> {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let authority = rest.split('/').next()?;
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let host = if let Some(v6) = host.strip_prefix('[') {
+        v6.split(']').next()?
+    } else {
+        host.split(':').next()?
+    };
+    (!host.is_empty()).then(|| host.to_ascii_lowercase())
+}
+
+/// A QR code drawn with half-block characters so it fits in a terminal.
+fn qr_code(text: &str) -> Result<String> {
+    let code = qrcode::QrCode::new(text.as_bytes()).context("encoding the QR code")?;
+    let width = code.width();
+    let dark = |x: i64, y: i64| {
+        x >= 0
+            && y >= 0
+            && (x as usize) < width
+            && (y as usize) < width
+            && code[(x as usize, y as usize)] == qrcode::Color::Dark
+    };
+    let mut out = String::new();
+    // One quiet-zone module around the code; two rows per text line.
+    for y in (-1..=width as i64).step_by(2) {
+        for x in -1..=width as i64 {
+            out.push(match (dark(x, y), dark(x, y + 1)) {
+                (true, true) => ' ',
+                (true, false) => '▄',
+                (false, true) => '▀',
+                (false, false) => '█',
+            });
+        }
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn url_hosts() {
+        assert_eq!(
+            url_host("https://Box.tail1234.ts.net").as_deref(),
+            Some("box.tail1234.ts.net")
+        );
+        assert_eq!(
+            url_host("https://d111.cloudfront.net:443/app").as_deref(),
+            Some("d111.cloudfront.net")
+        );
+        assert_eq!(url_host("http://[::1]:47800").as_deref(), Some("::1"));
+        assert_eq!(url_host("https://"), None);
     }
 }

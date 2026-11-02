@@ -76,8 +76,8 @@ pub fn hash_token(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
 }
 
-/// Rejects requests whose Host isn't loopback, blocking DNS-rebinding attacks
-/// from web pages, unless the daemon was started with `--allow-remote`.
+/// Rejects requests whose Host isn't loopback or explicitly allowed, blocking
+/// DNS-rebinding attacks from web pages. `--allow-remote` accepts any host.
 async fn check_host(State(state): State<AppState>, req: Request, next: Next) -> Response {
     if !state.allow_remote {
         let host = req
@@ -89,7 +89,15 @@ async fn check_host(State(state): State<AppState>, req: Request, next: Next) -> 
             .strip_prefix('[')
             .and_then(|h| h.split(']').next())
             .unwrap_or_else(|| host.split(':').next().unwrap_or(""));
-        if !matches!(hostname, "127.0.0.1" | "localhost" | "::1") {
+        let hostname = hostname.to_ascii_lowercase();
+        let allowed = matches!(hostname.as_str(), "127.0.0.1" | "localhost" | "::1")
+            || state
+                .daemon
+                .config
+                .allowed_hosts
+                .iter()
+                .any(|h| h.eq_ignore_ascii_case(&hostname));
+        if !allowed {
             return (StatusCode::FORBIDDEN, "host not allowed").into_response();
         }
     }
