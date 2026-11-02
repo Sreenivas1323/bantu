@@ -226,6 +226,87 @@ pub async fn diff_worktree(dir: &Path, base: &str) -> Result<String> {
     result
 }
 
+/// Runs git with a private index file so the user's staging area is never touched.
+async fn git_with_index(dir: &Path, index: &Path, args: &[&str]) -> Result<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_INDEX_FILE", index)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        // Checkpoints are internal objects; don't require a configured identity.
+        .env("GIT_AUTHOR_NAME", "Bantu")
+        .env("GIT_AUTHOR_EMAIL", "bantu@localhost")
+        .env("GIT_COMMITTER_NAME", "Bantu")
+        .env("GIT_COMMITTER_EMAIL", "bantu@localhost")
+        .stdin(Stdio::null())
+        .output()
+        .await?;
+    if !out.status.success() {
+        return Err(GitError::Failed {
+            args: args.join(" "),
+            stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        });
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
+}
+
+/// Records the whole working tree (tracked + untracked, not ignored) as a
+/// commit whose parent is `HEAD`, and points `full_ref` at it. Nothing in the
+/// working tree, index or branch changes.
+pub async fn checkpoint(dir: &Path, full_ref: &str) -> Result<String> {
+    let git_dir =
+        PathBuf::from(git(dir, &["rev-parse", "--path-format=absolute", "--git-dir"]).await?);
+    let index = git_dir.join(format!("bantu-cp-index-{}", std::process::id()));
+    let result = async {
+        let head = git(dir, &["rev-parse", "HEAD"]).await?;
+        git_with_index(dir, &index, &["read-tree", "HEAD"]).await?;
+        git_with_index(dir, &index, &["add", "-A", "."]).await?;
+        let tree = git_with_index(dir, &index, &["write-tree"]).await?;
+        let sha = git_with_index(
+            dir,
+            &index,
+            &["commit-tree", &tree, "-p", &head, "-m", "bantu checkpoint"],
+        )
+        .await?;
+        update_ref(dir, full_ref, &sha).await?;
+        Ok(sha)
+    }
+    .await;
+    let _ = tokio::fs::remove_file(&index).await;
+    result
+}
+
+/// Puts the worktree back exactly as it was at `checkpoint`: the branch moves
+/// to the checkpoint's parent, tracked and untracked files match the snapshot,
+/// and the index matches `HEAD`. Ignored files (e.g. `node_modules`) are left alone.
+pub async fn restore_checkpoint(dir: &Path, checkpoint: &str) -> Result<()> {
+    let parent = git(dir, &["rev-parse", &format!("{checkpoint}^")]).await?;
+    git(dir, &["reset", "-q", "--hard", &parent]).await?;
+    git(dir, &["clean", "-q", "-fd"]).await?;
+    // Files that existed at HEAD but not in the snapshot were deleted then.
+    let deleted = git(
+        dir,
+        &[
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "--diff-filter=D",
+            &parent,
+            checkpoint,
+        ],
+    )
+    .await?;
+    for path in deleted.split('\0').filter(|p| !p.is_empty()) {
+        let _ = tokio::fs::remove_file(dir.join(path)).await;
+    }
+    git(dir, &["checkout", "-q", checkpoint, "--", "."]).await?;
+    // Leave snapshot-only files untracked/unstaged, as they were.
+    git(dir, &["reset", "-q"]).await?;
+    Ok(())
+}
+
 /// Paths with uncommitted changes (tracked or untracked), per `git status`.
 pub async fn uncommitted_count(dir: &Path) -> Result<u32> {
     let out = git(dir, &["status", "--porcelain", "--untracked-files=all"]).await?;
@@ -310,6 +391,32 @@ mod tests {
         update_ref(&root, "refs/bantu/archive/x", &sha)
             .await
             .unwrap();
+
+        // Checkpoint, make a mess (edit, delete, add, commit), then restore.
+        std::fs::write(wt.join("new.txt"), "untracked\n").unwrap();
+        let cp = checkpoint(&wt, "refs/bantu/cp/test").await.unwrap();
+        assert!(ref_exists(&root, "refs/bantu/cp/test").await.unwrap());
+        std::fs::write(wt.join("a.txt"), "agent edit\n").unwrap();
+        std::fs::remove_file(wt.join("new.txt")).unwrap();
+        std::fs::write(wt.join("agent.txt"), "x\n").unwrap();
+        git(&wt, &["add", "-A"]).await.unwrap();
+        git(&wt, &["commit", "-qm", "agent"]).await.unwrap();
+        std::fs::write(wt.join("later.txt"), "y\n").unwrap();
+        std::fs::write(wt.join(".env"), "ignored, keep me\n").unwrap();
+        restore_checkpoint(&wt, &cp).await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(wt.join("a.txt")).unwrap(),
+            "changed\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(wt.join("new.txt")).unwrap(),
+            "untracked\n"
+        );
+        assert!(!wt.join("agent.txt").exists());
+        assert!(!wt.join("later.txt").exists());
+        assert!(wt.join(".env").exists(), "ignored files survive a restore");
+        let status = git(&wt, &["status", "--porcelain"]).await.unwrap();
+        assert_eq!(status, " M a.txt\n?? new.txt");
 
         worktree_remove(&root, &wt).await.unwrap();
         assert!(!wt.exists());

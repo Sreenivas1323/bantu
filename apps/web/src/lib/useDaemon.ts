@@ -83,5 +83,13 @@ export function useDaemon(conn: Connection) {
 
   const send = useCallback((command: Command) => client.send(command), [client]);
 
-  return { state, status, send };
+  const loadHistory = useCallback(
+    async (workspaceId: string) => {
+      const events = await client.history(workspaceId);
+      dispatch({ type: "history", events });
+    },
+    [client],
+  );
+
+  return { state, status, send, loadHistory, client };
 }

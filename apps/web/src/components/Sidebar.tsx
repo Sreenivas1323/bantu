@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from "react";
-import type { Repo, Workspace } from "@bantu/protocol";
+import type { Repo, Session, Workspace } from "@bantu/protocol";
 import { StateDot } from "./StateDot.tsx";
 
 type Props = {
   repos: Repo[];
   workspacesByRepo: Record<string, Workspace[]>;
+  sessionsByWorkspace: Record<string, Session[]>;
   selectedId: string | null;
   showArchived: boolean;
   onToggleArchived: () => void;
@@ -29,6 +30,7 @@ export function Sidebar(props: Props) {
             key={repo.id}
             repo={repo}
             workspaces={(workspacesByRepo[repo.id] ?? []).filter((w) => showArchived || w.state !== "archived")}
+            sessionsByWorkspace={props.sessionsByWorkspace}
             selectedId={selectedId}
             onSelect={props.onSelect}
             onNewWorkspace={props.onNewWorkspace}
@@ -47,6 +49,7 @@ export function Sidebar(props: Props) {
 function RepoGroup({
   repo,
   workspaces,
+  sessionsByWorkspace,
   selectedId,
   onSelect,
   onNewWorkspace,
@@ -54,6 +57,7 @@ function RepoGroup({
 }: {
   repo: Repo;
   workspaces: Workspace[];
+  sessionsByWorkspace: Record<string, Session[]>;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onNewWorkspace: (repoId: string) => Promise<void>;
@@ -94,7 +98,12 @@ function RepoGroup({
         </button>
       </div>
       <ul>
-        {workspaces.map((w) => (
+        {workspaces.map((w) => {
+          const sessions = sessionsByWorkspace[w.id] ?? [];
+          const running = sessions.some((s) => s.status === "running");
+          // The latest named chat says more about the work than the branch does.
+          const title = [...sessions].reverse().find((s) => s.title !== "New chat")?.title;
+          return (
           <li key={w.id}>
             <button
               type="button"
@@ -103,14 +112,28 @@ function RepoGroup({
                 w.id === selectedId ? "bg-raised" : "hover:bg-raised/60"
               }`}
             >
-              <StateDot state={w.state} />
+              {running ? (
+                <span role="img" aria-label="agent working" title="Agent working" className="relative inline-flex size-2 shrink-0">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-60" />
+                  <span className="relative inline-flex size-2 rounded-full bg-accent" />
+                </span>
+              ) : (
+                <StateDot state={w.state} />
+              )}
               <span className="min-w-0 flex-1">
                 <span className={`block truncate ${w.state === "archived" ? "text-faint" : ""}`}>{w.name}</span>
-                <span className="block truncate font-mono text-[11px] text-faint">{w.branch}</span>
+                {title ? (
+                  <span className="block truncate text-[11.5px] text-muted" title={title}>
+                    {title}
+                  </span>
+                ) : (
+                  <span className="block truncate font-mono text-[11px] text-faint">{w.branch}</span>
+                )}
               </span>
             </button>
           </li>
-        ))}
+          );
+        })}
         {workspaces.length === 0 && <li className="px-2 py-1 text-faint">No workspaces</li>}
       </ul>
     </section>

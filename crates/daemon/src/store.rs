@@ -348,6 +348,25 @@ impl Store {
         Ok(found.is_some())
     }
 
+    /// The newest transcript item of a session.
+    pub async fn last_session_item(&self, session_id: &str) -> Result<Option<ChatItem>> {
+        let payload: Option<String> = sqlx::query_scalar(
+            "SELECT payload FROM events
+             WHERE kind = 'session.item' AND json_extract(payload, '$.session_id') = ?
+             ORDER BY seq DESC LIMIT 1",
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(payload) = payload else {
+            return Ok(None);
+        };
+        match serde_json::from_str(&payload)? {
+            EventData::SessionItem { item, .. } => Ok(Some(item)),
+            _ => Ok(None),
+        }
+    }
+
     /// The most recent `limit` events for one workspace, oldest first.
     pub async fn workspace_history(&self, workspace_id: &str, limit: i64) -> Result<Vec<Event>> {
         let rows = sqlx::query(

@@ -10,6 +10,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
+use bantu_git as git;
 use bantu_protocol::{
     AgentKind, ChatItem, PermissionMode, Session, SessionStatus, Workspace, WorkspaceState,
 };
@@ -135,6 +136,14 @@ impl Daemon {
         if s.title == DEFAULT_TITLE {
             s.title = title_from(&text);
         }
+        let text = match self.store.last_session_item(&s.id).await? {
+            Some(ChatItem::Rewound { to_turn }) => format!(
+                "[Bantu] The user restored the workspace files to how they were before turn \
+                 {to_turn}; changes made after that point were undone. Re-read files before \
+                 relying on earlier edits.\n\n{text}"
+            ),
+            _ => text,
+        };
         s.status = SessionStatus::Running;
         self.store.upsert_session(&s, &agent_id).await?;
         tokio::spawn(self.clone().drive(s.clone(), agent_id, text, stop));
@@ -151,6 +160,54 @@ impl Daemon {
             self.store.upsert_session(&s, &agent_id).await?;
         }
         Ok(s)
+    }
+
+    pub async fn rewind_session(&self, session_id: &str, turn: u32) -> CmdResult<Session> {
+        let (s, _) = self.require_session(session_id).await?;
+        if s.status == SessionStatus::Running {
+            return Err(CommandError::Conflict(
+                "stop the agent before rewinding".into(),
+            ));
+        }
+        if turn == 0 || turn > s.turns {
+            return Err(CommandError::BadRequest(format!(
+                "turn {turn} doesn't exist"
+            )));
+        }
+        let ws = self.require_workspace(&s.workspace_id).await?;
+        let path = std::path::Path::new(&ws.path);
+        let r = checkpoint_ref(&s.id, turn);
+        let sha = git::git_opt(path, &["rev-parse", "--verify", "--quiet", &r])
+            .await
+            .map_err(anyhow::Error::from)?
+            .ok_or_else(|| CommandError::NotFound(format!("no checkpoint for turn {turn}")))?;
+        if git::busy_state(path).await.map_err(anyhow::Error::from)? != git::BusyState::Clean {
+            return Err(CommandError::Conflict(
+                "a merge, rebase or cherry-pick is in progress".into(),
+            ));
+        }
+        git::restore_checkpoint(path, &sha)
+            .await
+            .map_err(anyhow::Error::from)?;
+        self.store
+            .session_item(&s, s.turns, ChatItem::Rewound { to_turn: turn })
+            .await?;
+        Ok(s)
+    }
+
+    /// Snapshot the worktree before a turn so it can be rewound. Best effort:
+    /// a turn still runs if git is mid-merge or the snapshot fails.
+    async fn checkpoint_turn(&self, s: &Session, turn: u32) {
+        let Ok(ws) = self.require_workspace(&s.workspace_id).await else {
+            return;
+        };
+        let path = std::path::Path::new(&ws.path);
+        if !matches!(git::busy_state(path).await, Ok(git::BusyState::Clean)) {
+            return;
+        }
+        if let Err(e) = git::checkpoint(path, &checkpoint_ref(&s.id, turn)).await {
+            tracing::warn!("checkpoint for session {} turn {turn} failed: {e}", s.id);
+        }
     }
 
     /// Stops every session in a workspace (used before archiving).
@@ -208,6 +265,7 @@ impl Daemon {
                 .store
                 .session_item(&s, turn, ChatItem::User { text: text.clone() })
                 .await;
+            self.checkpoint_turn(&s, turn).await;
 
             match self.run_turn(&s, &agent_id, turn, &text, &stop).await {
                 Ok(cost) => s.total_cost_usd += cost,
@@ -364,6 +422,10 @@ impl Daemon {
             .await?
             .ok_or_else(|| CommandError::NotFound(format!("no workspace {id}")))
     }
+}
+
+pub fn checkpoint_ref(session_id: &str, turn: u32) -> String {
+    format!("refs/bantu/cp/{session_id}/{turn}")
 }
 
 fn claude_permission_mode(m: PermissionMode) -> &'static str {

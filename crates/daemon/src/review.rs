@@ -119,6 +119,16 @@ impl Daemon {
         session_id: &str,
     ) -> CmdResult<Session> {
         let ws = self.require_workspace(workspace_id).await?;
+        let repo = self
+            .store
+            .repo(&ws.repo_id)
+            .await?
+            .ok_or_else(|| CommandError::NotFound(format!("no repository {}", ws.repo_id)))?;
+        if repo.remote_url.is_none() {
+            return Err(CommandError::BadRequest(
+                "this repository has no `origin` remote to open a pull request against".into(),
+            ));
+        }
         let target = ws.base_ref.strip_prefix("origin/").unwrap_or(&ws.base_ref);
         let prompt = format!(
             "Open a pull request for the work in this workspace.\n\n\

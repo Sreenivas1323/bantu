@@ -41,6 +41,11 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     std::fs::create_dir_all(&config.home)
         .with_context(|| format!("creating {}", config.home.display()))?;
     let token = load_or_create_token(&config.home)?;
+    // Agents report real paths (macOS /tmp is /private/tmp), so store ours canonical.
+    let mut config = config;
+    std::fs::create_dir_all(&config.workspaces_dir)
+        .with_context(|| format!("creating {}", config.workspaces_dir.display()))?;
+    config.workspaces_dir = config.workspaces_dir.canonicalize()?;
     let store = store::Store::open(&config.home.join("bantu.db")).await?;
     let daemon = Arc::new(Daemon::new(store, config));
     daemon.recover_interrupted().await?;

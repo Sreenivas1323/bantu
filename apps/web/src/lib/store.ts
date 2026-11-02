@@ -1,10 +1,12 @@
 import type {
   ChatItem,
+  DiffComment,
   Event,
   LogStream,
   Repo,
   Session,
   StateSnapshot,
+  Terminal,
   Workspace,
 } from "@bantu/protocol";
 
@@ -22,6 +24,9 @@ export type DaemonState = {
   sessions: Record<string, Session>;
   /** Transcript per session id, oldest first. */
   chat: Record<string, ChatEntry[]>;
+  /** Diff review comments by id (drafts and sent). */
+  comments: Record<string, DiffComment>;
+  terminals: Record<string, Terminal>;
 };
 
 export const emptyState: DaemonState = {
@@ -32,11 +37,15 @@ export const emptyState: DaemonState = {
   logs: {},
   sessions: {},
   chat: {},
+  comments: {},
+  terminals: {},
 };
 
 export type Action =
   | { type: "snapshot"; snapshot: StateSnapshot }
   | { type: "event"; event: Event }
+  /** Older events for one workspace, merged into logs and transcripts by seq. */
+  | { type: "history"; events: Event[] }
   | { type: "reset" };
 
 export function reducer(state: DaemonState, action: Action): DaemonState {
@@ -51,6 +60,8 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         repos: Object.fromEntries(snapshot.repos.map((r) => [r.id, r])),
         workspaces: Object.fromEntries(snapshot.workspaces.map((w) => [w.id, w])),
         sessions: Object.fromEntries(snapshot.sessions.map((s) => [s.id, s])),
+        comments: Object.fromEntries(snapshot.comments.map((c) => [c.id, c])),
+        terminals: Object.fromEntries(snapshot.terminals.map((t) => [t.id, t])),
         // History isn't in the snapshot; it's backfilled per workspace.
         logs: state.logs,
         chat: state.chat,
@@ -58,7 +69,39 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
     }
     case "event":
       return applyEvent(state, action.event);
+    case "history":
+      return mergeHistory(state, action.events);
   }
+}
+
+/**
+ * Merges historical log lines and chat items without touching `lastSeq`:
+ * live events keep flowing from the stream, and anything we already have
+ * (same seq) is skipped, so the order of history vs. live arrival doesn't matter.
+ */
+function mergeHistory(state: DaemonState, events: Event[]): DaemonState {
+  const logAdds: Record<string, LogLine[]> = {};
+  const chatAdds: Record<string, ChatEntry[]> = {};
+  for (const ev of events) {
+    const data = ev.data;
+    if (data.type === "workspace.log") {
+      (logAdds[data.workspace_id] ??= []).push({ seq: ev.seq, ts: ev.ts, stream: data.stream, line: data.line });
+    } else if (data.type === "session.item") {
+      (chatAdds[data.session_id] ??= []).push({ seq: ev.seq, ts: ev.ts, turn: data.turn, item: data.item });
+    }
+  }
+  const logs = { ...state.logs };
+  for (const [id, adds] of Object.entries(logAdds)) logs[id] = mergeBySeq(logs[id] ?? [], adds).slice(-LOG_LIMIT);
+  const chat = { ...state.chat };
+  for (const [id, adds] of Object.entries(chatAdds)) chat[id] = mergeBySeq(chat[id] ?? [], adds);
+  return { ...state, logs, chat };
+}
+
+function mergeBySeq<T extends { seq: number }>(current: T[], adds: T[]): T[] {
+  const seen = new Set(current.map((x) => x.seq));
+  const fresh = adds.filter((x) => !seen.has(x.seq));
+  if (fresh.length === 0) return current;
+  return [...current, ...fresh].sort((a, b) => a.seq - b.seq);
 }
 
 function applyEvent(state: DaemonState, ev: Event): DaemonState {
@@ -93,5 +136,20 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
       const entry: ChatEntry = { seq: ev.seq, ts: ev.ts, turn: data.turn, item: data.item };
       return { ...next, chat: { ...state.chat, [data.session_id]: [...prev, entry] } };
     }
+    case "comment.updated":
+      return { ...next, comments: { ...state.comments, [data.comment.id]: data.comment } };
+    case "comment.deleted": {
+      const { [data.comment_id]: _gone, ...comments } = state.comments;
+      return { ...next, comments };
+    }
+    case "terminal.updated":
+      return { ...next, terminals: { ...state.terminals, [data.terminal.id]: data.terminal } };
+    case "terminal.closed": {
+      const { [data.terminal_id]: _closed, ...terminals } = state.terminals;
+      return { ...next, terminals };
+    }
+    default:
+      // Event types this client doesn't render yet still advance lastSeq.
+      return next;
   }
 }

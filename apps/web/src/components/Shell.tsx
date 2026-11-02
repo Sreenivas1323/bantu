@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import type { Command, Workspace } from "@bantu/protocol";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Command, Session, Workspace } from "@bantu/protocol";
 import type { Connection } from "../lib/connection.ts";
 import { useDaemon } from "../lib/useDaemon.ts";
 import { Sidebar } from "./Sidebar.tsx";
@@ -7,7 +7,7 @@ import { StatusBar } from "./StatusBar.tsx";
 import { WorkspaceView } from "./WorkspaceView.tsx";
 
 export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: (reason?: string) => void }) {
-  const { state, status, send } = useDaemon(conn);
+  const { state, status, send, loadHistory, client } = useDaemon(conn);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +23,24 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
     for (const list of Object.values(groups)) list.sort((a, b) => b.created_at.localeCompare(a.created_at));
     return groups;
   }, [state.workspaces]);
+
+  const sessionsByWorkspace = useMemo(() => {
+    const groups: Record<string, Session[]> = {};
+    for (const s of Object.values(state.sessions)) (groups[s.workspace_id] ??= []).push(s);
+    for (const list of Object.values(groups)) list.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return groups;
+  }, [state.sessions]);
+
+  // Backfill logs and transcripts the first time a workspace is opened.
+  const loaded = useRef(new Set<string>());
+  useEffect(() => {
+    if (!selectedId || loaded.current.has(selectedId) || status !== "live") return;
+    loaded.current.add(selectedId);
+    loadHistory(selectedId).catch((err) => {
+      loaded.current.delete(selectedId);
+      setError(`Couldn't load history: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }, [selectedId, status, loadHistory]);
 
   const run = async (command: Command) => {
     setError(null);
@@ -41,6 +59,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
       <Sidebar
         repos={repos}
         workspacesByRepo={workspacesByRepo}
+        sessionsByWorkspace={sessionsByWorkspace}
         selectedId={selectedId}
         showArchived={showArchived}
         onToggleArchived={() => setShowArchived((v) => !v)}
@@ -63,6 +82,14 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             workspace={selected}
             repo={state.repos[selected.repo_id]}
             logs={state.logs[selected.id] ?? []}
+            sessions={sessionsByWorkspace[selected.id] ?? []}
+            chat={state.chat}
+            comments={Object.values(state.comments).filter((c) => c.workspace_id === selected.id)}
+            terminals={Object.values(state.terminals)
+              .filter((t) => t.workspace_id === selected.id)
+              .sort((a, b) => a.created_at.localeCompare(b.created_at))}
+            client={client}
+            run={run}
             onArchive={async (id) => {
               await run({ type: "workspace.archive", workspace_id: id });
             }}

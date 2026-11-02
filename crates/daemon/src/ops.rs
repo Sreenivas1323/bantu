@@ -82,6 +82,9 @@ impl Daemon {
             Command::SessionCancel { session_id } => {
                 serde_json::to_value(self.cancel_session(&session_id).await?)
             }
+            Command::SessionRewind { session_id, turn } => {
+                serde_json::to_value(self.rewind_session(&session_id, turn).await?)
+            }
             Command::CommentAdd {
                 workspace_id,
                 path,
@@ -463,6 +466,17 @@ impl Daemon {
         }
         sys("Removing worktree".into()).await;
         git::worktree_remove(&root, &path).await?;
+        // Checkpoint refs only matter while the worktree exists.
+        for s in self.store.sessions().await? {
+            if s.workspace_id == ws.id {
+                let prefix = format!("refs/bantu/cp/{}/", s.id);
+                let refs =
+                    git::git(&root, &["for-each-ref", "--format=%(refname)", &prefix]).await?;
+                for r in refs.lines().filter(|r| !r.is_empty()) {
+                    git::git(&root, &["update-ref", "-d", r]).await?;
+                }
+            }
+        }
         Ok(())
     }
 

@@ -7,4 +7,4 @@ export type ChatItem = { "kind": "user", text: string, } | { "kind": "assistant"
 /**
  * Text output, truncated to keep the event log small.
  */
-content: string, is_error: boolean, } | { "kind": "turn_end", is_error: boolean, duration_ms: number | null, cost_usd: number | null, input_tokens: number | null, output_tokens: number | null, } | { "kind": "error", message: string, };
+content: string, is_error: boolean, } | { "kind": "turn_end", is_error: boolean, duration_ms: number | null, cost_usd: number | null, input_tokens: number | null, output_tokens: number | null, } | { "kind": "rewound", to_turn: number, } | { "kind": "error", message: string, };

@@ -18,6 +18,7 @@ const FAKE_CLAUDE: &str = r#"#!/bin/sh
 { printf '%s ' "$@" | tr '\n' ' '; echo; } >> "CALLS"
 prompt=$(cat)
 case "$prompt" in *slow*) sleep 3 ;; esac
+case "$prompt" in *edit*) echo agent-was-here >> README.md; echo new > agent-file.txt ;; esac
 echo '{"type":"system","subtype":"init"}'
 echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}'
 echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"README.md","is_error":false}]}}'
@@ -882,4 +883,89 @@ async fn terminals() {
     assert!(tokio_tungstenite::connect_async(ws_url(&run_id))
         .await
         .is_err());
+}
+
+#[tokio::test]
+async fn rewind_restores_files() {
+    let h = Harness::start().await;
+    let (_fixture, clone) = fixture();
+    let (_, body) = h
+        .command(json!({"type": "repo.add", "path": clone}), None)
+        .await;
+    let repo_id = body["result"]["id"].as_str().unwrap().to_string();
+    let (_, body) = h
+        .command(
+            json!({"type": "workspace.create", "repo_id": repo_id}),
+            None,
+        )
+        .await;
+    let ws: Workspace = serde_json::from_value(body["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let path = Path::new(&ws.path);
+    let session = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws.id)
+        {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let send = |text: &str| json!({"type": "session.send", "session_id": session.id, "text": text});
+
+    std::fs::write(path.join("mine.txt"), "user's own untracked file\n").unwrap();
+    h.command(send("please edit things"), None).await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    assert!(path.join("agent-file.txt").exists());
+
+    let (status, body) = h
+        .command(
+            json!({"type": "session.rewind", "session_id": session.id, "turn": 1}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert!(!path.join("agent-file.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(path.join("README.md")).unwrap(),
+        "hi\n"
+    );
+    assert!(
+        path.join("mine.txt").exists(),
+        "pre-turn untracked files come back too"
+    );
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert_eq!(items.last(), Some(&ChatItem::Rewound { to_turn: 1 }));
+
+    // The agent hears about the rewind on its next turn.
+    h.command(send("carry on"), None).await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    let last_user = items.iter().rev().find_map(|i| match i {
+        ChatItem::User { text } => Some(text.clone()),
+        _ => None,
+    });
+    let last_user = last_user.unwrap();
+    assert!(
+        last_user.starts_with("[Bantu] The user restored"),
+        "{last_user}"
+    );
+    assert!(last_user.ends_with("carry on"));
+
+    let (status, _) = h
+        .command(
+            json!({"type": "session.rewind", "session_id": session.id, "turn": 9}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400);
 }

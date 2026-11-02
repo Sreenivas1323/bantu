@@ -1,4 +1,12 @@
-import type { Command, CommandResponse, Event, Health, StateSnapshot } from "@bantu/protocol";
+import type {
+  Command,
+  CommandResponse,
+  Event,
+  Health,
+  PullRequest,
+  StateSnapshot,
+  WorkspaceDiff,
+} from "@bantu/protocol";
 import type { Connection } from "./connection.ts";
 
 export class AuthError extends Error {}
@@ -20,9 +28,18 @@ export class DaemonClient {
       },
     });
     if (res.status === 401) throw new AuthError("The daemon rejected this token.");
-    const body = (await res.json().catch(() => null)) as T | null;
-    if (body === null) throw new Error(`${path} failed with HTTP ${res.status}`);
-    return body;
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      throw new Error(`${path} failed with HTTP ${res.status}`);
+    }
+    if (!res.ok) {
+      // Errors come back as a CommandResponse-shaped body with a message.
+      const message = (body as { error?: unknown } | null)?.error;
+      throw new Error(typeof message === "string" ? message : `${path} failed with HTTP ${res.status}`);
+    }
+    return body as T;
   }
 
   health() {
@@ -31,6 +48,29 @@ export class DaemonClient {
 
   state() {
     return this.request<StateSnapshot>("/v1/state");
+  }
+
+  /** Recent events for one workspace (logs, chat, updates), oldest first. */
+  history(workspaceId: string, limit = 2000) {
+    return this.request<Event[]>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/history?limit=${limit}`);
+  }
+
+  diff(workspaceId: string) {
+    return this.request<WorkspaceDiff>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/diff`);
+  }
+
+  /** The workspace branch's pull request, or null when there isn't one (or `gh` can't tell). */
+  pullRequest(workspaceId: string) {
+    return this.request<PullRequest | null>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/pr`);
+  }
+
+  /** WebSocket URL carrying a terminal's raw PTY bytes. */
+  terminalSocketUrl(terminalId: string) {
+    const base = new URL(this.conn.baseUrl || window.location.origin);
+    base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+    base.pathname = `${base.pathname.replace(/\/$/, "")}/v1/terminals/${encodeURIComponent(terminalId)}/ws`;
+    base.search = new URLSearchParams({ token: this.conn.token }).toString();
+    return base.toString();
   }
 
   /** Sends a command. The idempotency key makes retries after a dropped connection safe. */

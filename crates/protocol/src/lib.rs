@@ -188,6 +188,10 @@ pub enum ChatItem {
         #[ts(type = "number | null")]
         output_tokens: Option<u64>,
     },
+    /// The user restored the files to how they were before `to_turn`.
+    Rewound {
+        to_turn: u32,
+    },
     /// Bantu-side problems: the agent couldn't start, crashed, or was cancelled.
     Error {
         message: String,
@@ -337,6 +341,10 @@ pub enum Command {
         model: Option<String>,
         permission_mode: Option<PermissionMode>,
     },
+    /// Restore the workspace files to the checkpoint taken just before `turn`
+    /// started. The conversation is kept; the agent is told on its next turn.
+    #[serde(rename = "session.rewind")]
+    SessionRewind { session_id: String, turn: u32 },
     /// Add a draft review comment on a line of the workspace diff.
     #[serde(rename = "comment.add")]
     CommentAdd {
