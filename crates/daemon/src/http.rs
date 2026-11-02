@@ -51,6 +51,7 @@ pub fn router(state: AppState) -> Router {
     let mut app = Router::new()
         .route("/v1/health", get(health))
         .route("/v1/hooks/permission", post(permission_hook))
+        .route("/v1/mcp", post(mcp).get(mcp_get))
         .merge(api)
         .with_state(state.clone());
 
@@ -166,6 +167,36 @@ async fn get_state(State(state): State<AppState>) -> Result<Json<StateSnapshot>,
 #[derive(Deserialize)]
 struct HookQuery {
     session: String,
+}
+
+/// Bantu's MCP server (Streamable HTTP, JSON responses only).
+async fn mcp(
+    State(state): State<AppState>,
+    Query(q): Query<HookQuery>,
+    headers: HeaderMap,
+    Json(msg): Json<serde_json::Value>,
+) -> Response {
+    let presented = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "));
+    if presented != Some(state.daemon.hook_token()) {
+        return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+    }
+    let session = match state.daemon.store.session(&q.session).await {
+        Ok(Some((s, _))) => s,
+        _ => return (StatusCode::NOT_FOUND, "no such session").into_response(),
+    };
+    match state.daemon.mcp_handle(&session, &msg).await {
+        Some(reply) => Json(reply).into_response(),
+        // Notifications get no body.
+        None => StatusCode::ACCEPTED.into_response(),
+    }
+}
+
+/// No server-initiated stream; clients fall back to plain request/response.
+async fn mcp_get() -> StatusCode {
+    StatusCode::METHOD_NOT_ALLOWED
 }
 
 /// Claude Code's `PermissionRequest` HTTP hook. Authenticated with the hook

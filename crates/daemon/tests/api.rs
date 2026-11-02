@@ -19,6 +19,8 @@ const FAKE_CODEX: &str = include_str!("../../../scripts/fake-codex.sh");
 struct Harness {
     base: String,
     token: String,
+    /// Token the agent-facing endpoints (permission hook, MCP) accept.
+    hook_token: String,
     /// Arguments of every fake `claude` invocation, one line each.
     claude_calls: std::path::PathBuf,
     http: reqwest::Client,
@@ -72,10 +74,12 @@ impl Harness {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         started.daemon.set_listen_addr(addr);
+        let hook_token = started.daemon.hook_token().to_string();
         tokio::spawn(async move { axum::serve(listener, started.router).await.unwrap() });
         Self {
             base: format!("http://{addr}"),
             token: started.token,
+            hook_token,
             claude_calls,
             http: reqwest::Client::new(),
             _dirs: vec![home, workspaces],
@@ -1522,4 +1526,155 @@ async fn activity_tracks_clients() {
     let a = activity().await;
     assert_eq!(a["connected_clients"], 0);
     assert_eq!(a["busy"], false);
+}
+
+#[tokio::test]
+async fn mcp_orchestration_tools() {
+    let h = Harness::start().await;
+    let (_fixture, clone) = fixture();
+    let (_, body) = h
+        .command(json!({"type": "repo.add", "path": clone}), None)
+        .await;
+    let repo_id = body["result"]["id"].as_str().unwrap().to_string();
+    let (_, body) = h
+        .command(
+            json!({"type": "workspace.create", "repo_id": repo_id, "name": "lead"}),
+            None,
+        )
+        .await;
+    let lead = h
+        .wait_for(
+            body["result"]["id"].as_str().unwrap(),
+            WorkspaceState::Ready,
+        )
+        .await;
+    let session = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == lead.id)
+        {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    h.command(
+        json!({"type": "session.update", "session_id": session.id, "model": "haiku", "permission_mode": "accept_edits"}),
+        None,
+    )
+    .await;
+
+    let mut next_id = 0;
+    let mut rpc = |method: &str, params: Value| {
+        next_id += 1;
+        let body = json!({"jsonrpc": "2.0", "id": next_id, "method": method, "params": params});
+        let req = h
+            .http
+            .post(format!("{}/v1/mcp?session={}", h.base, session.id))
+            .bearer_auth(&h.hook_token)
+            .json(&body);
+        async move { req.send().await.unwrap().json::<Value>().await.unwrap() }
+    };
+    let call = |r: Value| {
+        r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    let init = rpc("initialize", json!({"protocolVersion": "2025-06-18"})).await;
+    assert_eq!(init["result"]["serverInfo"]["name"], "bantu");
+    let tools = rpc("tools/list", json!({})).await;
+    let names: Vec<&str> = tools["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "list_workspaces",
+            "create_workspace",
+            "workspace_status",
+            "wait_for_workspace",
+            "send_message",
+            "get_diff"
+        ]
+    );
+
+    // The lead agent fans work out to a new workspace and waits for it.
+    let created = call(
+        rpc(
+            "tools/call",
+            json!({"name": "create_workspace", "arguments": {"name": "helper", "task": "edit the readme"}}),
+        )
+        .await,
+    );
+    assert!(created.starts_with("Started workspace helper"), "{created}");
+    let report = call(
+        rpc(
+            "tools/call",
+            json!({"name": "wait_for_workspace", "arguments": {"workspace": "helper"}}),
+        )
+        .await,
+    );
+    assert!(report.contains("agent idle"), "{report}");
+    assert!(
+        report.contains("echo: edit the readme"),
+        "the child's reply is reported: {report}"
+    );
+    assert!(report.contains("Changes: 2 file(s)"), "{report}");
+
+    // The child inherited the lead's model and permission mode.
+    let child = h
+        .state()
+        .await
+        .sessions
+        .into_iter()
+        .find(|s| s.workspace_id != lead.id)
+        .unwrap();
+    assert_eq!(child.model.as_deref(), Some("haiku"));
+    assert_eq!(child.permission_mode.as_str(), "accept_edits");
+
+    let listed = call(
+        rpc(
+            "tools/call",
+            json!({"name": "list_workspaces", "arguments": {}}),
+        )
+        .await,
+    );
+    assert!(
+        listed.contains("- lead (this one)") && listed.contains("- helper"),
+        "{listed}"
+    );
+    let diff = call(
+        rpc(
+            "tools/call",
+            json!({"name": "get_diff", "arguments": {"workspace": "helper"}}),
+        )
+        .await,
+    );
+    assert!(diff.contains("agent-was-here"), "{diff}");
+
+    // Mistakes come back as tool errors the agent can read, not crashes.
+    let bad = rpc(
+        "tools/call",
+        json!({"name": "workspace_status", "arguments": {"workspace": "nope"}}),
+    )
+    .await;
+    assert_eq!(bad["result"]["isError"], true);
+
+    // Only the hook token opens the MCP endpoint.
+    let res = h
+        .http
+        .post(format!("{}/v1/mcp?session={}", h.base, session.id))
+        .bearer_auth(&h.token)
+        .json(&json!({"jsonrpc": "2.0", "id": 1, "method": "ping"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
 }

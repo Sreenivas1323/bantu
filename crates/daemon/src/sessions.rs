@@ -397,6 +397,12 @@ impl Daemon {
                     cmd.args(["--settings", &settings])
                         .env("BANTU_HOOK_TOKEN", &self.permissions.hook_token);
                 }
+                if let Some(mcp) = self.mcp_config(&s.id) {
+                    // Bantu's own tools are always allowed; they only act on
+                    // this repo's workspaces.
+                    cmd.args(["--mcp-config", &mcp])
+                        .args(["--allowedTools", "mcp__bantu"]);
+                }
                 (&self.config.claude_bin, cmd, text.to_string())
             }
             AgentKind::Codex => {

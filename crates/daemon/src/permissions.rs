@@ -67,6 +67,10 @@ impl Daemon {
         let _ = self.permissions.base_url.set(format!("http://{addr}"));
     }
 
+    pub fn listen_base_url(&self) -> Option<&str> {
+        self.permissions.base_url.get().map(String::as_str)
+    }
+
     /// `--settings` JSON that routes this session's permission prompts to us,
     /// or `None` before the listener is bound.
     pub fn permission_hook_settings(&self, session_id: &str) -> Option<String> {

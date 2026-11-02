@@ -53,7 +53,8 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Fix failing checks: `gh pr checks` + failed-step logs from GitHub Actions (cleaned, last 120 lines) sent to the agent in one click
 - [ ] Full checks tab (deployments, PR comments, todos)
 - [ ] Per-repo prompts: review, create PR, fix errors, resolve conflicts, rename branch
-- [ ] Bantu MCP server injected into every session (diff, comments, terminal, notify)
+- [x] Bantu MCP server injected into every Claude session (`list_workspaces`, `create_workspace`, `workspace_status`, `wait_for_workspace`, `send_message`, `get_diff`)
+- [ ] More MCP tools: terminal output, diff comments, notify/ask the user
 - [ ] Model picker (done) and loadouts; effort/fast mode; several chats per workspace (done); fork a chat
 - [ ] Spotlight: sync a workspace into the main checkout for testing
 - [x] Create a workspace from a branch (local or origin), a PR (incl. forks via pull/N/head) or a GitHub issue (the agent starts on it)
@@ -72,7 +73,8 @@ Feature-by-feature status against Conductor and Pane lives in
 
 ## M4 — Beyond (weeks 8–10)
 
-- [ ] Orchestrator mode: split a task into N workspaces, dispatch, watch, integrate
+- [x] Orchestration: any chat can split work into new workspaces with their own agents, wait for them and review their diffs (verified with real Claude); children inherit model and permission mode; max 10 active workspaces per repo
+- [ ] Orchestrator UI: a lead chat with a live board of its child workspaces; integrate results into one branch
 - [x] Conflict radar: snapshots every ready workspace (uncommitted work included) and test-merges each pair and each against its base with `git merge-tree`; reruns after turns; ⚠ in the sidebar + banner
 - [ ] Definition-of-done loop before "Ready"
 - [ ] Cross-agent review (Claude writes, Codex reviews, or the reverse)

@@ -3,6 +3,7 @@
 pub mod activity;
 pub mod codex;
 pub mod http;
+pub mod mcp;
 pub mod names;
 pub mod ops;
 pub mod permissions;

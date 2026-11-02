@@ -49,9 +49,11 @@ on your own AWS account for ≈ $7/month with idle auto-stop, see [docs/AWS.md](
 | Diff review with line comments sent to the agent; Create PR; PR checks summary | ✅ |
 | Terminals and run scripts (PTY over WebSocket) | ✅ |
 | Per-turn checkpoints and "restore files to before this turn" | ✅ |
-| ACP agents (OpenCode, Cursor, Gemini), chat ⇄ terminal, MCP server | M2 |
+| ACP agents (OpenCode, Cursor, Gemini), chat ⇄ terminal | M2 |
 | Remote daemons, phone/PWA, pairing, AWS one-click | M3 |
-| Orchestrator, conflict radar, definition-of-done, cross-agent review | M4 |
+| Orchestration: a chat starts, watches and reviews other workspaces via Bantu's MCP tools | ✅ |
+| Conflict radar: warns when workspaces (or a workspace and its base) will conflict | ✅ |
+| Definition-of-done loop, cross-agent review, orchestrator board | M4 |
 
 ## Your own cloud, at cost
 
