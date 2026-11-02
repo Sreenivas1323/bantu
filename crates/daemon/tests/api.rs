@@ -802,13 +802,15 @@ async fn terminals() {
     .await
     .unwrap();
     sock.send(Message::Binary(
-        b"echo bantu-$((40+2)) $BANTU_PORT; pwd\n".to_vec().into(),
+        b"echo bantu-$((40+2)) $BANTU_PORT $(basename \"$PWD\")\n"
+            .to_vec()
+            .into(),
     ))
     .await
     .unwrap();
-    let out = read_until(&mut sock, &format!("bantu-42 {}", ws.port_base)).await;
-    let _ = out;
-    read_until(&mut sock, &ws.name).await;
+    // One output line proves arithmetic, env and cwd; the echoed input can't
+    // match because it contains the unexpanded `$((40+2))`.
+    read_until(&mut sock, &format!("bantu-42 {} {}", ws.port_base, ws.name)).await;
 
     // A second viewer gets the scrollback, so reopening a tab loses nothing.
     let (mut second, _) = tokio_tungstenite::connect_async(ws_url(&term_id))
