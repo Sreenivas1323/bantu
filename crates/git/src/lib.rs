@@ -296,29 +296,73 @@ async fn git_with_index(dir: &Path, index: &Path, args: &[&str]) -> Result<Strin
 }
 
 /// Records the whole working tree (tracked + untracked, not ignored) as a
-/// commit whose parent is `HEAD`, and points `full_ref` at it. Nothing in the
-/// working tree, index or branch changes.
-pub async fn checkpoint(dir: &Path, full_ref: &str) -> Result<String> {
+/// commit whose parent is `HEAD`, without touching the working tree, index
+/// or branch. Unreferenced snapshots are garbage-collected by git eventually.
+pub async fn snapshot(dir: &Path) -> Result<String> {
     let git_dir =
         PathBuf::from(git(dir, &["rev-parse", "--path-format=absolute", "--git-dir"]).await?);
-    let index = git_dir.join(format!("bantu-cp-index-{}", std::process::id()));
+    let index = git_dir.join(format!(
+        "bantu-snap-index-{}-{}",
+        std::process::id(),
+        SNAPSHOT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     let result = async {
         let head = git(dir, &["rev-parse", "HEAD"]).await?;
         git_with_index(dir, &index, &["read-tree", "HEAD"]).await?;
         git_with_index(dir, &index, &["add", "-A", "."]).await?;
         let tree = git_with_index(dir, &index, &["write-tree"]).await?;
-        let sha = git_with_index(
+        git_with_index(
             dir,
             &index,
-            &["commit-tree", &tree, "-p", &head, "-m", "bantu checkpoint"],
+            &["commit-tree", &tree, "-p", &head, "-m", "bantu snapshot"],
         )
-        .await?;
-        update_ref(dir, full_ref, &sha).await?;
-        Ok(sha)
+        .await
     }
     .await;
     let _ = tokio::fs::remove_file(&index).await;
     result
+}
+
+static SNAPSHOT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A [`snapshot`] kept alive by `full_ref`, so it can be restored later.
+pub async fn checkpoint(dir: &Path, full_ref: &str) -> Result<String> {
+    let sha = snapshot(dir).await?;
+    update_ref(dir, full_ref, &sha).await?;
+    Ok(sha)
+}
+
+/// Files that would conflict if `a` and `b` were merged (empty if they merge
+/// cleanly). Needs git 2.38+ for `merge-tree --write-tree`.
+pub async fn merge_conflicts(dir: &Path, a: &str, b: &str) -> Result<Vec<String>> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args([
+            "merge-tree",
+            "--write-tree",
+            "--name-only",
+            "--no-messages",
+            a,
+            b,
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .await?;
+    match out.status.code() {
+        Some(0) => Ok(vec![]),
+        // Exit 1 = conflicts: first line is the tree, then one path per line.
+        Some(1) => Ok(String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .skip(1)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect()),
+        _ => Err(GitError::Failed {
+            args: format!("merge-tree {a} {b}"),
+            stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        }),
+    }
 }
 
 /// Puts the worktree back exactly as it was at `checkpoint`: the branch moves
@@ -435,6 +479,26 @@ mod tests {
         update_ref(&root, "refs/bantu/archive/x", &sha)
             .await
             .unwrap();
+
+        // Two snapshots of diverging edits to the same line conflict.
+        let other = wt_parent.path().join("other");
+        worktree_add(&root, &other, "bantu/other", "main")
+            .await
+            .unwrap();
+        std::fs::write(other.join("a.txt"), "other edit\n").unwrap();
+        let (s1, s2) = (
+            snapshot(&wt).await.unwrap(),
+            snapshot(&other).await.unwrap(),
+        );
+        assert_eq!(
+            merge_conflicts(&root, &s1, &s2).await.unwrap(),
+            vec!["a.txt".to_string()]
+        );
+        std::fs::write(other.join("a.txt"), "a\n").unwrap();
+        std::fs::write(other.join("b.txt"), "unrelated\n").unwrap();
+        let s2 = snapshot(&other).await.unwrap();
+        assert!(merge_conflicts(&root, &s1, &s2).await.unwrap().is_empty());
+        worktree_remove(&root, &other).await.unwrap();
 
         // Checkpoint, make a mess (edit, delete, add, commit), then restore.
         std::fs::write(wt.join("new.txt"), "untracked\n").unwrap();

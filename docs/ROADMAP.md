@@ -71,7 +71,7 @@ Feature-by-feature status against Conductor and Pane lives in
 ## M4 — Beyond (weeks 8–10)
 
 - [ ] Orchestrator mode: split a task into N workspaces, dispatch, watch, integrate
-- [ ] Conflict radar between active branches
+- [x] Conflict radar: snapshots every ready workspace (uncommitted work included) and test-merges each pair and each against its base with `git merge-tree`; reruns after turns; ⚠ in the sidebar + banner
 - [ ] Definition-of-done loop before "Ready"
 - [ ] Cross-agent review (Claude writes, Codex reviews, or the reverse)
 - [ ] Loops / routines: cron, GitHub triggers

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Command, Session, Workspace } from "@bantu/protocol";
 import type { Connection } from "../lib/connection.ts";
 import { useDaemon } from "../lib/useDaemon.ts";
+import { conflictsFor } from "../lib/store.ts";
 import { useNotifications } from "../lib/useNotifications.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { StatusBar } from "./StatusBar.tsx";
@@ -58,6 +59,15 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
     () => new Set(Object.values(state.permissions).map((p) => p.workspace_id)),
     [state.permissions],
   );
+  const conflictedWorkspaces = useMemo(() => {
+    const ids = new Set<string>();
+    for (const list of Object.values(state.conflicts))
+      for (const c of list) {
+        ids.add(c.workspace_id);
+        if (c.other_workspace_id) ids.add(c.other_workspace_id);
+      }
+    return ids;
+  }, [state.conflicts]);
   useNotifications(state);
 
   const selected = selectedId ? state.workspaces[selectedId] : undefined;
@@ -69,6 +79,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
         workspacesByRepo={workspacesByRepo}
         sessionsByWorkspace={sessionsByWorkspace}
         waitingWorkspaces={waitingWorkspaces}
+        conflictedWorkspaces={conflictedWorkspaces}
         selectedId={selectedId}
         showArchived={showArchived}
         onToggleArchived={() => setShowArchived((v) => !v)}
@@ -96,6 +107,9 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             streaming={state.streaming}
             comments={Object.values(state.comments).filter((c) => c.workspace_id === selected.id)}
             permissions={Object.values(state.permissions).filter((p) => p.workspace_id === selected.id)}
+            conflicts={conflictsFor(state, selected.id)}
+            allWorkspaces={state.workspaces}
+            onSelectWorkspace={setSelectedId}
             terminals={Object.values(state.terminals)
               .filter((t) => t.workspace_id === selected.id)
               .sort((a, b) => a.created_at.localeCompare(b.created_at))}

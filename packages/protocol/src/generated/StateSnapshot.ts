@@ -5,9 +5,14 @@ import type { Repo } from "./Repo";
 import type { Session } from "./Session";
 import type { Terminal } from "./Terminal";
 import type { Workspace } from "./Workspace";
+import type { WorkspaceConflict } from "./WorkspaceConflict";
 
 export type StateSnapshot = { protocol_version: number, daemon_version: string, last_seq: number, repos: Array<Repo>, workspaces: Array<Workspace>, sessions: Array<Session>, comments: Array<DiffComment>, terminals: Array<Terminal>, 
 /**
  * Requests still waiting for an answer.
  */
-permissions: Array<PermissionRequest>, };
+permissions: Array<PermissionRequest>, 
+/**
+ * Latest conflict-radar results across all repos.
+ */
+conflicts: Array<WorkspaceConflict>, };

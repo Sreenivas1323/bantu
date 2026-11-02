@@ -43,6 +43,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/workspaces/{id}/history", get(get_history))
         .route("/v1/workspaces/{id}/diff", get(get_diff))
         .route("/v1/workspaces/{id}/pr", get(get_pr))
+        .route("/v1/repos/{id}/conflicts", post(scan_conflicts))
         .route("/v1/terminals/{id}/ws", get(terminal_ws))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
 
@@ -151,6 +152,7 @@ async fn get_state(State(state): State<AppState>) -> Result<Json<StateSnapshot>,
         comments: store.comments().await?,
         terminals: state.daemon.terminals().await,
         permissions: state.daemon.pending_permissions().await,
+        conflicts: state.daemon.all_conflicts().await,
     }))
 }
 
@@ -252,6 +254,14 @@ async fn get_diff(State(state): State<AppState>, Path(id): Path<String>) -> Resp
         Ok(diff) => Json(diff).into_response(),
         Err(e) => command_error(e),
     }
+}
+
+/// Runs the conflict radar for a repo now and returns the result.
+async fn scan_conflicts(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<bantu_protocol::WorkspaceConflict>>, ApiError> {
+    Ok(Json(state.daemon.scan_conflicts(&id).await?))
 }
 
 /// `null` when the branch has no PR, the repo has no remote, or `gh` is missing.

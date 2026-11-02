@@ -10,6 +10,7 @@ import type {
   StreamDelta,
   Terminal,
   Workspace,
+  WorkspaceConflict,
 } from "@bantu/protocol";
 
 export const LOG_LIMIT = 500;
@@ -33,6 +34,8 @@ export type DaemonState = {
   permissions: Record<string, PermissionRequest>;
   /** Assistant text still being written, per session. Cleared when the full item lands. */
   streaming: Record<string, { turn: number; text: string }>;
+  /** Conflict-radar results per repo id. */
+  conflicts: Record<string, WorkspaceConflict[]>;
 };
 
 export const emptyState: DaemonState = {
@@ -47,6 +50,7 @@ export const emptyState: DaemonState = {
   terminals: {},
   permissions: {},
   streaming: {},
+  conflicts: {},
 };
 
 export type Action =
@@ -72,6 +76,7 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         comments: Object.fromEntries(snapshot.comments.map((c) => [c.id, c])),
         terminals: Object.fromEntries(snapshot.terminals.map((t) => [t.id, t])),
         permissions: Object.fromEntries(snapshot.permissions.map((p) => [p.id, p])),
+        conflicts: groupConflicts(snapshot.conflicts),
         // History isn't in the snapshot; it's backfilled per workspace.
         logs: state.logs,
         chat: state.chat,
@@ -161,6 +166,8 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
       const { [data.comment_id]: _gone, ...comments } = state.comments;
       return { ...next, comments };
     }
+    case "conflicts.updated":
+      return { ...next, conflicts: { ...state.conflicts, [data.repo_id]: data.conflicts } };
     case "permission.requested":
       return { ...next, permissions: { ...state.permissions, [data.request.id]: data.request } };
     case "permission.resolved": {
@@ -177,4 +184,22 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
       // Event types this client doesn't render yet still advance lastSeq.
       return next;
   }
+}
+
+function groupConflicts(list: WorkspaceConflict[]): Record<string, WorkspaceConflict[]> {
+  const out: Record<string, WorkspaceConflict[]> = {};
+  for (const c of list) (out[c.repo_id] ??= []).push(c);
+  return out;
+}
+
+/** Conflicts involving one workspace, from its point of view. */
+export function conflictsFor(state: DaemonState, workspaceId: string): { other: string | null; base: string | null; files: string[] }[] {
+  const out = [];
+  for (const list of Object.values(state.conflicts)) {
+    for (const c of list) {
+      if (c.workspace_id === workspaceId) out.push({ other: c.other_workspace_id, base: c.base_ref, files: c.files });
+      else if (c.other_workspace_id === workspaceId) out.push({ other: c.workspace_id, base: null, files: c.files });
+    }
+  }
+  return out;
 }

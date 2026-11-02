@@ -1389,3 +1389,68 @@ async fn workspaces_from_existing_branches() {
         .unwrap();
     assert_eq!(after.branch, "local-only");
 }
+
+#[tokio::test]
+async fn conflict_radar() {
+    let h = Harness::start().await;
+    let (_fixture, clone) = fixture();
+    let (_, body) = h
+        .command(json!({"type": "repo.add", "path": clone}), None)
+        .await;
+    let repo_id = body["result"]["id"].as_str().unwrap().to_string();
+    let mut ws = Vec::new();
+    for _ in 0..2 {
+        let (_, body) = h
+            .command(
+                json!({"type": "workspace.create", "repo_id": repo_id}),
+                None,
+            )
+            .await;
+        ws.push(
+            h.wait_for(
+                body["result"]["id"].as_str().unwrap(),
+                WorkspaceState::Ready,
+            )
+            .await,
+        );
+    }
+    let scan = || async {
+        h.http
+            .post(format!("{}/v1/repos/{repo_id}/conflicts", h.base))
+            .bearer_auth(&h.token)
+            .send()
+            .await
+            .unwrap()
+            .json::<Vec<Value>>()
+            .await
+            .unwrap()
+    };
+    assert!(scan().await.is_empty());
+
+    // Uncommitted edits to the same line in two workspaces collide.
+    std::fs::write(Path::new(&ws[0].path).join("README.md"), "hello from one\n").unwrap();
+    std::fs::write(Path::new(&ws[1].path).join("README.md"), "hello from two\n").unwrap();
+    std::fs::write(Path::new(&ws[1].path).join("only-two.txt"), "fine\n").unwrap();
+    let found = scan().await;
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0]["workspace_id"], json!(ws[0].id));
+    assert_eq!(found[0]["other_workspace_id"], json!(ws[1].id));
+    assert_eq!(found[0]["files"], json!(["README.md"]));
+    assert_eq!(h.state().await.conflicts.len(), 1);
+
+    // Resolving it clears the radar and says so on the event stream.
+    std::fs::write(Path::new(&ws[1].path).join("README.md"), "hi\n").unwrap();
+    assert!(scan().await.is_empty());
+    assert!(h.state().await.conflicts.is_empty());
+    let updates: Vec<usize> = h
+        .events(0, h.state().await.last_seq as usize)
+        .await
+        .into_iter()
+        .filter_map(|e| match e.data {
+            EventData::ConflictsUpdated { conflicts, .. } => Some(conflicts.len()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(updates.last(), Some(&0));
+    assert!(updates.contains(&1));
+}

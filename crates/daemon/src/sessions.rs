@@ -351,6 +351,10 @@ impl Daemon {
                 }
                 None => {
                     running.remove(&s.id);
+                    // The agent may have changed files other workspaces touch.
+                    if let Ok(ws) = self.require_workspace(&s.workspace_id).await {
+                        self.rescan_conflicts(&ws.repo_id);
+                    }
                     s.status = SessionStatus::Idle;
                     s.queued = 0;
                     if let Err(e) = self.store.upsert_session(&s, &agent_id).await {

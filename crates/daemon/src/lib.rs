@@ -5,6 +5,7 @@ pub mod http;
 pub mod names;
 pub mod ops;
 pub mod permissions;
+pub mod radar;
 pub mod review;
 pub mod service;
 pub mod sessions;

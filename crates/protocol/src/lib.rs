@@ -266,6 +266,20 @@ pub struct WorkspaceDiff {
     pub files: Vec<FileDiff>,
 }
 
+/// Two lines of work that won't merge cleanly: either two workspaces of the
+/// same repo, or a workspace and its base branch. Uncommitted changes count.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+pub struct WorkspaceConflict {
+    pub repo_id: String,
+    pub workspace_id: String,
+    /// The other workspace, or `None` when the conflict is with `base_ref`.
+    pub other_workspace_id: Option<String>,
+    pub base_ref: Option<String>,
+    /// Paths that would conflict.
+    pub files: Vec<String>,
+}
+
 /// A review note on a line of the workspace diff, to be sent to the agent.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
@@ -504,6 +518,12 @@ pub enum EventData {
         comment_id: String,
         workspace_id: String,
     },
+    /// The full set of conflicts for a repo, sent when it changes.
+    #[serde(rename = "conflicts.updated")]
+    ConflictsUpdated {
+        repo_id: String,
+        conflicts: Vec<WorkspaceConflict>,
+    },
     #[serde(rename = "permission.requested")]
     PermissionRequested { request: PermissionRequest },
     #[serde(rename = "permission.resolved")]
@@ -534,7 +554,9 @@ impl EventData {
     /// The workspace an event belongs to, for per-workspace history.
     pub fn workspace_id(&self) -> Option<&str> {
         match self {
-            Self::RepoAdded { .. } | Self::RepoRemoved { .. } => None,
+            Self::RepoAdded { .. } | Self::RepoRemoved { .. } | Self::ConflictsUpdated { .. } => {
+                None
+            }
             Self::WorkspaceUpdated { workspace } => Some(&workspace.id),
             Self::WorkspaceLog { workspace_id, .. } | Self::SessionItem { workspace_id, .. } => {
                 Some(workspace_id)
@@ -584,6 +606,8 @@ pub struct StateSnapshot {
     pub terminals: Vec<Terminal>,
     /// Requests still waiting for an answer.
     pub permissions: Vec<PermissionRequest>,
+    /// Latest conflict-radar results across all repos.
+    pub conflicts: Vec<WorkspaceConflict>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -626,6 +650,7 @@ mod tests {
             "Terminal",
             "TerminalKind",
             "Workspace",
+            "WorkspaceConflict",
             "WorkspaceDiff",
             "WorkspaceSource",
             "WorkspaceState",

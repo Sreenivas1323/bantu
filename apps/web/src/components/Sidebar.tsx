@@ -9,6 +9,8 @@ type Props = {
   sessionsByWorkspace: Record<string, Session[]>;
   /** Workspaces with an agent waiting for approval. */
   waitingWorkspaces: Set<string>;
+  /** Workspaces the conflict radar flagged. */
+  conflictedWorkspaces: Set<string>;
   selectedId: string | null;
   showArchived: boolean;
   onToggleArchived: () => void;
@@ -35,6 +37,7 @@ export function Sidebar(props: Props) {
             workspaces={(workspacesByRepo[repo.id] ?? []).filter((w) => showArchived || w.state !== "archived")}
             sessionsByWorkspace={props.sessionsByWorkspace}
             waitingWorkspaces={props.waitingWorkspaces}
+            conflictedWorkspaces={props.conflictedWorkspaces}
             selectedId={selectedId}
             onSelect={props.onSelect}
             onNewWorkspace={props.onNewWorkspace}
@@ -55,6 +58,7 @@ function RepoGroup({
   workspaces,
   sessionsByWorkspace,
   waitingWorkspaces,
+  conflictedWorkspaces,
   selectedId,
   onSelect,
   onNewWorkspace,
@@ -65,6 +69,8 @@ function RepoGroup({
   sessionsByWorkspace: Record<string, Session[]>;
   /** Workspaces with an agent waiting for approval. */
   waitingWorkspaces: Set<string>;
+  /** Workspaces the conflict radar flagged. */
+  conflictedWorkspaces: Set<string>;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onNewWorkspace: (repoId: string, from?: WorkspaceSource) => Promise<void>;
@@ -149,7 +155,14 @@ function RepoGroup({
                 <StateDot state={w.state} />
               )}
               <span className="min-w-0 flex-1">
-                <span className={`block truncate ${w.state === "archived" ? "text-faint" : ""}`}>{w.name}</span>
+                <span className={`flex items-center gap-1 truncate ${w.state === "archived" ? "text-faint" : ""}`}>
+                  {w.name}
+                  {conflictedWorkspaces.has(w.id) && (
+                    <span role="img" aria-label="will conflict" title="Will conflict with another workspace or its base" className="text-[11px] text-warn">
+                      ⚠
+                    </span>
+                  )}
+                </span>
                 {title ? (
                   <span className="block truncate text-[11.5px] text-muted" title={title}>
                     {title}

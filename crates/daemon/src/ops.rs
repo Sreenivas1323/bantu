@@ -41,6 +41,7 @@ pub struct Daemon {
     pub(crate) running: crate::sessions::Running,
     pub(crate) terminals: crate::terminals::Terminals,
     pub(crate) permissions: crate::permissions::Permissions,
+    pub(crate) radar: crate::radar::Radar,
 }
 
 impl Daemon {
@@ -52,6 +53,7 @@ impl Daemon {
             running: Default::default(),
             terminals: Default::default(),
             permissions: Default::default(),
+            radar: Default::default(),
         }
     }
 
@@ -474,6 +476,7 @@ impl Daemon {
             tracing::error!("failed to record workspace {}: {e:#}", ws.id);
             return;
         }
+        self.rescan_conflicts(&ws.repo_id);
         // Every ready workspace starts with one chat, like opening a new tab.
         if ws.state == WorkspaceState::Ready {
             match self.create_session(&ws.id, None, None, None).await {
@@ -610,6 +613,7 @@ impl Daemon {
             if let Err(e) = this.store.upsert_workspace(&bg).await {
                 tracing::error!("failed to record workspace {}: {e:#}", bg.id);
             }
+            this.rescan_conflicts(&bg.repo_id);
         });
         Ok(ws)
     }

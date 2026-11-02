@@ -11,6 +11,8 @@ import type {
 } from "@bantu/protocol";
 import type { DaemonClient } from "../lib/api.ts";
 import type { ChatEntry, DaemonState, LogLine } from "../lib/store.ts";
+import type { conflictsFor } from "../lib/store.ts";
+import { ConflictBanner } from "./ConflictBanner.tsx";
 import { useWorkspaceGit } from "../lib/useWorkspaceGit.ts";
 import { ChangesPanel } from "./changes/ChangesPanel.tsx";
 import { ChatPanel } from "./chat/ChatPanel.tsx";
@@ -32,6 +34,9 @@ export function WorkspaceView({
   comments,
   terminals,
   permissions,
+  conflicts,
+  allWorkspaces,
+  onSelectWorkspace,
   client,
   run,
   onArchive,
@@ -47,6 +52,9 @@ export function WorkspaceView({
   /** This workspace's terminals, oldest first. */
   terminals: Terminal[];
   permissions: PermissionRequest[];
+  conflicts: ReturnType<typeof conflictsFor>;
+  allWorkspaces: Record<string, Workspace>;
+  onSelectWorkspace: (id: string) => void;
   client: DaemonClient;
   run: (command: Command) => Promise<CommandResponse | null>;
   onArchive: (id: string) => Promise<void>;
@@ -154,6 +162,7 @@ export function WorkspaceView({
         <div className="mx-5 mb-2 rounded-md border border-bad/40 bg-bad/10 px-3 py-2 text-bad">{workspace.error}</div>
       )}
 
+      <ConflictBanner conflicts={conflicts} workspaces={allWorkspaces} onSelect={onSelectWorkspace} />
       <div className="flex gap-1 border-b border-line px-5" role="tablist" aria-label="Workspace">
         <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
           Chat
