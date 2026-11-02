@@ -219,7 +219,7 @@ function AddRepo({ onAdd }: { onAdd: (path: string) => Promise<void> }) {
         value={path}
         onChange={(e) => setPath(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-        placeholder="/path/to/repo"
+        placeholder="~/code/app, owner/repo or a git URL"
         spellCheck={false}
         autoFocus
         className="w-full rounded-md border border-line bg-bg px-2 py-1.5 font-mono text-[16px] sm:text-[12px] placeholder:text-faint"

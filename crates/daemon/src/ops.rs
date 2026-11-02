@@ -42,6 +42,7 @@ pub struct Daemon {
     pub(crate) terminals: crate::terminals::Terminals,
     pub(crate) permissions: crate::permissions::Permissions,
     pub(crate) radar: crate::radar::Radar,
+    pub(crate) activity: crate::activity::Tracker,
 }
 
 impl Daemon {
@@ -54,10 +55,12 @@ impl Daemon {
             terminals: Default::default(),
             permissions: Default::default(),
             radar: Default::default(),
+            activity: Default::default(),
         }
     }
 
     pub async fn execute(self: &Arc<Self>, cmd: Command) -> CmdResult<serde_json::Value> {
+        self.activity.touch();
         let value = match cmd {
             Command::RepoAdd { path } => serde_json::to_value(self.add_repo(&path).await?),
             Command::RepoRemove { repo_id } => {
@@ -168,7 +171,10 @@ impl Daemon {
     // ---- repos ------------------------------------------------------------
 
     async fn add_repo(&self, path: &str) -> CmdResult<Repo> {
-        let path = expand_home(path);
+        let path = match clone_source(path) {
+            Some(url) => self.clone_repo(&url).await?,
+            None => expand_home(path),
+        };
         if !path.is_dir() {
             return Err(CommandError::BadRequest(format!(
                 "{} is not a directory",
@@ -199,6 +205,35 @@ impl Daemon {
         };
         self.store.insert_repo(&repo).await?;
         Ok(repo)
+    }
+
+    /// Clones into `<repos_dir>/<name>`, or reuses an earlier clone there.
+    async fn clone_repo(&self, url: &str) -> CmdResult<PathBuf> {
+        let name = repo_name_from_url(url).ok_or_else(|| {
+            CommandError::BadRequest(format!("can't tell the repo name from {url}"))
+        })?;
+        let parent = self.config.repos_dir.clone();
+        let dest = parent.join(&name);
+        if dest.join(".git").exists() {
+            return Ok(dest);
+        }
+        tokio::fs::create_dir_all(&parent)
+            .await
+            .map_err(anyhow::Error::from)?;
+        let out = tokio::process::Command::new("git")
+            .args(["clone", "--quiet", url])
+            .arg(&dest)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .await
+            .map_err(anyhow::Error::from)?;
+        if !out.status.success() {
+            return Err(CommandError::BadRequest(format!(
+                "git clone failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
+        Ok(dest)
     }
 
     async fn remove_repo(&self, repo_id: &str) -> CmdResult<()> {
@@ -755,6 +790,30 @@ fn copy_recursive(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// A clone URL if `input` names a remote repo rather than a local path:
+/// `https://…`, `git@host:owner/repo`, `ssh://…`, or GitHub shorthand `owner/repo`.
+fn clone_source(input: &str) -> Option<String> {
+    let input = input.trim();
+    if ["https://", "ssh://", "git@", "file://"]
+        .iter()
+        .any(|p| input.starts_with(p))
+    {
+        return Some(input.to_string());
+    }
+    let shorthand = input.split('/').count() == 2
+        && !input.starts_with(['.', '/', '~'])
+        && input
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/'));
+    (shorthand && !Path::new(input).exists()).then(|| format!("https://github.com/{input}.git"))
+}
+
+fn repo_name_from_url(url: &str) -> Option<String> {
+    let last = url.trim_end_matches('/').rsplit(['/', ':']).next()?;
+    let name = last.strip_suffix(".git").unwrap_or(last);
+    (!name.is_empty() && name != "." && name != "..").then(|| name.to_string())
+}
+
 fn expand_home(path: &str) -> PathBuf {
     match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
         (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
@@ -822,6 +881,33 @@ fn issue_message(number: u32, issue: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognizes_clone_sources() {
+        assert_eq!(
+            clone_source("Sreenivas1323/bantu").as_deref(),
+            Some("https://github.com/Sreenivas1323/bantu.git")
+        );
+        assert_eq!(
+            clone_source("git@github.com:o/r.git").as_deref(),
+            Some("git@github.com:o/r.git")
+        );
+        assert_eq!(
+            clone_source("https://gitlab.com/o/r").as_deref(),
+            Some("https://gitlab.com/o/r")
+        );
+        assert_eq!(clone_source("~/code/bantu"), None);
+        assert_eq!(clone_source("/Users/me/code"), None);
+        assert_eq!(clone_source("code/app/x"), None);
+        assert_eq!(
+            repo_name_from_url("https://github.com/o/my-app.git").as_deref(),
+            Some("my-app")
+        );
+        assert_eq!(
+            repo_name_from_url("git@github.com:o/r").as_deref(),
+            Some("r")
+        );
+    }
 
     #[test]
     fn issue_task_message() {

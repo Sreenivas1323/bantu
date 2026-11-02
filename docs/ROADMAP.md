@@ -64,7 +64,9 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Pairing by QR code (`bantud url --qr`, with `BANTU_PUBLIC_URL`)
 - [ ] Web/PWA client deployable as a static site; phone layout
 - [ ] Web Push from the daemon (VAPID) for the Notify inbox
-- [ ] AWS Launch Stack: EC2 t4g + CloudFront + idle auto-stop + Lambda wake URL
+- [x] AWS template (Tailscale variant): EC2 t4g, no open ports, idle auto-stop via `/v1/activity`, Lambda wake link, Session Manager shell ([AWS.md](AWS.md)) — lint-checked, not yet deployed end to end
+- [ ] CloudFront variant (needs your own domain + certificate on the instance)
+- [ ] Launch Stack button (needs a public S3 copy of the template)
 - [x] Guides: Tailscale Serve, Cloudflare Tunnel, SSH ([REMOTE.md](REMOTE.md)); `--allowed-host` instead of all-or-nothing
 - [ ] Port forwarding for dev-server previews on remote daemons
 

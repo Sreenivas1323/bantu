@@ -1,5 +1,6 @@
 //! The Bantu daemon (`bantud`). See `docs/ARCHITECTURE.md`.
 
+pub mod activity;
 pub mod codex;
 pub mod http;
 pub mod names;
@@ -27,6 +28,8 @@ pub struct Config {
     pub home: PathBuf,
     /// Worktrees go in `<workspaces_dir>/<repo>/<name>`.
     pub workspaces_dir: PathBuf,
+    /// Repos added by URL are cloned into `<repos_dir>/<name>`.
+    pub repos_dir: PathBuf,
     /// Built web app to serve at `/`, if any.
     pub web_dir: Option<PathBuf>,
     pub branch_prefix: String,

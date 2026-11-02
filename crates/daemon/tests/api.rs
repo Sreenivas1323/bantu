@@ -61,6 +61,7 @@ impl Harness {
         let config = bantud::Config {
             home: home.path().to_path_buf(),
             workspaces_dir: workspaces.path().to_path_buf(),
+            repos_dir: home.path().join("repos"),
             web_dir: None,
             branch_prefix: "bantu/".into(),
             claude_bin,
@@ -415,6 +416,30 @@ async fn workspace_lifecycle() {
         .command(json!({"type": "repo.remove", "repo_id": repo.id}), None)
         .await;
     assert_eq!(status, 409);
+
+    // A remote URL is cloned into the repos dir and added like a local path.
+    let origin = clone.parent().unwrap().join("origin.git");
+    let (status, body) = h
+        .command(
+            json!({"type": "repo.add", "path": format!("file://{}", origin.display())}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["result"]["name"], "origin");
+    assert!(Path::new(body["result"]["root_path"].as_str().unwrap())
+        .join("README.md")
+        .exists());
+    let (_, again) = h
+        .command(
+            json!({"type": "repo.add", "path": format!("file://{}", origin.display())}),
+            None,
+        )
+        .await;
+    assert_eq!(
+        again["result"]["id"], body["result"]["id"],
+        "re-adding reuses the clone"
+    );
 
     // Bad input is a 4xx, not a crash.
     let (status, _) = h
@@ -1453,4 +1478,48 @@ async fn conflict_radar() {
         .collect();
     assert_eq!(updates.last(), Some(&0));
     assert!(updates.contains(&1));
+}
+
+#[tokio::test]
+async fn activity_tracks_clients() {
+    let h = Harness::start().await;
+    let activity = || async {
+        h.http
+            .get(format!("{}/v1/activity", h.base))
+            .bearer_auth(&h.token)
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()
+    };
+    let a = activity().await;
+    assert_eq!(a["busy"], false);
+    assert_eq!(a["connected_clients"], 0);
+
+    // An open event stream (a browser tab) keeps the daemon busy.
+    let stream = h
+        .http
+        .get(format!("{}/v1/events?since=0&token={}", h.base, h.token))
+        .send()
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let a = activity().await;
+    assert_eq!(a["busy"], true);
+    assert_eq!(a["connected_clients"], 1);
+    assert_eq!(a["idle_seconds"], 0);
+
+    // Closing it is noticed without waiting for another event.
+    drop(stream);
+    for _ in 0..50 {
+        if activity().await["connected_clients"] == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let a = activity().await;
+    assert_eq!(a["connected_clients"], 0);
+    assert_eq!(a["busy"], false);
 }

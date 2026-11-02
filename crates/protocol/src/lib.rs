@@ -610,6 +610,21 @@ pub struct StateSnapshot {
     pub conflicts: Vec<WorkspaceConflict>,
 }
 
+/// Whether anything is happening, for idle auto-stop on cloud machines.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Activity {
+    /// An agent is working or waiting on the user, a terminal is open, or a
+    /// client is connected.
+    pub busy: bool,
+    /// Seconds since the daemon was last busy or received a command.
+    #[ts(type = "number")]
+    pub idle_seconds: u64,
+    pub connected_clients: u32,
+    pub running_sessions: u32,
+    pub open_terminals: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
 pub struct Health {
@@ -628,6 +643,7 @@ mod tests {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/protocol/src");
         let index = std::fs::read_to_string(format!("{root}/index.ts")).unwrap();
         for name in [
+            "Activity",
             "AgentKind",
             "ChatItem",
             "Command",

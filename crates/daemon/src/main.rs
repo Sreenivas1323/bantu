@@ -20,6 +20,9 @@ struct Args {
     /// Where worktrees are created. Defaults to ~/bantu/workspaces.
     #[arg(long, env = "BANTU_WORKSPACES_DIR")]
     workspaces_dir: Option<PathBuf>,
+    /// Where repos added by URL are cloned. Defaults to ~/bantu/repos.
+    #[arg(long, env = "BANTU_REPOS_DIR")]
+    repos_dir: Option<PathBuf>,
     /// Built web app to serve at `/`.
     #[arg(long, env = "BANTU_WEB_DIR")]
     web_dir: Option<PathBuf>,
@@ -158,6 +161,9 @@ async fn main() -> Result<()> {
         workspaces_dir: args
             .workspaces_dir
             .unwrap_or_else(|| home_dir.join("bantu").join("workspaces")),
+        repos_dir: args
+            .repos_dir
+            .unwrap_or_else(|| home_dir.join("bantu").join("repos")),
         web_dir: args.web_dir.or_else(default_web_dir),
         branch_prefix: args.branch_prefix,
         claude_bin: args.claude_bin,

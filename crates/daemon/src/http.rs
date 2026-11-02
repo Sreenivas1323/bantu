@@ -40,6 +40,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/state", get(get_state))
         .route("/v1/commands", post(post_command))
         .route("/v1/events", get(get_events))
+        .route("/v1/activity", get(get_activity))
         .route("/v1/workspaces/{id}/history", get(get_history))
         .route("/v1/workspaces/{id}/diff", get(get_diff))
         .route("/v1/workspaces/{id}/pr", get(get_pr))
@@ -130,6 +131,12 @@ async fn require_token(
     }
 }
 
+async fn get_activity(
+    State(state): State<AppState>,
+) -> Result<Json<bantu_protocol::Activity>, ApiError> {
+    Ok(Json(state.daemon.activity().await?))
+}
+
 async fn health() -> Json<Health> {
     Json(Health {
         ok: true,
@@ -193,10 +200,12 @@ async fn terminal_ws(
     let Some(term) = state.daemon.terminal(&id).await else {
         return (StatusCode::NOT_FOUND, "no such terminal").into_response();
     };
-    upgrade.on_upgrade(move |socket| serve_terminal(socket, term))
+    let daemon = state.daemon.clone();
+    upgrade.on_upgrade(move |socket| serve_terminal(socket, term, daemon))
 }
 
-async fn serve_terminal(socket: WebSocket, term: Arc<Term>) {
+async fn serve_terminal(socket: WebSocket, term: Arc<Term>, daemon: Arc<Daemon>) {
+    let _client = daemon.activity.client();
     use futures::{SinkExt, StreamExt};
     let (mut sink, mut stream) = socket.split();
     let (backlog, mut output) = term.attach();
@@ -387,6 +396,7 @@ async fn get_events(
         }
     });
     tokio::spawn(async move {
+        let _client = daemon.activity.client();
         let mut live = daemon.store.subscribe();
         let mut last = since;
         'replay: loop {
@@ -410,7 +420,12 @@ async fn get_events(
                 }
             }
             loop {
-                match live.recv().await {
+                let next = tokio::select! {
+                    ev = live.recv() => ev,
+                    // The client went away; stop counting it as connected.
+                    _ = tx.closed() => return,
+                };
+                match next {
                     Ok(ev) if ev.seq <= last => continue,
                     Ok(ev) => {
                         last = ev.seq;
