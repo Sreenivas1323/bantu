@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
 import type { Repo, Session, Workspace, WorkspaceSource } from "@bantu/protocol";
 import { NewFromForm } from "./NewFromForm.tsx";
+import { RepoSuggestions } from "./RepoSuggestions.tsx";
+import type { DaemonClient } from "../lib/api.ts";
 import { StateDot } from "./StateDot.tsx";
 
 type Props = {
@@ -16,6 +18,7 @@ type Props = {
   onToggleArchived: () => void;
   onSelect: (workspaceId: string) => void;
   onAddRepo: (path: string) => Promise<void>;
+  client: DaemonClient;
   onNewWorkspace: (repoId: string, from?: WorkspaceSource) => Promise<void>;
   onRemoveRepo: (repoId: string) => Promise<void>;
 };
@@ -27,7 +30,7 @@ export function Sidebar(props: Props) {
       <div className="flex items-center justify-between px-3 py-2.5">
         <span className="font-semibold tracking-tight">Bantu</span>
       </div>
-      <AddRepo onAdd={props.onAddRepo} />
+      <AddRepo onAdd={props.onAddRepo} client={props.client} />
       <nav className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
         {repos.length === 0 && <p className="px-2 py-3 text-faint">No repositories yet.</p>}
         {repos.map((repo) => (
@@ -181,7 +184,7 @@ function RepoGroup({
   );
 }
 
-function AddRepo({ onAdd }: { onAdd: (path: string) => Promise<void> }) {
+function AddRepo({ onAdd, client }: { onAdd: (path: string) => Promise<void>; client: DaemonClient }) {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
@@ -223,6 +226,15 @@ function AddRepo({ onAdd }: { onAdd: (path: string) => Promise<void> }) {
         spellCheck={false}
         autoFocus
         className="w-full rounded-md border border-line bg-bg px-2 py-1.5 font-mono text-[16px] sm:text-[12px] placeholder:text-faint"
+      />
+      <RepoSuggestions
+        client={client}
+        filter={path}
+        limit={6}
+        onAdd={async (p) => {
+          await onAdd(p);
+          setOpen(false);
+        }}
       />
       <div className="flex gap-1.5">
         <button type="submit" disabled={busy || !path.trim()} className="rounded-md bg-accent px-2.5 py-1 font-medium text-bg disabled:opacity-40">

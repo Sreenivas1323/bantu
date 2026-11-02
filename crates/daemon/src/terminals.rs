@@ -107,21 +107,22 @@ impl Daemon {
             .terminals()
             .await
             .iter()
-            .filter(|t| t.workspace_id == ws.id && t.kind == TerminalKind::Shell)
+            .filter(|t| {
+                t.workspace_id.as_deref() == Some(ws.id.as_str()) && t.kind == TerminalKind::Shell
+            })
             .count();
         let title = format!("Terminal {}", count + 1);
-        self.spawn_terminal(&ws, TerminalKind::Shell, title, None, cols, rows)
+        self.spawn_terminal(Some(&ws), TerminalKind::Shell, title, None, cols, rows)
             .await
     }
 
     pub async fn run_workspace(self: &Arc<Self>, workspace_id: &str) -> CmdResult<Terminal> {
         let ws = self.ready_workspace(workspace_id).await?;
-        if let Some(t) = self
-            .terminals()
-            .await
-            .into_iter()
-            .find(|t| t.workspace_id == ws.id && t.kind == TerminalKind::Run && !t.exited)
-        {
+        if let Some(t) = self.terminals().await.into_iter().find(|t| {
+            t.workspace_id.as_deref() == Some(ws.id.as_str())
+                && t.kind == TerminalKind::Run
+                && !t.exited
+        }) {
             return Ok(t);
         }
         let repo = self
@@ -140,7 +141,7 @@ impl Daemon {
             )
         })?;
         self.spawn_terminal(
-            &ws,
+            Some(&ws),
             TerminalKind::Run,
             "Run".into(),
             Some(command),
@@ -171,7 +172,7 @@ impl Daemon {
 
     pub async fn close_workspace_terminals(&self, workspace_id: &str) -> anyhow::Result<()> {
         for t in self.terminals().await {
-            if t.workspace_id == workspace_id {
+            if t.workspace_id.as_deref() == Some(workspace_id) {
                 let _ = self.close_terminal(&t.id).await;
             }
         }
@@ -202,9 +203,9 @@ impl Daemon {
         Ok(ws)
     }
 
-    async fn spawn_terminal(
+    pub(crate) async fn spawn_terminal(
         self: &Arc<Self>,
-        ws: &Workspace,
+        ws: Option<&Workspace>,
         kind: TerminalKind,
         title: String,
         command: Option<String>,
@@ -223,13 +224,22 @@ impl Daemon {
             Some(c) => cmd.args(["-lc", c]),
             None => cmd.arg("-l"),
         }
-        cmd.cwd(&ws.path);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
-        cmd.env("BANTU_PORT", ws.port_base.to_string());
-        cmd.env("BANTU_WORKSPACE_ID", &ws.id);
-        cmd.env("BANTU_WORKSPACE_NAME", &ws.name);
-        cmd.env("BANTU_WORKSPACE_PATH", &ws.path);
+        match ws {
+            Some(ws) => {
+                cmd.cwd(&ws.path);
+                cmd.env("BANTU_PORT", ws.port_base.to_string());
+                cmd.env("BANTU_WORKSPACE_ID", &ws.id);
+                cmd.env("BANTU_WORKSPACE_NAME", &ws.name);
+                cmd.env("BANTU_WORKSPACE_PATH", &ws.path);
+            }
+            None => {
+                if let Some(home) = std::env::var_os("HOME") {
+                    cmd.cwd(home);
+                }
+            }
+        }
         let child = pair
             .slave
             .spawn_command(cmd)
@@ -240,7 +250,7 @@ impl Daemon {
 
         let info = Terminal {
             id: new_id(),
-            workspace_id: ws.id.clone(),
+            workspace_id: ws.map(|w| w.id.clone()),
             kind,
             title,
             command,

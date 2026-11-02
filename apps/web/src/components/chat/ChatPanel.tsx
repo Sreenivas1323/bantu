@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentKind, Command, CommandResponse, PermissionRequest, Session, Workspace } from "@bantu/protocol";
+import type { AgentKind, AgentStatus, Command, CommandResponse, PermissionRequest, Session, Workspace } from "@bantu/protocol";
 import type { ChatEntry, DaemonState } from "../../lib/store.ts";
 import { Composer } from "./Composer.tsx";
 import { PermissionCard } from "./PermissionCard.tsx";
@@ -15,6 +15,8 @@ export function ChatPanel({
   chat,
   streaming,
   permissions,
+  agents,
+  onOpenAccounts,
   run,
 }: {
   workspace: Workspace;
@@ -25,6 +27,8 @@ export function ChatPanel({
   onSelect: (sessionId: string) => void;
   chat: Record<string, ChatEntry[]>;
   streaming: DaemonState["streaming"];
+  agents: AgentStatus[] | null;
+  onOpenAccounts: () => void;
   /** Pending permission requests for this workspace. */
   permissions: PermissionRequest[];
   run: Run;
@@ -120,6 +124,7 @@ export function ChatPanel({
           await run({ type: "session.rewind", session_id: active.id, turn });
         }}
       />
+      <AgentSetupNotice status={agents?.find((a) => a.agent === active.agent)} onOpenAccounts={onOpenAccounts} />
       {permissions.some((p) => p.session_id === active.id) && (
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-5 pb-2">
           {permissions
@@ -153,6 +158,22 @@ export function ChatPanel({
           });
         }}
       />
+    </div>
+  );
+}
+
+/** Shown when the chat's agent can't run: not installed or not signed in. */
+function AgentSetupNotice({ status, onOpenAccounts }: { status: AgentStatus | undefined; onOpenAccounts: () => void }) {
+  if (!status || (status.installed && status.logged_in)) return null;
+  const name = status.agent === "claude" ? "Claude Code" : "Codex";
+  return (
+    <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-5 pb-2">
+      <p className="flex-1 rounded-md border border-warn/40 bg-warn/5 px-3 py-2 text-[12.5px] text-warn">
+        {status.installed ? `${name} isn't signed in on this machine.` : `${name} isn't installed on this machine.`}{" "}
+        <button type="button" onClick={onOpenAccounts} className="font-medium underline underline-offset-2">
+          {status.installed ? "Sign in" : "How to install"}
+        </button>
+      </p>
     </div>
   );
 }

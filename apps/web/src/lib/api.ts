@@ -1,4 +1,5 @@
 import type {
+  AgentStatus,
   Command,
   CommandResponse,
   Event,
@@ -63,6 +64,16 @@ export class DaemonClient {
   /** The workspace branch's pull request, or null when there isn't one (or `gh` can't tell). */
   pullRequest(workspaceId: string) {
     return this.request<PullRequest | null>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/pr`);
+  }
+
+  /** Agent CLIs on the daemon's machine and the accounts they're signed in to. */
+  agents() {
+    return this.request<AgentStatus[]>("/v1/agents");
+  }
+
+  /** Git repos found in common code folders on the daemon's machine. */
+  repoSuggestions() {
+    return this.request<{ path: string; name: string }[]>("/v1/repo-suggestions");
   }
 
   /** WebSocket URL carrying a terminal's raw PTY bytes. */

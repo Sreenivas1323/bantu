@@ -1827,3 +1827,62 @@ async fn definition_of_done_check() {
         [false, true, false, false, false]
     );
 }
+
+#[tokio::test]
+async fn agent_accounts_and_login() {
+    let h = Harness::start().await;
+    let agents: Vec<Value> = h
+        .http
+        .get(format!("{}/v1/agents", h.base))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(agents[0]["agent"], "claude");
+    assert_eq!(agents[0]["installed"], true);
+    assert_eq!(agents[0]["version"], "9.9.9");
+    assert_eq!(agents[0]["logged_in"], true);
+    assert_eq!(agents[0]["auth_method"], "claude.ai");
+    assert_eq!(agents[0]["plan"], "max");
+    assert_eq!(agents[1]["agent"], "codex");
+    assert_eq!(agents[1]["auth_method"], "chatgpt");
+
+    // Sign-in runs the CLI's own flow in a terminal outside any workspace.
+    let (status, body) = h
+        .command(
+            json!({"type": "agent.login", "agent": "claude", "method": "sso"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["result"]["kind"], "login");
+    assert!(body["result"]["workspace_id"].is_null());
+    let id = body["result"]["id"].as_str().unwrap().to_string();
+    let url = format!(
+        "{}/v1/terminals/{id}/ws?token={}",
+        h.base.replace("http", "ws"),
+        h.token
+    );
+    let (mut sock, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    let out = read_until(&mut sock, "Login successful").await;
+    assert!(out.contains("--sso"), "{out}");
+    let _ = sock.close(None).await;
+    for _ in 0..100 {
+        let t = h
+            .state()
+            .await
+            .terminals
+            .into_iter()
+            .find(|t| t.id == id)
+            .unwrap();
+        if t.exited {
+            assert_eq!(t.exit_code, Some(0));
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("login terminal never exited");
+}

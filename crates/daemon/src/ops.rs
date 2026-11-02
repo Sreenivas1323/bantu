@@ -97,6 +97,9 @@ impl Daemon {
             Command::SessionRewind { session_id, turn } => {
                 serde_json::to_value(self.rewind_session(&session_id, turn).await?)
             }
+            Command::AgentLogin { agent, method } => {
+                serde_json::to_value(self.agent_login(agent, method).await?)
+            }
             Command::PermissionRespond {
                 request_id,
                 allow,

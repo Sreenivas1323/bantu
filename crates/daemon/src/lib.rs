@@ -1,7 +1,9 @@
 //! The Bantu daemon (`bantud`). See `docs/ARCHITECTURE.md`.
 
 pub mod activity;
+pub mod agents;
 pub mod codex;
+pub mod discover;
 pub mod http;
 pub mod mcp;
 pub mod names;

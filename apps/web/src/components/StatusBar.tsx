@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { ConnStatus } from "../lib/useDaemon.ts";
 import { notificationsAvailable } from "../lib/useNotifications.ts";
+import type { AgentStatus } from "@bantu/protocol";
+import { accountKind, agentLabel } from "../lib/useAgents.ts";
 
 const label: Record<ConnStatus, string> = {
   connecting: "Connecting…",
@@ -23,6 +25,8 @@ export function StatusBar({
   error,
   onDismissError,
   onDisconnect,
+  agents,
+  onOpenAccounts,
 }: {
   status: ConnStatus;
   lastSeq: number;
@@ -30,6 +34,8 @@ export function StatusBar({
   error: string | null;
   onDismissError: () => void;
   onDisconnect: () => void;
+  agents: AgentStatus[] | null;
+  onOpenAccounts: () => void;
 }) {
   const [askable, setAskable] = useState(notificationsAvailable);
   return (
@@ -40,6 +46,20 @@ export function StatusBar({
       </span>
       {daemonVersion && <span>bantud {daemonVersion}</span>}
       <span className="tabular-nums">seq {lastSeq}</span>
+      {agents
+        ?.filter((a) => a.installed)
+        .map((a) => (
+          <button
+            key={a.agent}
+            type="button"
+            onClick={onOpenAccounts}
+            title={[a.account, a.organization].filter(Boolean).join(" · ") || "Agent account"}
+            className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-raised hover:text-fg"
+          >
+            <span className={`size-1.5 rounded-full ${a.logged_in ? "bg-ok" : "bg-warn"}`} />
+            {agentLabel(a.agent)} · {accountKind(a)}
+          </button>
+        ))}
       {error && (
         <button type="button" onClick={onDismissError} className="min-w-0 truncate text-bad" title="Dismiss">
           {error}

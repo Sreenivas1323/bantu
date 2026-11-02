@@ -6,6 +6,10 @@ import { conflictsFor } from "../lib/store.ts";
 import { useNotifications } from "../lib/useNotifications.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { StatusBar } from "./StatusBar.tsx";
+import { RepoSuggestions } from "./RepoSuggestions.tsx";
+import type { DaemonClient } from "../lib/api.ts";
+import { AccountsDialog } from "./AccountsDialog.tsx";
+import { useAgents } from "../lib/useAgents.ts";
 import { WorkspaceView } from "./WorkspaceView.tsx";
 
 export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: (reason?: string) => void }) {
@@ -13,6 +17,8 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { agents, refresh: refreshAgents } = useAgents(client);
+  const [showAccounts, setShowAccounts] = useState(false);
 
   useEffect(() => {
     if (status === "unauthorized") onDisconnect("The daemon rejected this token. Paste a fresh one.");
@@ -84,6 +90,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
         showArchived={showArchived}
         onToggleArchived={() => setShowArchived((v) => !v)}
         onSelect={setSelectedId}
+        client={client}
         onAddRepo={async (path) => {
           await run({ type: "repo.add", path });
         }}
@@ -108,6 +115,8 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             comments={Object.values(state.comments).filter((c) => c.workspace_id === selected.id)}
             permissions={Object.values(state.permissions).filter((p) => p.workspace_id === selected.id)}
             conflicts={conflictsFor(state, selected.id)}
+            agents={agents}
+            onOpenAccounts={() => setShowAccounts(true)}
             allWorkspaces={state.workspaces}
             onSelectWorkspace={setSelectedId}
             terminals={Object.values(state.terminals)
@@ -120,10 +129,28 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             }}
           />
         ) : (
-          <EmptyState hasRepos={repos.length > 0} />
+          <EmptyState
+            hasRepos={repos.length > 0}
+            client={client}
+            onAdd={async (path) => {
+              await run({ type: "repo.add", path });
+            }}
+          />
         )}
       </main>
+      {showAccounts && (
+        <AccountsDialog
+          agents={agents}
+          terminals={state.terminals}
+          client={client}
+          run={run}
+          onRefresh={refreshAgents}
+          onClose={() => setShowAccounts(false)}
+        />
+      )}
       <StatusBar
+        agents={agents}
+        onOpenAccounts={() => setShowAccounts(true)}
         status={status}
         lastSeq={state.lastSeq}
         daemonVersion={state.daemonVersion}
@@ -135,16 +162,30 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   );
 }
 
-function EmptyState({ hasRepos }: { hasRepos: boolean }) {
+function EmptyState({
+  hasRepos,
+  client,
+  onAdd,
+}: {
+  hasRepos: boolean;
+  client: DaemonClient;
+  onAdd: (path: string) => Promise<void>;
+}) {
   return (
     <div className="flex h-full items-center justify-center p-8">
-      <div className="max-w-sm text-center">
+      <div className="w-full max-w-md text-center">
         <h2 className="text-base font-semibold">{hasRepos ? "Pick a workspace" : "Add your first repository"}</h2>
         <p className="mt-1.5 text-muted">
           {hasRepos
             ? "Each workspace is its own git worktree and branch, so agents can work in parallel without stepping on each other."
-            : "Point Bantu at a local git repository. New workspaces branch from its default branch."}
+            : "Point Bantu at a git repository. New workspaces branch from its default branch."}
         </p>
+        {!hasRepos && (
+          <div className="mt-5 text-left">
+            <p className="mb-1.5 px-2 text-[11.5px] uppercase tracking-wide text-faint">On this machine</p>
+            <RepoSuggestions client={client} onAdd={onAdd} />
+          </div>
+        )}
       </div>
     </div>
   );

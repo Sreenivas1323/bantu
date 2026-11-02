@@ -329,6 +329,8 @@ pub enum TerminalKind {
     Shell,
     /// The repo's run script (`[scripts] run` in `.bantu/settings.toml`).
     Run,
+    /// Signing an agent CLI in to its account (not tied to a workspace).
+    Login,
 }
 
 /// A PTY in a workspace. Bytes flow over `GET /v1/terminals/{id}/ws`.
@@ -337,7 +339,8 @@ pub enum TerminalKind {
 #[ts(export)]
 pub struct Terminal {
     pub id: String,
-    pub workspace_id: String,
+    /// `None` for terminals outside any workspace (agent sign-in).
+    pub workspace_id: Option<String>,
     pub kind: TerminalKind,
     pub title: String,
     /// The command for `run` terminals.
@@ -439,6 +442,13 @@ pub enum Command {
     /// started. The conversation is kept; the agent is told on its next turn.
     #[serde(rename = "session.rewind")]
     SessionRewind { session_id: String, turn: u32 },
+    /// Open a terminal that signs an agent CLI in to its account. Bantu never
+    /// sees the credentials; the CLI stores them as it normally would.
+    #[serde(rename = "agent.login")]
+    AgentLogin {
+        agent: AgentKind,
+        method: Option<LoginMethod>,
+    },
     /// Answer a pending permission request.
     #[serde(rename = "permission.respond")]
     PermissionRespond {
@@ -556,7 +566,7 @@ pub enum EventData {
     #[serde(rename = "terminal.closed")]
     TerminalClosed {
         terminal_id: String,
-        workspace_id: String,
+        workspace_id: Option<String>,
     },
     /// A transcript entry. `turn` starts at 1.
     #[serde(rename = "session.item")]
@@ -582,10 +592,10 @@ impl EventData {
             Self::SessionUpdated { session } => Some(&session.workspace_id),
             Self::CommentUpdated { comment } => Some(&comment.workspace_id),
             Self::CommentDeleted { workspace_id, .. } => Some(workspace_id),
-            Self::TerminalUpdated { terminal } => Some(&terminal.workspace_id),
+            Self::TerminalUpdated { terminal } => terminal.workspace_id.as_deref(),
             Self::PermissionRequested { request } => Some(&request.workspace_id),
             Self::PermissionResolved { workspace_id, .. } => Some(workspace_id),
-            Self::TerminalClosed { workspace_id, .. } => Some(workspace_id),
+            Self::TerminalClosed { workspace_id, .. } => workspace_id.as_deref(),
         }
     }
 }
@@ -628,6 +638,34 @@ pub struct StateSnapshot {
     pub conflicts: Vec<WorkspaceConflict>,
 }
 
+/// How an agent CLI on this machine is installed and signed in.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct AgentStatus {
+    pub agent: AgentKind,
+    pub installed: bool,
+    pub version: Option<String>,
+    pub logged_in: bool,
+    /// e.g. `claude.ai` (subscription), `console` / `api_key`, `chatgpt`.
+    pub auth_method: Option<String>,
+    pub account: Option<String>,
+    pub organization: Option<String>,
+    /// Subscription plan when known, e.g. `pro`, `max`, `team`.
+    pub plan: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum LoginMethod {
+    /// Claude Pro/Max/Team subscription, or ChatGPT for Codex.
+    Subscription,
+    /// Single sign-on (Claude Team/Enterprise).
+    Sso,
+    /// Pay-per-use API billing (Anthropic Console / OpenAI API key).
+    Console,
+}
+
 /// Whether anything is happening, for idle auto-stop on cloud machines.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
@@ -663,6 +701,7 @@ mod tests {
         for name in [
             "Activity",
             "AgentKind",
+            "AgentStatus",
             "ChatItem",
             "Command",
             "CommandResponse",
@@ -673,6 +712,7 @@ mod tests {
             "FileStatus",
             "Health",
             "LogStream",
+            "LoginMethod",
             "PermissionMode",
             "PermissionRequest",
             "PullRequest",

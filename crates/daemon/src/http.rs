@@ -41,6 +41,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/commands", post(post_command))
         .route("/v1/events", get(get_events))
         .route("/v1/activity", get(get_activity))
+        .route("/v1/agents", get(get_agents))
+        .route("/v1/repo-suggestions", get(get_repo_suggestions))
         .route("/v1/workspaces/{id}/history", get(get_history))
         .route("/v1/workspaces/{id}/diff", get(get_diff))
         .route("/v1/workspaces/{id}/pr", get(get_pr))
@@ -136,6 +138,18 @@ async fn get_activity(
     State(state): State<AppState>,
 ) -> Result<Json<bantu_protocol::Activity>, ApiError> {
     Ok(Json(state.daemon.activity().await?))
+}
+
+/// Installed agent CLIs and the accounts they're signed in to.
+async fn get_agents(State(state): State<AppState>) -> Json<Vec<bantu_protocol::AgentStatus>> {
+    Json(state.daemon.agent_statuses().await)
+}
+
+/// Git repos found in common code folders under $HOME, newest first.
+async fn get_repo_suggestions(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::discover::RepoSuggestion>>, ApiError> {
+    Ok(Json(state.daemon.suggest_repos().await?))
 }
 
 async fn health() -> Json<Health> {

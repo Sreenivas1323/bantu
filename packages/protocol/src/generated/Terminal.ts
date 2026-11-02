@@ -5,7 +5,11 @@ import type { TerminalKind } from "./TerminalKind";
  * A PTY in a workspace. Bytes flow over `GET /v1/terminals/{id}/ws`.
  * Terminals live in the daemon's memory and end when it restarts.
  */
-export type Terminal = { id: string, workspace_id: string, kind: TerminalKind, title: string, 
+export type Terminal = { id: string, 
+/**
+ * `None` for terminals outside any workspace (agent sign-in).
+ */
+workspace_id: string | null, kind: TerminalKind, title: string, 
 /**
  * The command for `run` terminals.
  */

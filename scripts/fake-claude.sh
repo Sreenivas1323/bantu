@@ -9,6 +9,11 @@
 # check report makes it "fix" things by writing fixed.txt.
 # Set BANTU_FAKE_CLAUDE_LOG to record each invocation's arguments.
 { printf '%s ' "$@" | tr '\n' ' '; echo; } >> "${BANTU_FAKE_CLAUDE_LOG:-/dev/null}"
+case "$1 $2" in
+  "--version "*) echo "9.9.9 (Claude Code)"; exit 0 ;;
+  "auth status") echo '{"loggedIn":true,"authMethod":"claude.ai","email":"dev@example.com","orgName":"Example","subscriptionType":"max"}'; exit 0 ;;
+  "auth login") echo "Opening your browser to sign in ($3)…"; echo "Login successful."; exit 0 ;;
+esac
 settings=""; prev=""
 for a in "$@"; do [ "$prev" = "--settings" ] && settings="$a"; prev="$a"; done
 prompt=$(cat)

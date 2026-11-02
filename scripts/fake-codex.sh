@@ -5,6 +5,10 @@
 #
 # Set BANTU_FAKE_CODEX_LOG to record each invocation's arguments and the
 # first line of its prompt.
+case "$1 $2" in
+  "--version "*) echo "codex-cli 9.9.9"; exit 0 ;;
+  "login status") echo "Logged in using ChatGPT"; exit 0 ;;
+esac
 prompt=$(cat)
 { printf '%s ' "$@"; printf '| %s\n' "$(printf '%s' "$prompt" | head -n 1)"; } >> "${BANTU_FAKE_CODEX_LOG:-/dev/null}"
 last=$(printf '%s' "$prompt" | tail -n 1)

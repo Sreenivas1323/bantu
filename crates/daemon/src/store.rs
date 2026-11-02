@@ -421,7 +421,7 @@ impl Store {
 
     /// Terminals the log says are open. They can't survive a restart, so the
     /// daemon closes them on startup.
-    pub async fn open_terminals_in_log(&self) -> Result<Vec<(String, String)>> {
+    pub async fn open_terminals_in_log(&self) -> Result<Vec<(String, Option<String>)>> {
         let rows = sqlx::query(
             "SELECT json_extract(payload, '$.terminal.id') AS id, workspace_id FROM events
              WHERE kind = 'terminal.updated'

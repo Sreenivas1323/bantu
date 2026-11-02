@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type {
+  AgentStatus,
   Command,
   CommandResponse,
   DiffComment,
@@ -35,6 +36,8 @@ export function WorkspaceView({
   terminals,
   permissions,
   conflicts,
+  agents,
+  onOpenAccounts,
   allWorkspaces,
   onSelectWorkspace,
   client,
@@ -53,6 +56,8 @@ export function WorkspaceView({
   terminals: Terminal[];
   permissions: PermissionRequest[];
   conflicts: ReturnType<typeof conflictsFor>;
+  agents: AgentStatus[] | null;
+  onOpenAccounts: () => void;
   allWorkspaces: Record<string, Workspace>;
   onSelectWorkspace: (id: string) => void;
   client: DaemonClient;
@@ -209,6 +214,8 @@ export function WorkspaceView({
           chat={chat}
           streaming={streaming}
           permissions={permissions}
+          agents={agents}
+          onOpenAccounts={onOpenAccounts}
           run={run}
         />
       ) : tab === "terminal" ? (
