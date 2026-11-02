@@ -1,11 +1,11 @@
 {
   "name": "@bantu/desktop",
-  "version": "0.0.1",
+  "version": "0.1.0-alpha.2",
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build",
+    "build": "../../scripts/prepare-desktop.sh && tauri build",
     "icons": "tauri icon assets/icon.svg",
     "tauri": "tauri"
   },

@@ -20,6 +20,11 @@ release's SHA256SUMS, starts it as a background service (launchd or systemd), an
 link to open. You need `git`, and [Claude Code](https://claude.com/claude-code) (or Codex)
 signed in with your own account. Bantu never sees your credentials; it runs your CLI.
 
+**Mac app:** download `Bantu-macOS-apple-silicon.dmg` (or `-intel`) from
+[Releases](https://github.com/Sreenivas1323/bantu/releases). It bundles the daemon and
+starts it when you open the app. It isn't notarized yet, so after dragging it to
+Applications run `xattr -dr com.apple.quarantine /Applications/Bantu.app` once.
+
 `bantud url --open` opens the app again later; `bantud service uninstall` removes the service.
 To use it from your phone or another machine, see [docs/REMOTE.md](docs/REMOTE.md). To run it
 on your own AWS account for ≈ $7/month with idle auto-stop, see [docs/AWS.md](docs/AWS.md).
@@ -40,7 +45,7 @@ on your own AWS account for ≈ $7/month with idle auto-stop, see [docs/AWS.md](
 | Protocol v1 (HTTP commands + resumable SSE events, idempotent retries) | ✅ |
 | Repos, worktree workspaces, setup/archive/run scripts, port ranges | ✅ |
 | Web UI; one-line installer and background service for macOS/Linux | ✅ |
-| Tauri desktop app | shell only (not packaged yet) |
+| macOS desktop app (.dmg, bundles the daemon; not notarized yet) | ✅ |
 | Claude Code chat: tool cards, live streaming, queue, stop, plan mode, model picker | ✅ |
 | Codex chat (`codex exec --json`) | ✅ (not yet verified against the live service) |
 | Workspaces from a branch, PR or GitHub issue; descriptive branch names | ✅ |

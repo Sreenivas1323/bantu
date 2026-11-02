@@ -205,6 +205,8 @@ fn default_web_dir() -> Option<PathBuf> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
     [
         exe_dir.join("../share/bantu/web"),
+        // Inside the macOS app bundle: Contents/MacOS/bantud → Contents/Resources/web.
+        exe_dir.join("../Resources/web"),
         exe_dir.join("web"),
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/web/dist")),
     ]
