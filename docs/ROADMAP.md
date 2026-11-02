@@ -8,49 +8,51 @@ Feature-by-feature status against Conductor and Pane lives in
 
 ## M0 — Foundations (week 1)
 
-- [ ] Public repo, Apache-2.0, README, contributing guide, code of conduct
-- [ ] Protocol v1: Rust wire types with generated TypeScript bindings ([PROTOCOL.md](PROTOCOL.md))
-- [ ] `bantud`:
-  - [ ] loopback HTTP, local token auth
-  - [ ] SQLite event log with projections
-  - [ ] SSE events that resume from `seq`
-  - [ ] idempotent commands
-- [ ] Workspaces:
-  - [ ] add a repo
-  - [ ] create a worktree (city names, 10-port ranges, `.worktreeinclude` + `.env*` copy, setup script)
-  - [ ] archive (archive script, save changes to a ref, remove the worktree)
-- [ ] Web UI: repos, workspaces, new/archive buttons, live event feed
-- [ ] Tauri desktop shell that starts or connects to `bantud`
-- [ ] CI on macOS and Ubuntu (fmt, clippy, tests, web build)
-- [ ] Changelog watcher (GitHub Action) + weekly Claude idea routine
-- [ ] Parity matrix and idea backlog seeded from research
+- [x] Public repo, Apache-2.0, README, contributing guide, code of conduct
+- [x] Protocol v1: Rust wire types with generated TypeScript bindings ([PROTOCOL.md](PROTOCOL.md))
+- [x] `bantud`:
+  - [x] loopback HTTP, local token auth
+  - [x] SQLite event log with projections
+  - [x] SSE events that resume from `seq`
+  - [x] idempotent commands
+- [x] Workspaces:
+  - [x] add a repo
+  - [x] create a worktree (city names, 10-port ranges, `.worktreeinclude` + `.env*` copy, setup script)
+  - [x] archive (archive script, save changes to a ref, remove the worktree)
+- [x] Web UI: repos, workspaces, new/archive buttons, live event feed
+- [x] Tauri desktop shell that starts or connects to `bantud`
+- [x] CI on macOS and Ubuntu (fmt, clippy, tests, web build)
+- [x] Changelog watcher (GitHub Action) + weekly Claude idea routine
+- [x] Parity matrix and idea backlog seeded from research
 
 ## M1 — Daily driver (weeks 2–3)
 
-- [ ] Agent driver trait and normalized agent events in the protocol
-- [ ] Claude structured sessions (Bun sidecar + Agent SDK):
-  - [ ] streaming text and tool-call cards
-  - [ ] message queue
-  - [ ] plan mode
-  - [ ] permission prompts
-  - [ ] cancel
-- [ ] Session persistence and resume after a daemon restart
-- [ ] Diff viewer (workspace vs base), with comments sent to the agent
-- [ ] Create PR via `gh`, with an agent-drafted title and body
-- [ ] Terminal panel (pty over WebSocket), restored after a reload
-- [ ] Run scripts (`[scripts.run.<id>]`), stop = SIGTERM to the process group, then SIGKILL
+- [x] Normalized agent events in the protocol (`ChatItem`)
+- [x] Claude sessions, driving the user's own `claude` CLI (stream-json, one process per turn, resumed by id — no sidecar needed):
+  - [x] tool-call cards paired with results; Markdown answers; thinking
+  - [ ] token-by-token streaming (`--include-partial-messages`)
+  - [x] message queue
+  - [x] plan mode and other permission modes
+  - [ ] permission prompts answered from the UI
+  - [x] cancel
+- [x] Session persistence and resume after a daemon restart
+- [x] Diff viewer (workspace vs merge-base, incl. uncommitted + untracked), with line comments sent to the agent
+- [x] Create PR via the agent + `gh`; PR status and checks summary
+- [x] Terminal panel (PTY over WebSocket), scrollback replayed after a reload
+- [x] Run scripts (`run = "…"` or `[scripts.run.<id>]`); stop hangs up the process group
 - [ ] Agent names the branch from the first message
 - [ ] Notify inbox (desktop): questions, permission requests, "done"
+- [x] Login-shell PATH for Dock-launched daemons
 
 ## M2 — Conductor parity (weeks 4–5)
 
-- [ ] Per-turn checkpoints in private refs; rewind code + chat
+- [x] Per-turn checkpoints in private refs; rewind code (the agent is told; Claude has no partial-conversation rewind)
 - [ ] Codex driver (`codex app-server`) and generic ACP driver (OpenCode, Cursor, Gemini)
 - [ ] Terminal driver; switch chat ⇄ terminal in the same conversation
 - [ ] Checks view: git status, `gh pr checks`, Actions logs; forward failures to the agent
 - [ ] Per-repo prompts: review, create PR, fix errors, resolve conflicts, rename branch
 - [ ] Bantu MCP server injected into every session (diff, comments, terminal, notify)
-- [ ] Model picker and loadouts; effort/fast mode; several chats per workspace; fork a chat
+- [ ] Model picker (done) and loadouts; effort/fast mode; several chats per workspace (done); fork a chat
 - [ ] Spotlight: sync a workspace into the main checkout for testing
 - [ ] Create a workspace from a PR, a branch or a GitHub issue
 
