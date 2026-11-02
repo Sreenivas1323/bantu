@@ -38,6 +38,7 @@ pub struct Daemon {
     pub config: Config,
     /// Serializes name/port allocation so concurrent creates never collide.
     alloc_lock: Mutex<()>,
+    pub(crate) running: crate::sessions::Running,
 }
 
 impl Daemon {
@@ -46,6 +47,7 @@ impl Daemon {
             store,
             config,
             alloc_lock: Mutex::new(()),
+            running: Default::default(),
         }
     }
 
@@ -64,6 +66,29 @@ impl Daemon {
             Command::WorkspaceArchive { workspace_id } => {
                 serde_json::to_value(self.archive_workspace(&workspace_id).await?)
             }
+            Command::SessionCreate {
+                workspace_id,
+                model,
+                permission_mode,
+            } => serde_json::to_value(
+                self.create_session(&workspace_id, model, permission_mode)
+                    .await?,
+            ),
+            Command::SessionSend { session_id, text } => {
+                serde_json::to_value(self.send_message(&session_id, text).await?)
+            }
+            Command::SessionCancel { session_id } => {
+                serde_json::to_value(self.cancel_session(&session_id).await?)
+            }
+            Command::SessionUpdate {
+                session_id,
+                title,
+                model,
+                permission_mode,
+            } => serde_json::to_value(
+                self.update_session(&session_id, title, model, permission_mode)
+                    .await?,
+            ),
         };
         value.map_err(|e| CommandError::Internal(e.into()))
     }
@@ -276,6 +301,13 @@ impl Daemon {
         }
         if let Err(e) = self.store.upsert_workspace(&ws).await {
             tracing::error!("failed to record workspace {}: {e:#}", ws.id);
+            return;
+        }
+        // Every ready workspace starts with one chat, like opening a new tab.
+        if ws.state == WorkspaceState::Ready {
+            if let Err(e) = self.create_session(&ws.id, None, None).await {
+                tracing::error!("failed to create session for {}: {e:#}", ws.id);
+            }
         }
     }
 
@@ -345,6 +377,7 @@ impl Daemon {
             WorkspaceState::Ready | WorkspaceState::Failed => {}
         }
         let repo = self.require_repo(&ws.repo_id).await?;
+        self.cancel_workspace_sessions(&ws.id).await?;
         ws.state = WorkspaceState::Archiving;
         ws.error = None;
         self.store.upsert_workspace(&ws).await?;

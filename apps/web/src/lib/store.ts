@@ -1,8 +1,17 @@
-import type { Event, LogStream, Repo, StateSnapshot, Workspace } from "@bantu/protocol";
+import type {
+  ChatItem,
+  Event,
+  LogStream,
+  Repo,
+  Session,
+  StateSnapshot,
+  Workspace,
+} from "@bantu/protocol";
 
 export const LOG_LIMIT = 500;
 
 export type LogLine = { seq: number; ts: string; stream: LogStream; line: string };
+export type ChatEntry = { seq: number; ts: string; turn: number; item: ChatItem };
 
 export type DaemonState = {
   lastSeq: number;
@@ -10,6 +19,9 @@ export type DaemonState = {
   repos: Record<string, Repo>;
   workspaces: Record<string, Workspace>;
   logs: Record<string, LogLine[]>;
+  sessions: Record<string, Session>;
+  /** Transcript per session id, oldest first. */
+  chat: Record<string, ChatEntry[]>;
 };
 
 export const emptyState: DaemonState = {
@@ -18,6 +30,8 @@ export const emptyState: DaemonState = {
   repos: {},
   workspaces: {},
   logs: {},
+  sessions: {},
+  chat: {},
 };
 
 export type Action =
@@ -36,8 +50,10 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         daemonVersion: snapshot.daemon_version,
         repos: Object.fromEntries(snapshot.repos.map((r) => [r.id, r])),
         workspaces: Object.fromEntries(snapshot.workspaces.map((w) => [w.id, w])),
-        // Logs are only kept for this session; the snapshot doesn't carry history.
+        sessions: Object.fromEntries(snapshot.sessions.map((s) => [s.id, s])),
+        // History isn't in the snapshot; it's backfilled per workspace.
         logs: state.logs,
+        chat: state.chat,
       };
     }
     case "event":
@@ -69,6 +85,13 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
       const line: LogLine = { seq: ev.seq, ts: ev.ts, stream: data.stream, line: data.line };
       const lines = prev.length >= LOG_LIMIT ? [...prev.slice(prev.length - LOG_LIMIT + 1), line] : [...prev, line];
       return { ...next, logs: { ...state.logs, [data.workspace_id]: lines } };
+    }
+    case "session.updated":
+      return { ...next, sessions: { ...state.sessions, [data.session.id]: data.session } };
+    case "session.item": {
+      const prev = state.chat[data.session_id] ?? [];
+      const entry: ChatEntry = { seq: ev.seq, ts: ev.ts, turn: data.turn, item: data.item };
+      return { ...next, chat: { ...state.chat, [data.session_id]: [...prev, entry] } };
     }
   }
 }

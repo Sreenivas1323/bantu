@@ -25,6 +25,9 @@ struct Args {
     web_dir: Option<PathBuf>,
     #[arg(long, env = "BANTU_BRANCH_PREFIX", default_value = "bantu/")]
     branch_prefix: String,
+    /// Claude Code CLI used for agent sessions.
+    #[arg(long, env = "BANTU_CLAUDE_BIN", default_value = "claude")]
+    claude_bin: PathBuf,
     /// Accept non-loopback binds and Host headers. Only use behind an
     /// authenticated tunnel (Tailscale, Cloudflare Tunnel, CloudFront).
     #[arg(long)]
@@ -44,6 +47,9 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+    if std::env::var_os("BANTU_SKIP_SHELL_ENV").is_none() {
+        adopt_login_shell_path().await;
+    }
     let home_dir = std::env::var_os("HOME")
         .map(PathBuf::from)
         .context("HOME is not set")?;
@@ -65,6 +71,7 @@ async fn main() -> Result<()> {
             .unwrap_or_else(|| home_dir.join("bantu").join("workspaces")),
         web_dir: args.web_dir.or_else(default_web_dir),
         branch_prefix: args.branch_prefix,
+        claude_bin: args.claude_bin,
     };
     let web_dir = config.web_dir.clone();
     let started = bantud::start(config, args.allow_remote).await?;
@@ -106,4 +113,30 @@ fn default_web_dir() -> Option<PathBuf> {
     .into_iter()
     .find(|p| p.join("index.html").is_file())
     .and_then(|p| p.canonicalize().ok())
+}
+
+/// Apps launched from the Dock get a minimal PATH, so agents couldn't find
+/// `claude`, `bun`, `node`, etc. Borrow PATH from the user's login shell,
+/// which is what they'd have in a terminal.
+async fn adopt_login_shell_path() {
+    const MARK: &str = "__BANTU_PATH__";
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    let probe = tokio::process::Command::new(&shell)
+        .args(["-ilc", &format!("printf '{MARK}%s{MARK}' \"$PATH\"")])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let out = match tokio::time::timeout(std::time::Duration::from_secs(5), probe).await {
+        Ok(Ok(out)) => String::from_utf8_lossy(&out.stdout).to_string(),
+        _ => {
+            tracing::warn!("couldn't read PATH from {shell}; keeping the inherited PATH");
+            return;
+        }
+    };
+    if let Some(path) = out.split(MARK).nth(1).filter(|p| !p.is_empty()) {
+        // Safe: called at startup before any other threads read the environment.
+        std::env::set_var("PATH", path);
+        tracing::debug!("using PATH from {shell}: {path}");
+    }
 }

@@ -5,7 +5,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{Query, Request, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
@@ -38,6 +38,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/state", get(get_state))
         .route("/v1/commands", post(post_command))
         .route("/v1/events", get(get_events))
+        .route("/v1/workspaces/{id}/history", get(get_history))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
 
     let mut app = Router::new()
@@ -132,7 +133,26 @@ async fn get_state(State(state): State<AppState>) -> Result<Json<StateSnapshot>,
         last_seq,
         repos: store.repos().await?,
         workspaces: store.workspaces().await?,
+        sessions: store.sessions().await?,
     }))
+}
+
+#[derive(Deserialize)]
+struct HistoryQuery {
+    limit: Option<i64>,
+}
+
+/// Recent events for one workspace (logs, chat items, updates), oldest first.
+/// Clients call this when opening a workspace, then rely on the live stream.
+async fn get_history(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<HistoryQuery>,
+) -> Result<Json<Vec<Event>>, ApiError> {
+    let limit = q.limit.unwrap_or(2000).clamp(1, 10_000);
+    Ok(Json(
+        state.daemon.store.workspace_history(&id, limit).await?,
+    ))
 }
 
 async fn post_command(

@@ -10,7 +10,10 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bantu_protocol::{Event, EventData, LogStream, Repo, Workspace, WorkspaceState};
+use bantu_protocol::{
+    AgentKind, ChatItem, Event, EventData, LogStream, PermissionMode, Repo, Session, SessionStatus,
+    Workspace, WorkspaceState,
+};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 use tokio::sync::{broadcast, Mutex, MutexGuard};
@@ -133,6 +136,48 @@ impl Store {
         }
     }
 
+    /// `agent_session_id` is only written on insert; it never changes.
+    pub async fn upsert_session(&self, s: &Session, agent_session_id: &str) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query(
+            "INSERT INTO sessions (id, workspace_id, agent, title, model, permission_mode, status,
+                                   queued, turns, total_cost_usd, agent_session_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title, model = excluded.model,
+                permission_mode = excluded.permission_mode, status = excluded.status,
+                queued = excluded.queued, turns = excluded.turns,
+                total_cost_usd = excluded.total_cost_usd",
+        )
+        .bind(&s.id)
+        .bind(&s.workspace_id)
+        .bind("claude")
+        .bind(&s.title)
+        .bind(&s.model)
+        .bind(s.permission_mode.as_str())
+        .bind(status_str(s.status))
+        .bind(s.queued as i64)
+        .bind(s.turns as i64)
+        .bind(s.total_cost_usd)
+        .bind(agent_session_id)
+        .bind(&s.created_at)
+        .execute(&mut *tx)
+        .await?;
+        let data = EventData::SessionUpdated { session: s.clone() };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn session_item(&self, s: &Session, turn: u32, item: ChatItem) -> Result<Event> {
+        let (guard, tx) = self.begin().await?;
+        let data = EventData::SessionItem {
+            session_id: s.id.clone(),
+            workspace_id: s.workspace_id.clone(),
+            turn,
+            item,
+        };
+        self.finish(guard, tx, data).await
+    }
+
     async fn begin(&self) -> Result<(MutexGuard<'_, ()>, Transaction<'static, Sqlite>)> {
         let guard = self.write_lock.lock().await;
         let tx = self.pool.begin().await?;
@@ -150,11 +195,12 @@ impl Store {
         let ts = now();
         let payload = serde_json::to_string(&data)?;
         let seq: i64 = sqlx::query_scalar(
-            "INSERT INTO events (ts, kind, payload) VALUES (?, ?, ?) RETURNING seq",
+            "INSERT INTO events (ts, kind, payload, workspace_id) VALUES (?, ?, ?, ?) RETURNING seq",
         )
         .bind(&ts)
         .bind(event_kind(&data))
         .bind(&payload)
+        .bind(data.workspace_id())
         .fetch_one(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -230,6 +276,62 @@ impl Store {
         row.as_ref().map(workspace_from_row).transpose()
     }
 
+    pub async fn sessions(&self) -> Result<Vec<Session>> {
+        let rows = sqlx::query("SELECT * FROM sessions ORDER BY created_at")
+            .fetch_all(&self.pool)
+            .await?;
+        rows.iter().map(session_from_row).collect()
+    }
+
+    /// The session plus the agent's own conversation id.
+    pub async fn session(&self, id: &str) -> Result<Option<(Session, String)>> {
+        let row = sqlx::query("SELECT * FROM sessions WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(|r| Ok((session_from_row(&r)?, r.get("agent_session_id"))))
+            .transpose()
+    }
+
+    /// Whether the agent has produced anything for this session yet, i.e.
+    /// whether its conversation exists and can be resumed.
+    pub async fn session_has_agent_output(&self, session_id: &str) -> Result<bool> {
+        let found: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM events
+             WHERE kind = 'session.item'
+               AND json_extract(payload, '$.session_id') = ?
+               AND json_extract(payload, '$.item.kind') IN ('assistant', 'tool_use', 'turn_end')
+             LIMIT 1",
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(found.is_some())
+    }
+
+    /// The most recent `limit` events for one workspace, oldest first.
+    pub async fn workspace_history(&self, workspace_id: &str, limit: i64) -> Result<Vec<Event>> {
+        let rows = sqlx::query(
+            "SELECT seq, ts, payload FROM (
+                SELECT seq, ts, payload FROM events WHERE workspace_id = ?
+                ORDER BY seq DESC LIMIT ?
+             ) ORDER BY seq",
+        )
+        .bind(workspace_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|r| {
+                Ok(Event {
+                    seq: r.get("seq"),
+                    ts: r.get("ts"),
+                    data: serde_json::from_str(r.get::<&str, _>("payload"))?,
+                })
+            })
+            .collect()
+    }
+
     // ---- idempotency ------------------------------------------------------
 
     pub async fn idempotent_response(&self, key: &str) -> Result<Option<(u16, String)>> {
@@ -266,6 +368,8 @@ fn event_kind(data: &EventData) -> &'static str {
         EventData::RepoRemoved { .. } => "repo.removed",
         EventData::WorkspaceUpdated { .. } => "workspace.updated",
         EventData::WorkspaceLog { .. } => "workspace.log",
+        EventData::SessionUpdated { .. } => "session.updated",
+        EventData::SessionItem { .. } => "session.item",
     }
 }
 
@@ -294,6 +398,35 @@ fn workspace_from_row(r: &SqliteRow) -> Result<Workspace> {
             .with_context(|| format!("unknown workspace state {state:?}"))?,
         error: r.get("error"),
         archive_commit: r.get("archive_commit"),
+        created_at: r.get("created_at"),
+    })
+}
+
+fn status_str(s: SessionStatus) -> &'static str {
+    match s {
+        SessionStatus::Idle => "idle",
+        SessionStatus::Running => "running",
+    }
+}
+
+fn session_from_row(r: &SqliteRow) -> Result<Session> {
+    let mode: String = r.get("permission_mode");
+    let status: String = r.get("status");
+    Ok(Session {
+        id: r.get("id"),
+        workspace_id: r.get("workspace_id"),
+        agent: AgentKind::Claude,
+        title: r.get("title"),
+        model: r.get("model"),
+        permission_mode: PermissionMode::parse(&mode)
+            .with_context(|| format!("unknown permission mode {mode:?}"))?,
+        status: match status.as_str() {
+            "running" => SessionStatus::Running,
+            _ => SessionStatus::Idle,
+        },
+        queued: r.get::<i64, _>("queued") as u32,
+        turns: r.get::<i64, _>("turns") as u32,
+        total_cost_usd: r.get("total_cost_usd"),
         created_at: r.get("created_at"),
     })
 }

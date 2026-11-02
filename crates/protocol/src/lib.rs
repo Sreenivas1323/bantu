@@ -79,6 +79,121 @@ pub struct Workspace {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum AgentKind {
+    Claude,
+}
+
+/// How much the agent may do without asking. Bantu can't answer permission
+/// prompts yet, so anything that would prompt is denied.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum PermissionMode {
+    /// A classifier approves safe actions automatically.
+    #[default]
+    Auto,
+    /// File edits are allowed; other risky actions are denied.
+    AcceptEdits,
+    /// Read-only planning; the agent proposes instead of changing files.
+    Plan,
+    /// Everything is allowed. Only for trusted repos.
+    BypassPermissions,
+}
+
+impl PermissionMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::AcceptEdits => "accept_edits",
+            Self::Plan => "plan",
+            Self::BypassPermissions => "bypass_permissions",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "auto" => Self::Auto,
+            "accept_edits" => Self::AcceptEdits,
+            "plan" => Self::Plan,
+            "bypass_permissions" => Self::BypassPermissions,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum SessionStatus {
+    Idle,
+    Running,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Session {
+    pub id: String,
+    pub workspace_id: String,
+    pub agent: AgentKind,
+    pub title: String,
+    /// `None` uses the agent's default model.
+    pub model: Option<String>,
+    pub permission_mode: PermissionMode,
+    pub status: SessionStatus,
+    /// Messages waiting for the current turn to finish.
+    pub queued: u32,
+    /// Number of turns started so far.
+    pub turns: u32,
+    pub total_cost_usd: f64,
+    pub created_at: String,
+}
+
+/// One entry in a chat transcript, normalized across agents.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum ChatItem {
+    User {
+        text: String,
+    },
+    Assistant {
+        text: String,
+    },
+    Thinking {
+        text: String,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        #[ts(type = "unknown")]
+        input: serde_json::Value,
+    },
+    ToolResult {
+        tool_use_id: String,
+        /// Text output, truncated to keep the event log small.
+        content: String,
+        is_error: bool,
+    },
+    /// The agent finished a turn.
+    TurnEnd {
+        is_error: bool,
+        #[ts(type = "number | null")]
+        duration_ms: Option<u64>,
+        cost_usd: Option<f64>,
+        #[ts(type = "number | null")]
+        input_tokens: Option<u64>,
+        #[ts(type = "number | null")]
+        output_tokens: Option<u64>,
+    },
+    /// Bantu-side problems: the agent couldn't start, crashed, or was cancelled.
+    Error {
+        message: String,
+    },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[serde(tag = "type")]
 #[ts(export)]
@@ -100,6 +215,28 @@ pub enum Command {
     /// remove the worktree. The branch is kept.
     #[serde(rename = "workspace.archive")]
     WorkspaceArchive { workspace_id: String },
+    /// Start a new chat with an agent in a workspace. Every workspace gets one
+    /// automatically when it becomes ready.
+    #[serde(rename = "session.create")]
+    SessionCreate {
+        workspace_id: String,
+        model: Option<String>,
+        permission_mode: Option<PermissionMode>,
+    },
+    /// Send a user message. Queued if the agent is mid-turn.
+    #[serde(rename = "session.send")]
+    SessionSend { session_id: String, text: String },
+    /// Stop the running turn and drop queued messages.
+    #[serde(rename = "session.cancel")]
+    SessionCancel { session_id: String },
+    /// Change settings that apply from the next turn.
+    #[serde(rename = "session.update")]
+    SessionUpdate {
+        session_id: String,
+        title: Option<String>,
+        model: Option<String>,
+        permission_mode: Option<PermissionMode>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -129,6 +266,31 @@ pub enum EventData {
         stream: LogStream,
         line: String,
     },
+    /// Full session snapshot; sent on creation and on every change.
+    #[serde(rename = "session.updated")]
+    SessionUpdated { session: Session },
+    /// A transcript entry. `turn` starts at 1.
+    #[serde(rename = "session.item")]
+    SessionItem {
+        session_id: String,
+        workspace_id: String,
+        turn: u32,
+        item: ChatItem,
+    },
+}
+
+impl EventData {
+    /// The workspace an event belongs to, for per-workspace history.
+    pub fn workspace_id(&self) -> Option<&str> {
+        match self {
+            Self::RepoAdded { .. } | Self::RepoRemoved { .. } => None,
+            Self::WorkspaceUpdated { workspace } => Some(&workspace.id),
+            Self::WorkspaceLog { workspace_id, .. } | Self::SessionItem { workspace_id, .. } => {
+                Some(workspace_id)
+            }
+            Self::SessionUpdated { session } => Some(&session.workspace_id),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -160,6 +322,7 @@ pub struct StateSnapshot {
     pub last_seq: i64,
     pub repos: Vec<Repo>,
     pub workspaces: Vec<Workspace>,
+    pub sessions: Vec<Session>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -173,6 +336,37 @@ pub struct Health {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every generated binding must be re-exported by the TS package.
+    #[test]
+    fn index_exports_every_binding() {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/protocol/src");
+        let index = std::fs::read_to_string(format!("{root}/index.ts")).unwrap();
+        for name in [
+            "AgentKind",
+            "ChatItem",
+            "Command",
+            "CommandResponse",
+            "Event",
+            "EventData",
+            "Health",
+            "LogStream",
+            "PermissionMode",
+            "Repo",
+            "Session",
+            "SessionStatus",
+            "StateSnapshot",
+            "Workspace",
+            "WorkspaceState",
+        ] {
+            assert!(
+                index.contains(&format!(
+                    "export type {{ {name} }} from \"./generated/{name}\";"
+                )),
+                "packages/protocol/src/index.ts doesn't export {name}"
+            );
+        }
+    }
 
     #[test]
     fn command_wire_format() {

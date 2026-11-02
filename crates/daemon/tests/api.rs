@@ -5,13 +5,31 @@ use std::path::Path;
 use std::process::Command as Proc;
 use std::time::Duration;
 
-use bantu_protocol::{Event, EventData, Repo, StateSnapshot, Workspace, WorkspaceState};
+use bantu_protocol::{
+    ChatItem, Event, EventData, Repo, Session, SessionStatus, StateSnapshot, Workspace,
+    WorkspaceState,
+};
 use futures::StreamExt;
 use serde_json::{json, Value};
+
+/// Stands in for Claude Code: logs its arguments, echoes the prompt back as
+/// stream-json, and sleeps when asked to so tests can queue and cancel.
+const FAKE_CLAUDE: &str = r#"#!/bin/sh
+{ printf '%s ' "$@" | tr '\n' ' '; echo; } >> "CALLS"
+prompt=$(cat)
+case "$prompt" in *slow*) sleep 3 ;; esac
+echo '{"type":"system","subtype":"init"}'
+echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}'
+echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"README.md","is_error":false}]}}'
+printf '{"type":"assistant","message":{"content":[{"type":"text","text":"echo: %s"}]}}\n' "$prompt"
+echo '{"type":"result","is_error":false,"duration_ms":5,"total_cost_usd":0.25,"usage":{"input_tokens":3,"output_tokens":2}}'
+"#;
 
 struct Harness {
     base: String,
     token: String,
+    /// Arguments of every fake `claude` invocation, one line each.
+    claude_calls: std::path::PathBuf,
     http: reqwest::Client,
     _dirs: Vec<tempfile::TempDir>,
 }
@@ -20,11 +38,24 @@ impl Harness {
     async fn start() -> Self {
         let home = tempfile::tempdir().unwrap();
         let workspaces = tempfile::tempdir().unwrap();
+        let claude_calls = home.path().join("claude-calls.log");
+        let claude_bin = home.path().join("fake-claude");
+        std::fs::write(
+            &claude_bin,
+            FAKE_CLAUDE.replace("CALLS", claude_calls.to_str().unwrap()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&claude_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         let config = bantud::Config {
             home: home.path().to_path_buf(),
             workspaces_dir: workspaces.path().to_path_buf(),
             web_dir: None,
             branch_prefix: "bantu/".into(),
+            claude_bin,
         };
         let started = bantud::start(config, false).await.unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -33,6 +64,7 @@ impl Harness {
         Self {
             base: format!("http://{addr}"),
             token: started.token,
+            claude_calls,
             http: reqwest::Client::new(),
             _dirs: vec![home, workspaces],
         }
@@ -61,6 +93,38 @@ impl Harness {
             .json()
             .await
             .unwrap()
+    }
+
+    async fn history(&self, workspace_id: &str) -> Vec<Event> {
+        self.http
+            .get(format!(
+                "{}/v1/workspaces/{workspace_id}/history",
+                self.base
+            ))
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    }
+
+    async fn wait_session(&self, id: &str, done: impl Fn(&Session) -> bool) -> Session {
+        for _ in 0..200 {
+            let s = self
+                .state()
+                .await
+                .sessions
+                .into_iter()
+                .find(|s| s.id == id)
+                .unwrap();
+            if done(&s) {
+                return s;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("session {id} never reached the expected state");
     }
 
     async fn wait_for(&self, id: &str, want: WorkspaceState) -> Workspace {
@@ -333,4 +397,169 @@ async fn workspace_lifecycle() {
         )
         .await;
     assert_eq!(status, 400);
+}
+
+fn chat(events: &[Event], session_id: &str) -> Vec<ChatItem> {
+    events
+        .iter()
+        .filter_map(|e| match &e.data {
+            EventData::SessionItem {
+                session_id: s,
+                item,
+                ..
+            } if s == session_id => Some(item.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn agent_sessions() {
+    let h = Harness::start().await;
+    let (_fixture, clone) = fixture();
+    let (_, body) = h
+        .command(json!({"type": "repo.add", "path": clone}), None)
+        .await;
+    let repo_id = body["result"]["id"].as_str().unwrap().to_string();
+    let (_, body) = h
+        .command(
+            json!({"type": "workspace.create", "repo_id": repo_id}),
+            None,
+        )
+        .await;
+    let ws: Workspace = serde_json::from_value(body["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+
+    // A ready workspace comes with one idle chat.
+    let mut session = None;
+    for _ in 0..100 {
+        session = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws.id);
+        if session.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let session = session.expect("auto-created session");
+    assert_eq!(session.title, "New chat");
+    let send = |text: &str| json!({"type": "session.send", "session_id": session.id, "text": text});
+
+    // First turn starts a new Claude conversation and records the transcript.
+    let (status, body) = h.command(send("hello there"), None).await;
+    assert_eq!(status, 200, "{body}");
+    let s = h
+        .wait_session(&session.id, |s| {
+            s.status == SessionStatus::Idle && s.turns == 1
+        })
+        .await;
+    assert_eq!(s.title, "hello there");
+    assert!((s.total_cost_usd - 0.25).abs() < 1e-9);
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert_eq!(
+        items[0],
+        ChatItem::User {
+            text: "hello there".into()
+        }
+    );
+    assert!(matches!(&items[1], ChatItem::ToolUse { name, .. } if name == "Bash"));
+    assert!(matches!(&items[2], ChatItem::ToolResult { content, .. } if content == "README.md"));
+    assert_eq!(
+        items[3],
+        ChatItem::Assistant {
+            text: "echo: hello there".into()
+        }
+    );
+    assert!(matches!(
+        items[4],
+        ChatItem::TurnEnd {
+            is_error: false,
+            ..
+        }
+    ));
+
+    // Later turns resume the same conversation.
+    h.command(send("second"), None).await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let calls = std::fs::read_to_string(&h.claude_calls).unwrap();
+    let calls: Vec<&str> = calls.lines().collect();
+    assert!(calls[0].contains("--session-id"), "{}", calls[0]);
+    assert!(calls[1].contains("--resume"), "{}", calls[1]);
+    assert!(calls[1].contains("--permission-mode auto"), "{}", calls[1]);
+
+    // Messages sent mid-turn are queued and run afterwards, in order.
+    h.command(send("slow one"), None).await;
+    let (_, body) = h.command(send("after the slow one"), None).await;
+    assert_eq!(body["result"]["queued"], 1);
+    let s = h
+        .wait_session(&session.id, |s| {
+            s.status == SessionStatus::Idle && s.turns == 4
+        })
+        .await;
+    assert_eq!(s.queued, 0);
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    let users: Vec<_> = items
+        .iter()
+        .filter_map(|i| match i {
+            ChatItem::User { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        users,
+        ["hello there", "second", "slow one", "after the slow one"]
+    );
+
+    // Stopping kills the running turn and drops the queue.
+    h.command(send("slow again"), None).await;
+    h.command(send("never runs"), None).await;
+    h.wait_session(&session.id, |s| s.status == SessionStatus::Running)
+        .await;
+    let (status, _) = h
+        .command(
+            json!({"type": "session.cancel", "session_id": session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    let s = h
+        .wait_session(&session.id, |s| s.status == SessionStatus::Idle)
+        .await;
+    assert_eq!(s.turns, 5);
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert_eq!(
+        items.last(),
+        Some(&ChatItem::Error {
+            message: "Stopped".into()
+        })
+    );
+
+    // Empty messages are rejected; settings changes stick.
+    let (status, _) = h.command(send("   "), None).await;
+    assert_eq!(status, 400);
+    let (status, body) = h
+        .command(
+            json!({"type": "session.update", "session_id": session.id, "model": "haiku", "permission_mode": "plan"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["result"]["permission_mode"], "plan");
+    h.command(send("planned"), None).await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 6
+    })
+    .await;
+    let calls = std::fs::read_to_string(&h.claude_calls).unwrap();
+    let last = calls.lines().last().unwrap();
+    assert!(
+        last.contains("--model haiku") && last.contains("--permission-mode plan"),
+        "{last}"
+    );
 }

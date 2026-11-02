@@ -3,6 +3,7 @@
 pub mod http;
 pub mod names;
 pub mod ops;
+pub mod sessions;
 pub mod settings;
 pub mod store;
 
@@ -23,6 +24,8 @@ pub struct Config {
     /// Built web app to serve at `/`, if any.
     pub web_dir: Option<PathBuf>,
     pub branch_prefix: String,
+    /// The Claude Code CLI used for agent sessions.
+    pub claude_bin: PathBuf,
 }
 
 pub struct Started {
@@ -39,6 +42,7 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     let store = store::Store::open(&config.home.join("bantu.db")).await?;
     let daemon = Arc::new(Daemon::new(store, config));
     daemon.recover_interrupted().await?;
+    daemon.recover_sessions().await?;
     let router = http::router(AppState {
         daemon: daemon.clone(),
         token_hash: http::hash_token(&token).into(),
