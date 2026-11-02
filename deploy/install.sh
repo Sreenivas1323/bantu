@@ -33,7 +33,11 @@ command -v git >/dev/null || say "warning: git isn't installed; Bantu needs it t
 if [ -n "${BANTU_DOWNLOAD_BASE:-}" ]; then
   base="$BANTU_DOWNLOAD_BASE"
 elif [ "$VERSION" = latest ]; then
-  base="https://github.com/$REPO/releases/latest/download"
+  # /releases/latest skips pre-releases, so ask the API for the newest tag.
+  VERSION="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=1" |
+    sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)"
+  [ -n "$VERSION" ] || die "couldn't find a Bantu release; set BANTU_VERSION"
+  base="https://github.com/$REPO/releases/download/$VERSION"
 else
   base="https://github.com/$REPO/releases/download/$VERSION"
 fi
