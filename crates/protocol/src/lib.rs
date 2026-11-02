@@ -194,6 +194,80 @@ pub enum ChatItem {
     },
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum FileStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct FileDiff {
+    pub path: String,
+    /// Previous path for renames.
+    pub old_path: Option<String>,
+    pub status: FileStatus,
+    pub additions: u32,
+    pub deletions: u32,
+    pub binary: bool,
+    /// Unified diff hunks for this file (starting at the first `@@`).
+    pub patch: String,
+    /// The patch was cut because the file's diff is very large.
+    pub truncated: bool,
+}
+
+/// Everything the workspace changed relative to where it branched off,
+/// including uncommitted and untracked files.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct WorkspaceDiff {
+    pub workspace_id: String,
+    pub base_ref: String,
+    pub merge_base: String,
+    /// Commits on the branch that aren't on `base_ref`.
+    pub ahead: u32,
+    /// Commits on `base_ref` that the branch doesn't have yet.
+    pub behind: u32,
+    /// Files with uncommitted changes.
+    pub uncommitted: u32,
+    pub files: Vec<FileDiff>,
+}
+
+/// A review note on a line of the workspace diff, to be sent to the agent.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct DiffComment {
+    pub id: String,
+    pub workspace_id: String,
+    pub path: String,
+    /// Line number in the new version of the file.
+    pub line: u32,
+    pub body: String,
+    pub created_at: String,
+    /// When the comment was sent to an agent; `None` while it's a draft.
+    pub sent_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct PullRequest {
+    pub number: u32,
+    pub url: String,
+    pub title: String,
+    /// `OPEN`, `CLOSED` or `MERGED`.
+    pub state: String,
+    pub is_draft: bool,
+    /// `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`, or `None`.
+    pub review_decision: Option<String>,
+    pub checks_passing: u32,
+    pub checks_failing: u32,
+    pub checks_pending: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[serde(tag = "type")]
 #[ts(export)]
@@ -237,6 +311,28 @@ pub enum Command {
         model: Option<String>,
         permission_mode: Option<PermissionMode>,
     },
+    /// Add a draft review comment on a line of the workspace diff.
+    #[serde(rename = "comment.add")]
+    CommentAdd {
+        workspace_id: String,
+        path: String,
+        line: u32,
+        body: String,
+    },
+    #[serde(rename = "comment.delete")]
+    CommentDelete { comment_id: String },
+    /// Send all draft comments to a session as one message.
+    #[serde(rename = "comments.send")]
+    CommentsSend {
+        workspace_id: String,
+        session_id: String,
+    },
+    /// Ask the session's agent to commit, push and open a pull request.
+    #[serde(rename = "workspace.create_pr")]
+    WorkspaceCreatePr {
+        workspace_id: String,
+        session_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -269,6 +365,13 @@ pub enum EventData {
     /// Full session snapshot; sent on creation and on every change.
     #[serde(rename = "session.updated")]
     SessionUpdated { session: Session },
+    #[serde(rename = "comment.updated")]
+    CommentUpdated { comment: DiffComment },
+    #[serde(rename = "comment.deleted")]
+    CommentDeleted {
+        comment_id: String,
+        workspace_id: String,
+    },
     /// A transcript entry. `turn` starts at 1.
     #[serde(rename = "session.item")]
     SessionItem {
@@ -289,6 +392,8 @@ impl EventData {
                 Some(workspace_id)
             }
             Self::SessionUpdated { session } => Some(&session.workspace_id),
+            Self::CommentUpdated { comment } => Some(&comment.workspace_id),
+            Self::CommentDeleted { workspace_id, .. } => Some(workspace_id),
         }
     }
 }
@@ -323,6 +428,7 @@ pub struct StateSnapshot {
     pub repos: Vec<Repo>,
     pub workspaces: Vec<Workspace>,
     pub sessions: Vec<Session>,
+    pub comments: Vec<DiffComment>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -347,16 +453,21 @@ mod tests {
             "ChatItem",
             "Command",
             "CommandResponse",
+            "DiffComment",
             "Event",
             "EventData",
+            "FileDiff",
+            "FileStatus",
             "Health",
             "LogStream",
             "PermissionMode",
+            "PullRequest",
             "Repo",
             "Session",
             "SessionStatus",
             "StateSnapshot",
             "Workspace",
+            "WorkspaceDiff",
             "WorkspaceState",
         ] {
             assert!(

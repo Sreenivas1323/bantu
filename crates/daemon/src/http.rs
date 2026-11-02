@@ -39,6 +39,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/commands", post(post_command))
         .route("/v1/events", get(get_events))
         .route("/v1/workspaces/{id}/history", get(get_history))
+        .route("/v1/workspaces/{id}/diff", get(get_diff))
+        .route("/v1/workspaces/{id}/pr", get(get_pr))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
 
     let mut app = Router::new()
@@ -134,7 +136,23 @@ async fn get_state(State(state): State<AppState>) -> Result<Json<StateSnapshot>,
         repos: store.repos().await?,
         workspaces: store.workspaces().await?,
         sessions: store.sessions().await?,
+        comments: store.comments().await?,
     }))
+}
+
+async fn get_diff(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.daemon.workspace_diff(&id).await {
+        Ok(diff) => Json(diff).into_response(),
+        Err(e) => command_error(e),
+    }
+}
+
+/// `null` when the branch has no PR, the repo has no remote, or `gh` is missing.
+async fn get_pr(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.daemon.pull_request(&id).await {
+        Ok(pr) => Json(pr).into_response(),
+        Err(e) => command_error(e),
+    }
 }
 
 #[derive(Deserialize)]
@@ -181,15 +199,7 @@ async fn post_command(
             },
         ),
         Err(e) => {
-            let status = match &e {
-                CommandError::BadRequest(_) => StatusCode::BAD_REQUEST,
-                CommandError::NotFound(_) => StatusCode::NOT_FOUND,
-                CommandError::Conflict(_) => StatusCode::CONFLICT,
-                CommandError::Internal(err) => {
-                    tracing::error!("command failed: {err:#}");
-                    StatusCode::INTERNAL_SERVER_ERROR
-                }
-            };
+            let status = error_status(&e);
             (
                 status,
                 CommandResponse {
@@ -307,4 +317,25 @@ impl IntoResponse for ApiError {
         };
         (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response()
     }
+}
+
+fn error_status(e: &CommandError) -> StatusCode {
+    match e {
+        CommandError::BadRequest(_) => StatusCode::BAD_REQUEST,
+        CommandError::NotFound(_) => StatusCode::NOT_FOUND,
+        CommandError::Conflict(_) => StatusCode::CONFLICT,
+        CommandError::Internal(err) => {
+            tracing::error!("request failed: {err:#}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+}
+
+fn command_error(e: CommandError) -> Response {
+    let body = CommandResponse {
+        ok: false,
+        result: None,
+        error: Some(format!("{e:#}")),
+    };
+    (error_status(&e), Json(body)).into_response()
 }

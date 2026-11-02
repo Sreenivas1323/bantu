@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bantu_protocol::{
-    AgentKind, ChatItem, Event, EventData, LogStream, PermissionMode, Repo, Session, SessionStatus,
-    Workspace, WorkspaceState,
+    AgentKind, ChatItem, DiffComment, Event, EventData, LogStream, PermissionMode, Repo, Session,
+    SessionStatus, Workspace, WorkspaceState,
 };
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
@@ -178,6 +178,39 @@ impl Store {
         self.finish(guard, tx, data).await
     }
 
+    pub async fn upsert_comment(&self, c: &DiffComment) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query(
+            "INSERT INTO diff_comments (id, workspace_id, path, line, body, created_at, sent_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET body = excluded.body, sent_at = excluded.sent_at",
+        )
+        .bind(&c.id)
+        .bind(&c.workspace_id)
+        .bind(&c.path)
+        .bind(c.line as i64)
+        .bind(&c.body)
+        .bind(&c.created_at)
+        .bind(&c.sent_at)
+        .execute(&mut *tx)
+        .await?;
+        let data = EventData::CommentUpdated { comment: c.clone() };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn delete_comment(&self, c: &DiffComment) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query("DELETE FROM diff_comments WHERE id = ?")
+            .bind(&c.id)
+            .execute(&mut *tx)
+            .await?;
+        let data = EventData::CommentDeleted {
+            comment_id: c.id.clone(),
+            workspace_id: c.workspace_id.clone(),
+        };
+        self.finish(guard, tx, data).await
+    }
+
     async fn begin(&self) -> Result<(MutexGuard<'_, ()>, Transaction<'static, Sqlite>)> {
         let guard = self.write_lock.lock().await;
         let tx = self.pool.begin().await?;
@@ -332,6 +365,21 @@ impl Store {
             .collect()
     }
 
+    pub async fn comments(&self) -> Result<Vec<DiffComment>> {
+        let rows = sqlx::query("SELECT * FROM diff_comments ORDER BY created_at")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.iter().map(comment_from_row).collect())
+    }
+
+    pub async fn comment(&self, id: &str) -> Result<Option<DiffComment>> {
+        let row = sqlx::query("SELECT * FROM diff_comments WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.as_ref().map(comment_from_row))
+    }
+
     // ---- idempotency ------------------------------------------------------
 
     pub async fn idempotent_response(&self, key: &str) -> Result<Option<(u16, String)>> {
@@ -370,6 +418,8 @@ fn event_kind(data: &EventData) -> &'static str {
         EventData::WorkspaceLog { .. } => "workspace.log",
         EventData::SessionUpdated { .. } => "session.updated",
         EventData::SessionItem { .. } => "session.item",
+        EventData::CommentUpdated { .. } => "comment.updated",
+        EventData::CommentDeleted { .. } => "comment.deleted",
     }
 }
 
@@ -429,4 +479,16 @@ fn session_from_row(r: &SqliteRow) -> Result<Session> {
         total_cost_usd: r.get("total_cost_usd"),
         created_at: r.get("created_at"),
     })
+}
+
+fn comment_from_row(r: &SqliteRow) -> DiffComment {
+    DiffComment {
+        id: r.get("id"),
+        workspace_id: r.get("workspace_id"),
+        path: r.get("path"),
+        line: r.get::<i64, _>("line") as u32,
+        body: r.get("body"),
+        created_at: r.get("created_at"),
+        sent_at: r.get("sent_at"),
+    }
 }

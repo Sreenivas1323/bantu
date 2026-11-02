@@ -563,3 +563,171 @@ async fn agent_sessions() {
         "{last}"
     );
 }
+
+#[tokio::test]
+async fn review_flow() {
+    let h = Harness::start().await;
+    let (_fixture, clone) = fixture();
+    let (_, body) = h
+        .command(json!({"type": "repo.add", "path": clone}), None)
+        .await;
+    let repo_id = body["result"]["id"].as_str().unwrap().to_string();
+    let (_, body) = h
+        .command(
+            json!({"type": "workspace.create", "repo_id": repo_id}),
+            None,
+        )
+        .await;
+    let ws: Workspace = serde_json::from_value(body["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let path = Path::new(&ws.path);
+
+    // One committed change, one uncommitted edit, one untracked file.
+    std::fs::write(path.join("committed.txt"), "c\n").unwrap();
+    sh(path, &["add", "committed.txt"]);
+    sh(
+        path,
+        &[
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "c",
+        ],
+    );
+    std::fs::write(path.join("README.md"), "hi\nmore\n").unwrap();
+    std::fs::write(path.join("new.txt"), "n\n").unwrap();
+
+    let diff: Value = h
+        .http
+        .get(format!("{}/v1/workspaces/{}/diff", h.base, ws.id))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(diff["ahead"], 1);
+    assert_eq!(diff["uncommitted"], 2);
+    let files: Vec<(String, String)> = diff["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| {
+            (
+                f["path"].as_str().unwrap().into(),
+                f["status"].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        files,
+        [
+            ("README.md".into(), "modified".into()),
+            ("committed.txt".into(), "added".into()),
+            ("new.txt".into(), "added".into())
+        ]
+    );
+    // Computing the diff must not stage anything in the user's index.
+    let staged = Proc::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["diff", "--cached", "--name-only"])
+        .output()
+        .unwrap();
+    assert!(staged.stdout.is_empty());
+
+    // Draft comments are bundled into one agent message, then marked sent.
+    let (status, _) = h
+        .command(json!({"type": "comment.add", "workspace_id": ws.id, "path": "README.md", "line": 2, "body": "say more"}), None)
+        .await;
+    assert_eq!(status, 200);
+    let (_, c2) = h
+        .command(json!({"type": "comment.add", "workspace_id": ws.id, "path": "new.txt", "line": 1, "body": "drop this"}), None)
+        .await;
+    assert_eq!(h.state().await.comments.len(), 2);
+    let (status, _) = h
+        .command(
+            json!({"type": "comment.delete", "comment_id": c2["result"]["id"]}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+
+    let session = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws.id)
+        {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let (status, body) = h
+        .command(
+            json!({"type": "comments.send", "workspace_id": ws.id, "session_id": session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let comments = h.state().await.comments;
+    assert_eq!(comments.len(), 1);
+    assert!(comments[0].sent_at.is_some());
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(
+        matches!(&items[0], ChatItem::User { text } if text.contains("- `README.md:2` — say more"))
+    );
+    let (status, _) = h
+        .command(
+            json!({"type": "comments.send", "workspace_id": ws.id, "session_id": session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400, "nothing left to send");
+
+    // Create PR hands the agent a prompt naming the branch and target.
+    let (status, _) = h
+        .command(
+            json!({"type": "workspace.create_pr", "workspace_id": ws.id, "session_id": session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    let prompt = items.iter().rev().find_map(|i| match i {
+        ChatItem::User { text } => Some(text.clone()),
+        _ => None,
+    });
+    let prompt = prompt.unwrap();
+    assert!(
+        prompt.contains(&format!("--base main --head {}", ws.branch)),
+        "{prompt}"
+    );
+
+    // A local bare "origin" has no GitHub PR.
+    let pr: Value = h
+        .http
+        .get(format!("{}/v1/workspaces/{}/pr", h.base, ws.id))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(pr.is_null());
+}

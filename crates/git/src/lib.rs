@@ -156,6 +156,82 @@ pub async fn ignored_paths(root: &Path) -> Result<Vec<String>> {
         .collect())
 }
 
+pub async fn merge_base(dir: &Path, a: &str, b: &str) -> Result<String> {
+    git(dir, &["merge-base", a, b]).await
+}
+
+/// `(ahead, behind)` of `HEAD` relative to `base`.
+pub async fn ahead_behind(dir: &Path, base: &str) -> Result<(u32, u32)> {
+    let out = git(
+        dir,
+        &[
+            "rev-list",
+            "--left-right",
+            "--count",
+            &format!("HEAD...{base}"),
+        ],
+    )
+    .await?;
+    let mut parts = out
+        .split_whitespace()
+        .map(|n| n.parse::<u32>().unwrap_or(0));
+    Ok((parts.next().unwrap_or(0), parts.next().unwrap_or(0)))
+}
+
+/// Unified diff of the working tree (including untracked, non-ignored files)
+/// against `base`. Uses a throwaway index so the user's staging area is never
+/// touched.
+pub async fn diff_worktree(dir: &Path, base: &str) -> Result<String> {
+    let git_dir =
+        PathBuf::from(git(dir, &["rev-parse", "--path-format=absolute", "--git-dir"]).await?);
+    let tmp_index = git_dir.join(format!("bantu-diff-index-{}", std::process::id()));
+    let run = |args: Vec<&str>| {
+        let tmp_index = tmp_index.clone();
+        let args: Vec<String> = args.into_iter().map(str::to_string).collect();
+        async move {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(&args)
+                .env("GIT_INDEX_FILE", &tmp_index)
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .stdin(Stdio::null())
+                .output()
+                .await?;
+            if !out.status.success() {
+                return Err(GitError::Failed {
+                    args: args.join(" "),
+                    stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+                });
+            }
+            Ok(String::from_utf8_lossy(&out.stdout).to_string())
+        }
+    };
+    let result = async {
+        run(vec!["read-tree", "HEAD"]).await?;
+        run(vec!["add", "-A", "."]).await?;
+        run(vec![
+            "diff",
+            "--cached",
+            "--no-color",
+            "--no-ext-diff",
+            "-M",
+            "--full-index",
+            base,
+        ])
+        .await
+    }
+    .await;
+    let _ = tokio::fs::remove_file(&tmp_index).await;
+    result
+}
+
+/// Paths with uncommitted changes (tracked or untracked), per `git status`.
+pub async fn uncommitted_count(dir: &Path) -> Result<u32> {
+    let out = git(dir, &["status", "--porcelain", "--untracked-files=all"]).await?;
+    Ok(out.lines().filter(|l| !l.trim().is_empty()).count() as u32)
+}
+
 /// An in-progress operation that would make committing unsafe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BusyState {

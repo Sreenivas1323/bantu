@@ -80,6 +80,24 @@ impl Daemon {
             Command::SessionCancel { session_id } => {
                 serde_json::to_value(self.cancel_session(&session_id).await?)
             }
+            Command::CommentAdd {
+                workspace_id,
+                path,
+                line,
+                body,
+            } => serde_json::to_value(self.add_comment(&workspace_id, path, line, body).await?),
+            Command::CommentDelete { comment_id } => {
+                self.delete_comment(&comment_id).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::CommentsSend {
+                workspace_id,
+                session_id,
+            } => serde_json::to_value(self.send_comments(&workspace_id, &session_id).await?),
+            Command::WorkspaceCreatePr {
+                workspace_id,
+                session_id,
+            } => serde_json::to_value(self.create_pr(&workspace_id, &session_id).await?),
             Command::SessionUpdate {
                 session_id,
                 title,

@@ -3,6 +3,7 @@
 pub mod http;
 pub mod names;
 pub mod ops;
+pub mod review;
 pub mod sessions;
 pub mod settings;
 pub mod store;
