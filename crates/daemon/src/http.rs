@@ -5,6 +5,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
@@ -22,6 +23,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::ops::{CommandError, Daemon};
+use crate::terminals::Term;
 
 pub const DAEMON_VERSION: &str = env!("CARGO_PKG_VERSION");
 const REPLAY_BATCH: i64 = 500;
@@ -41,6 +43,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/workspaces/{id}/history", get(get_history))
         .route("/v1/workspaces/{id}/diff", get(get_diff))
         .route("/v1/workspaces/{id}/pr", get(get_pr))
+        .route("/v1/terminals/{id}/ws", get(terminal_ws))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
 
     let mut app = Router::new()
@@ -137,7 +140,74 @@ async fn get_state(State(state): State<AppState>) -> Result<Json<StateSnapshot>,
         workspaces: store.workspaces().await?,
         sessions: store.sessions().await?,
         comments: store.comments().await?,
+        terminals: state.daemon.terminals().await,
     }))
+}
+
+/// Raw PTY bytes both ways. Binary frames are input/output; text frames carry
+/// JSON control messages: `{"type":"resize","cols":120,"rows":40}`.
+async fn terminal_ws(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    upgrade: WebSocketUpgrade,
+) -> Response {
+    let Some(term) = state.daemon.terminal(&id).await else {
+        return (StatusCode::NOT_FOUND, "no such terminal").into_response();
+    };
+    upgrade.on_upgrade(move |socket| serve_terminal(socket, term))
+}
+
+async fn serve_terminal(socket: WebSocket, term: Arc<Term>) {
+    use futures::{SinkExt, StreamExt};
+    let (mut sink, mut stream) = socket.split();
+    let (backlog, mut output) = term.attach();
+    if !backlog.is_empty() && sink.send(Message::Binary(backlog.into())).await.is_err() {
+        return;
+    }
+    let to_client = async {
+        loop {
+            match output.recv().await {
+                Ok(bytes) => {
+                    if sink.send(Message::Binary(bytes.into())).await.is_err() {
+                        break;
+                    }
+                }
+                // A slow viewer missed some output; keep streaming.
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
+            }
+        }
+    };
+    let from_client = async {
+        while let Some(Ok(msg)) = stream.next().await {
+            match msg {
+                Message::Binary(bytes) => {
+                    let _ = term.write(&bytes);
+                }
+                Message::Text(text) => {
+                    let Ok(v) = serde_json::from_str::<serde_json::Value>(text.as_str()) else {
+                        continue;
+                    };
+                    match v["type"].as_str() {
+                        Some("resize") => term.resize(
+                            v["cols"].as_u64().unwrap_or(80) as u16,
+                            v["rows"].as_u64().unwrap_or(24) as u16,
+                        ),
+                        Some("input") => {
+                            let _ = term.write(v["data"].as_str().unwrap_or("").as_bytes());
+                        }
+                        _ => {}
+                    }
+                }
+                Message::Close(_) => break,
+                _ => {}
+            }
+        }
+    };
+    tokio::select! {
+        _ = to_client => {}
+        _ = from_client => {}
+    }
 }
 
 async fn get_diff(State(state): State<AppState>, Path(id): Path<String>) -> Response {

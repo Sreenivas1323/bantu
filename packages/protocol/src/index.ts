@@ -17,6 +17,8 @@ export type { Repo } from "./generated/Repo";
 export type { Session } from "./generated/Session";
 export type { SessionStatus } from "./generated/SessionStatus";
 export type { StateSnapshot } from "./generated/StateSnapshot";
+export type { Terminal } from "./generated/Terminal";
+export type { TerminalKind } from "./generated/TerminalKind";
 export type { Workspace } from "./generated/Workspace";
 export type { WorkspaceDiff } from "./generated/WorkspaceDiff";
 export type { WorkspaceState } from "./generated/WorkspaceState";

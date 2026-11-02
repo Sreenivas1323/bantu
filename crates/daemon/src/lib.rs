@@ -7,6 +7,7 @@ pub mod review;
 pub mod sessions;
 pub mod settings;
 pub mod store;
+pub mod terminals;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -44,6 +45,7 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     let daemon = Arc::new(Daemon::new(store, config));
     daemon.recover_interrupted().await?;
     daemon.recover_sessions().await?;
+    daemon.recover_terminals().await?;
     let router = http::router(AppState {
         daemon: daemon.clone(),
         token_hash: http::hash_token(&token).into(),

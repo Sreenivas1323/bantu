@@ -23,6 +23,30 @@ pub struct Settings {
 pub struct Scripts {
     pub setup: Option<String>,
     pub archive: Option<String>,
+    pub run: Option<RunScript>,
+}
+
+/// `run = "bun dev"`, or Conductor-style named actions:
+/// `[scripts.run.dev] command = "bun dev"` (the first one is used for now).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum RunScript {
+    Command(String),
+    Named(std::collections::BTreeMap<String, NamedRun>),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NamedRun {
+    pub command: String,
+}
+
+impl Scripts {
+    pub fn run_command(&self) -> Option<String> {
+        match self.run.as_ref()? {
+            RunScript::Command(c) => Some(c.clone()),
+            RunScript::Named(m) => m.values().next().map(|r| r.command.clone()),
+        }
+    }
 }
 
 const CANDIDATES: [&str; 2] = [".bantu/settings.toml", ".conductor/settings.toml"];

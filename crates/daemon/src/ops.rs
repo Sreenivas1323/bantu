@@ -39,6 +39,7 @@ pub struct Daemon {
     /// Serializes name/port allocation so concurrent creates never collide.
     alloc_lock: Mutex<()>,
     pub(crate) running: crate::sessions::Running,
+    pub(crate) terminals: crate::terminals::Terminals,
 }
 
 impl Daemon {
@@ -48,6 +49,7 @@ impl Daemon {
             config,
             alloc_lock: Mutex::new(()),
             running: Default::default(),
+            terminals: Default::default(),
         }
     }
 
@@ -94,6 +96,18 @@ impl Daemon {
                 workspace_id,
                 session_id,
             } => serde_json::to_value(self.send_comments(&workspace_id, &session_id).await?),
+            Command::TerminalOpen {
+                workspace_id,
+                cols,
+                rows,
+            } => serde_json::to_value(self.open_terminal(&workspace_id, cols, rows).await?),
+            Command::TerminalClose { terminal_id } => {
+                self.close_terminal(&terminal_id).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::WorkspaceRun { workspace_id } => {
+                serde_json::to_value(self.run_workspace(&workspace_id).await?)
+            }
             Command::WorkspaceCreatePr {
                 workspace_id,
                 session_id,
@@ -396,6 +410,7 @@ impl Daemon {
         }
         let repo = self.require_repo(&ws.repo_id).await?;
         self.cancel_workspace_sessions(&ws.id).await?;
+        self.close_workspace_terminals(&ws.id).await?;
         ws.state = WorkspaceState::Archiving;
         ws.error = None;
         self.store.upsert_workspace(&ws).await?;

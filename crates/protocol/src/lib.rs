@@ -268,6 +268,32 @@ pub struct PullRequest {
     pub checks_pending: u32,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum TerminalKind {
+    /// An interactive login shell.
+    Shell,
+    /// The repo's run script (`[scripts] run` in `.bantu/settings.toml`).
+    Run,
+}
+
+/// A PTY in a workspace. Bytes flow over `GET /v1/terminals/{id}/ws`.
+/// Terminals live in the daemon's memory and end when it restarts.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Terminal {
+    pub id: String,
+    pub workspace_id: String,
+    pub kind: TerminalKind,
+    pub title: String,
+    /// The command for `run` terminals.
+    pub command: Option<String>,
+    pub exited: bool,
+    pub exit_code: Option<i32>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[serde(tag = "type")]
 #[ts(export)]
@@ -327,6 +353,19 @@ pub enum Command {
         workspace_id: String,
         session_id: String,
     },
+    /// Open an interactive shell in the workspace.
+    #[serde(rename = "terminal.open")]
+    TerminalOpen {
+        workspace_id: String,
+        cols: Option<u16>,
+        rows: Option<u16>,
+    },
+    /// Kill the terminal's process group and forget it.
+    #[serde(rename = "terminal.close")]
+    TerminalClose { terminal_id: String },
+    /// Start the repo's run script, or return it if it's already running.
+    #[serde(rename = "workspace.run")]
+    WorkspaceRun { workspace_id: String },
     /// Ask the session's agent to commit, push and open a pull request.
     #[serde(rename = "workspace.create_pr")]
     WorkspaceCreatePr {
@@ -372,6 +411,13 @@ pub enum EventData {
         comment_id: String,
         workspace_id: String,
     },
+    #[serde(rename = "terminal.updated")]
+    TerminalUpdated { terminal: Terminal },
+    #[serde(rename = "terminal.closed")]
+    TerminalClosed {
+        terminal_id: String,
+        workspace_id: String,
+    },
     /// A transcript entry. `turn` starts at 1.
     #[serde(rename = "session.item")]
     SessionItem {
@@ -394,6 +440,8 @@ impl EventData {
             Self::SessionUpdated { session } => Some(&session.workspace_id),
             Self::CommentUpdated { comment } => Some(&comment.workspace_id),
             Self::CommentDeleted { workspace_id, .. } => Some(workspace_id),
+            Self::TerminalUpdated { terminal } => Some(&terminal.workspace_id),
+            Self::TerminalClosed { workspace_id, .. } => Some(workspace_id),
         }
     }
 }
@@ -429,6 +477,7 @@ pub struct StateSnapshot {
     pub workspaces: Vec<Workspace>,
     pub sessions: Vec<Session>,
     pub comments: Vec<DiffComment>,
+    pub terminals: Vec<Terminal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -466,6 +515,8 @@ mod tests {
             "Session",
             "SessionStatus",
             "StateSnapshot",
+            "Terminal",
+            "TerminalKind",
             "Workspace",
             "WorkspaceDiff",
             "WorkspaceState",

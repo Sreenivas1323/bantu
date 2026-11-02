@@ -2,6 +2,7 @@
 import type { DiffComment } from "./DiffComment";
 import type { Repo } from "./Repo";
 import type { Session } from "./Session";
+import type { Terminal } from "./Terminal";
 import type { Workspace } from "./Workspace";
 
-export type StateSnapshot = { protocol_version: number, daemon_version: string, last_seq: number, repos: Array<Repo>, workspaces: Array<Workspace>, sessions: Array<Session>, comments: Array<DiffComment>, };
+export type StateSnapshot = { protocol_version: number, daemon_version: string, last_seq: number, repos: Array<Repo>, workspaces: Array<Workspace>, sessions: Array<Session>, comments: Array<DiffComment>, terminals: Array<Terminal>, };

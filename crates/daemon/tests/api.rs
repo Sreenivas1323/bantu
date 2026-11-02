@@ -731,3 +731,155 @@ async fn review_flow() {
         .unwrap();
     assert!(pr.is_null());
 }
+
+/// Reads terminal output until `needle` shows up.
+async fn read_until<S>(ws: &mut S, needle: &str) -> String
+where
+    S: futures::Stream<
+            Item = Result<
+                tokio_tungstenite::tungstenite::Message,
+                tokio_tungstenite::tungstenite::Error,
+            >,
+        > + Unpin,
+{
+    let mut seen = String::new();
+    while !seen.contains(needle) {
+        let msg = tokio::time::timeout(Duration::from_secs(15), ws.next())
+            .await
+            .unwrap_or_else(|_| panic!("timed out waiting for {needle:?}; saw {seen:?}"))
+            .expect("socket closed")
+            .unwrap();
+        if let tokio_tungstenite::tungstenite::Message::Binary(b) = msg {
+            seen.push_str(&String::from_utf8_lossy(&b));
+        }
+    }
+    seen
+}
+
+#[tokio::test]
+async fn terminals() {
+    use futures::SinkExt;
+    use tokio_tungstenite::tungstenite::Message;
+
+    let h = Harness::start().await;
+    let (_fixture, clone) = fixture();
+    let (_, body) = h
+        .command(json!({"type": "repo.add", "path": clone}), None)
+        .await;
+    let repo_id = body["result"]["id"].as_str().unwrap().to_string();
+    let (_, body) = h
+        .command(
+            json!({"type": "workspace.create", "repo_id": repo_id}),
+            None,
+        )
+        .await;
+    let ws: Workspace = serde_json::from_value(body["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let ws_url = |id: &str| {
+        format!(
+            "{}/v1/terminals/{id}/ws?token={}",
+            h.base.replace("http", "ws"),
+            h.token
+        )
+    };
+
+    // An interactive shell runs in the worktree and echoes input back.
+    let (status, body) = h
+        .command(
+            json!({"type": "terminal.open", "workspace_id": ws.id, "cols": 80, "rows": 24}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let term_id = body["result"]["id"].as_str().unwrap().to_string();
+    let (mut sock, _) = tokio_tungstenite::connect_async(ws_url(&term_id))
+        .await
+        .unwrap();
+    sock.send(Message::Text(
+        r#"{"type":"resize","cols":100,"rows":30}"#.into(),
+    ))
+    .await
+    .unwrap();
+    sock.send(Message::Binary(
+        b"echo bantu-$((40+2)) $BANTU_PORT; pwd\n".to_vec().into(),
+    ))
+    .await
+    .unwrap();
+    let out = read_until(&mut sock, &format!("bantu-42 {}", ws.port_base)).await;
+    let _ = out;
+    read_until(&mut sock, &ws.name).await;
+
+    // A second viewer gets the scrollback, so reopening a tab loses nothing.
+    let (mut second, _) = tokio_tungstenite::connect_async(ws_url(&term_id))
+        .await
+        .unwrap();
+    read_until(&mut second, "bantu-42").await;
+
+    // Typing `exit` ends the shell and marks the terminal exited.
+    sock.send(Message::Binary(b"exit 3\n".to_vec().into()))
+        .await
+        .unwrap();
+    for _ in 0..100 {
+        let t = h
+            .state()
+            .await
+            .terminals
+            .into_iter()
+            .find(|t| t.id == term_id)
+            .unwrap();
+        if t.exited {
+            assert_eq!(t.exit_code, Some(3));
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // Without a run script, Run explains how to add one.
+    let (status, body) = h
+        .command(
+            json!({"type": "workspace.run", "workspace_id": ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400, "{body}");
+
+    // With one, Run starts it once and returns the same terminal while it runs.
+    std::fs::write(
+        Path::new(&ws.path).join(".bantu/settings.toml"),
+        "[scripts]\nrun = \"echo serving-on-$BANTU_PORT; sleep 30\"\n",
+    )
+    .unwrap();
+    let (status, body) = h
+        .command(
+            json!({"type": "workspace.run", "workspace_id": ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["result"]["kind"], "run");
+    let run_id = body["result"]["id"].as_str().unwrap().to_string();
+    let (_, again) = h
+        .command(
+            json!({"type": "workspace.run", "workspace_id": ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(again["result"]["id"], json!(run_id));
+    let (mut run_sock, _) = tokio_tungstenite::connect_async(ws_url(&run_id))
+        .await
+        .unwrap();
+    read_until(&mut run_sock, &format!("serving-on-{}", ws.port_base)).await;
+
+    // Closing stops it and removes it from the snapshot.
+    let (status, _) = h
+        .command(
+            json!({"type": "terminal.close", "terminal_id": run_id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    assert!(h.state().await.terminals.iter().all(|t| t.id != run_id));
+    assert!(tokio_tungstenite::connect_async(ws_url(&run_id))
+        .await
+        .is_err());
+}

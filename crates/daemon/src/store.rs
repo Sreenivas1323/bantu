@@ -211,6 +211,12 @@ impl Store {
         self.finish(guard, tx, data).await
     }
 
+    /// Records an event that has no projection (e.g. in-memory terminals).
+    pub async fn emit(&self, data: EventData) -> Result<Event> {
+        let (guard, tx) = self.begin().await?;
+        self.finish(guard, tx, data).await
+    }
+
     async fn begin(&self) -> Result<(MutexGuard<'_, ()>, Transaction<'static, Sqlite>)> {
         let guard = self.write_lock.lock().await;
         let tx = self.pool.begin().await?;
@@ -380,6 +386,24 @@ impl Store {
         Ok(row.as_ref().map(comment_from_row))
     }
 
+    /// Terminals the log says are open. They can't survive a restart, so the
+    /// daemon closes them on startup.
+    pub async fn open_terminals_in_log(&self) -> Result<Vec<(String, String)>> {
+        let rows = sqlx::query(
+            "SELECT json_extract(payload, '$.terminal.id') AS id, workspace_id FROM events
+             WHERE kind = 'terminal.updated'
+             EXCEPT
+             SELECT json_extract(payload, '$.terminal_id'), workspace_id FROM events
+             WHERE kind = 'terminal.closed'",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.get("id"), r.get("workspace_id")))
+            .collect())
+    }
+
     // ---- idempotency ------------------------------------------------------
 
     pub async fn idempotent_response(&self, key: &str) -> Result<Option<(u16, String)>> {
@@ -420,6 +444,8 @@ fn event_kind(data: &EventData) -> &'static str {
         EventData::SessionItem { .. } => "session.item",
         EventData::CommentUpdated { .. } => "comment.updated",
         EventData::CommentDeleted { .. } => "comment.deleted",
+        EventData::TerminalUpdated { .. } => "terminal.updated",
+        EventData::TerminalClosed { .. } => "terminal.closed",
     }
 }
 
