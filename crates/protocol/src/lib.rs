@@ -348,6 +348,21 @@ pub struct PermissionRequest {
     pub created_at: String,
 }
 
+/// Where a new workspace's branch comes from. Without one, a fresh branch is
+/// created from the base.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum WorkspaceSource {
+    /// Check out an existing local or `origin` branch.
+    Branch { branch: String },
+    /// Check out a GitHub pull request's head (needs `gh`).
+    PullRequest { number: u32 },
+    /// Start a fresh branch named after a GitHub issue and send the issue to
+    /// the agent as its first task (needs `gh`).
+    Issue { number: u32 },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[serde(tag = "type")]
 #[ts(export)]
@@ -364,6 +379,8 @@ pub enum Command {
         repo_id: String,
         name: Option<String>,
         base_ref: Option<String>,
+        #[serde(default)]
+        from: Option<WorkspaceSource>,
     },
     /// Run the archive script, save uncommitted tracked changes to a ref and
     /// remove the worktree. The branch is kept.
@@ -610,6 +627,7 @@ mod tests {
             "TerminalKind",
             "Workspace",
             "WorkspaceDiff",
+            "WorkspaceSource",
             "WorkspaceState",
         ] {
             assert!(
@@ -630,7 +648,8 @@ mod tests {
             Command::WorkspaceCreate {
                 repo_id: "r1".into(),
                 name: None,
-                base_ref: None
+                base_ref: None,
+                from: None,
             }
         );
     }

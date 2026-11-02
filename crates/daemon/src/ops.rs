@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context};
 use bantu_git as git;
-use bantu_protocol::{Command, LogStream, Repo, Workspace, WorkspaceState};
+use bantu_protocol::{Command, LogStream, Repo, Workspace, WorkspaceSource, WorkspaceState};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::Mutex;
@@ -66,7 +66,11 @@ impl Daemon {
                 repo_id,
                 name,
                 base_ref,
-            } => serde_json::to_value(self.create_workspace(&repo_id, name, base_ref).await?),
+                from,
+            } => serde_json::to_value(
+                self.create_workspace(&repo_id, name, base_ref, from)
+                    .await?,
+            ),
             Command::WorkspaceArchive { workspace_id } => {
                 serde_json::to_value(self.archive_workspace(&workspace_id).await?)
             }
@@ -227,9 +231,12 @@ impl Daemon {
         repo_id: &str,
         name: Option<String>,
         base_ref: Option<String>,
+        from: Option<WorkspaceSource>,
     ) -> CmdResult<Workspace> {
         let repo = self.require_repo(repo_id).await?;
         let root = PathBuf::from(&repo.root_path);
+        let plan = self.plan_source(&repo, from).await?;
+        let name = name.or(plan.suggested_name.clone());
         if let Some(n) = &name {
             if !names::is_valid(n) {
                 return Err(CommandError::BadRequest(
@@ -246,6 +253,10 @@ impl Daemon {
             .map(|w| w.name.clone())
             .collect();
         let name = match name {
+            Some(n) if in_repo.contains(&n) && plan.suggested_name.as_ref() == Some(&n) => {
+                // e.g. a second workspace for the same PR: fall back to a city.
+                self.unused_name(&root, &repo, in_repo).await?
+            }
             Some(n) if in_repo.contains(&n) => {
                 return Err(CommandError::Conflict(format!(
                     "workspace {n} already exists"
@@ -254,11 +265,14 @@ impl Daemon {
             Some(n) => n,
             None => self.unused_name(&root, &repo, in_repo).await?,
         };
-        let branch = format!("{}{name}", self.config.branch_prefix);
-        if git::ref_exists(&root, &format!("refs/heads/{branch}"))
+        let branch = match &plan.branch {
+            Some(b) => b.clone(),
+            None => format!("{}{name}", self.config.branch_prefix),
+        };
+        let exists = git::ref_exists(&root, &format!("refs/heads/{branch}"))
             .await
-            .map_err(anyhow::Error::from)?
-        {
+            .map_err(anyhow::Error::from)?;
+        if exists && matches!(plan.checkout, Checkout::NewBranch) {
             return Err(CommandError::Conflict(format!(
                 "branch {branch} already exists"
             )));
@@ -280,7 +294,7 @@ impl Daemon {
             .find(|p| !used_ports.contains(p))
             .expect("port range exhausted");
 
-        let base_ref = match base_ref {
+        let base_ref = match base_ref.or(plan.base_ref.clone()) {
             Some(b) => b,
             None if repo.remote_url.is_some() => format!("origin/{}", repo.default_branch),
             None => repo.default_branch.clone(),
@@ -301,8 +315,115 @@ impl Daemon {
         self.store.upsert_workspace(&ws).await?;
         drop(_alloc);
 
-        tokio::spawn(self.clone().provision(ws.clone(), repo));
+        tokio::spawn(self.clone().provision(ws.clone(), repo, plan));
         Ok(ws)
+    }
+
+    /// Works out the branch, how to check it out, and any first task for a
+    /// workspace created from a branch, PR or issue.
+    async fn plan_source(
+        &self,
+        repo: &Repo,
+        from: Option<WorkspaceSource>,
+    ) -> CmdResult<SourcePlan> {
+        let root = Path::new(&repo.root_path);
+        let Some(from) = from else {
+            return Ok(SourcePlan::default());
+        };
+        match from {
+            WorkspaceSource::Branch { branch } => {
+                let branch = branch.trim().to_string();
+                if !git::valid_branch_name(root, &branch)
+                    .await
+                    .map_err(anyhow::Error::from)?
+                {
+                    return Err(CommandError::BadRequest(format!(
+                        "{branch:?} isn't a valid branch name"
+                    )));
+                }
+                if let Some(at) = git::branch_checked_out_at(root, &branch)
+                    .await
+                    .map_err(anyhow::Error::from)?
+                {
+                    return Err(CommandError::Conflict(format!(
+                        "{branch} is already checked out at {at}"
+                    )));
+                }
+                Ok(SourcePlan {
+                    branch: Some(branch),
+                    checkout: Checkout::Existing,
+                    ..Default::default()
+                })
+            }
+            WorkspaceSource::PullRequest { number } => {
+                let pr = gh_json(
+                    root,
+                    &[
+                        "pr",
+                        "view",
+                        &number.to_string(),
+                        "--json",
+                        "headRefName,baseRefName,isCrossRepository",
+                    ],
+                )
+                .await
+                .ok_or_else(|| {
+                    CommandError::BadRequest(format!("couldn't load PR #{number} with gh"))
+                })?;
+                let cross = pr["isCrossRepository"].as_bool().unwrap_or(false);
+                let head = pr["headRefName"].as_str().unwrap_or_default().to_string();
+                let base = pr["baseRefName"]
+                    .as_str()
+                    .unwrap_or(&repo.default_branch)
+                    .to_string();
+                Ok(SourcePlan {
+                    // Fork PRs get a local name; their head lives in another repo.
+                    branch: Some(if cross { format!("pr-{number}") } else { head }),
+                    checkout: if cross {
+                        Checkout::PullHead(number)
+                    } else {
+                        Checkout::Existing
+                    },
+                    base_ref: Some(format!("origin/{base}")),
+                    suggested_name: Some(format!("pr-{number}")),
+                    first_message: None,
+                })
+            }
+            WorkspaceSource::Issue { number } => {
+                let issue = gh_json(
+                    root,
+                    &[
+                        "issue",
+                        "view",
+                        &number.to_string(),
+                        "--json",
+                        "title,body,url",
+                    ],
+                )
+                .await
+                .ok_or_else(|| {
+                    CommandError::BadRequest(format!("couldn't load issue #{number} with gh"))
+                })?;
+                let title = issue["title"].as_str().unwrap_or_default();
+                let slug = crate::sessions::branch_slug(title)
+                    .unwrap_or_else(|| format!("issue-{number}"));
+                let base = format!("{}{number}-{slug}", self.config.branch_prefix);
+                let mut branch = base.clone();
+                let mut n = 2;
+                while git::ref_exists(root, &format!("refs/heads/{branch}"))
+                    .await
+                    .map_err(anyhow::Error::from)?
+                {
+                    branch = format!("{base}-{n}");
+                    n += 1;
+                }
+                Ok(SourcePlan {
+                    branch: Some(branch),
+                    first_message: Some(issue_message(number, &issue)),
+                    ..Default::default()
+                })
+            }
+        }
     }
 
     async fn unused_name(
@@ -332,8 +453,8 @@ impl Daemon {
         }
     }
 
-    async fn provision(self: Arc<Self>, mut ws: Workspace, repo: Repo) {
-        let result = self.provision_inner(&mut ws, &repo).await;
+    async fn provision(self: Arc<Self>, mut ws: Workspace, repo: Repo, plan: SourcePlan) {
+        let result = self.provision_inner(&mut ws, &repo, &plan.checkout).await;
         match result {
             Ok(()) => {
                 ws.state = WorkspaceState::Ready;
@@ -355,13 +476,25 @@ impl Daemon {
         }
         // Every ready workspace starts with one chat, like opening a new tab.
         if ws.state == WorkspaceState::Ready {
-            if let Err(e) = self.create_session(&ws.id, None, None, None).await {
-                tracing::error!("failed to create session for {}: {e:#}", ws.id);
+            match self.create_session(&ws.id, None, None, None).await {
+                Ok(session) => {
+                    if let Some(task) = plan.first_message {
+                        if let Err(e) = self.send_message(&session.id, task).await {
+                            tracing::error!("failed to start the first task for {}: {e:#}", ws.id);
+                        }
+                    }
+                }
+                Err(e) => tracing::error!("failed to create session for {}: {e:#}", ws.id),
             }
         }
     }
 
-    async fn provision_inner(&self, ws: &mut Workspace, repo: &Repo) -> anyhow::Result<()> {
+    async fn provision_inner(
+        &self,
+        ws: &mut Workspace,
+        repo: &Repo,
+        checkout: &Checkout,
+    ) -> anyhow::Result<()> {
         let root = PathBuf::from(&repo.root_path);
         let path = PathBuf::from(&ws.path);
         let sys = |line: String| self.store.log(&ws.id, LogStream::System, line);
@@ -385,15 +518,38 @@ impl Daemon {
             self.store.upsert_workspace(ws).await?;
         }
 
-        sys(format!(
-            "Creating worktree {} from {}",
-            ws.branch, ws.base_ref
-        ))
-        .await;
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        git::worktree_add(&root, &path, &ws.branch, &ws.base_ref).await?;
+        match checkout {
+            Checkout::NewBranch => {
+                sys(format!(
+                    "Creating worktree {} from {}",
+                    ws.branch, ws.base_ref
+                ))
+                .await;
+                git::worktree_add(&root, &path, &ws.branch, &ws.base_ref).await?;
+            }
+            Checkout::Existing => {
+                let local = git::ref_exists(&root, &format!("refs/heads/{}", ws.branch)).await?;
+                let remote = format!("origin/{}", ws.branch);
+                if local {
+                    sys(format!("Checking out {}", ws.branch)).await;
+                    git::worktree_add_existing(&root, &path, &ws.branch).await?;
+                } else if git::ref_exists(&root, &format!("refs/remotes/{remote}")).await? {
+                    sys(format!("Checking out {} from {remote}", ws.branch)).await;
+                    git::worktree_add_tracking(&root, &path, &ws.branch, &remote).await?;
+                } else {
+                    bail!("branch {} doesn't exist locally or on origin", ws.branch);
+                }
+            }
+            Checkout::PullHead(number) => {
+                sys(format!("Fetching pull request #{number}")).await;
+                let refspec = format!("+pull/{number}/head:refs/heads/{}", ws.branch);
+                git::git(&root, &["fetch", "origin", &refspec]).await?;
+                git::worktree_add_existing(&root, &path, &ws.branch).await?;
+            }
+        }
 
         let copied = copy_included_files(&root, &path).await?;
         if !copied.is_empty() {
@@ -607,4 +763,71 @@ fn expand_home(path: &str) -> PathBuf {
 
 pub fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
+}
+
+/// How a new workspace gets its branch.
+#[derive(Debug, Clone, Default)]
+pub enum Checkout {
+    /// `git worktree add -b <branch> <path> <base>`.
+    #[default]
+    NewBranch,
+    /// The branch exists locally or on origin.
+    Existing,
+    /// A fork's PR head, fetched from `pull/<n>/head`.
+    PullHead(u32),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SourcePlan {
+    branch: Option<String>,
+    checkout: Checkout,
+    base_ref: Option<String>,
+    suggested_name: Option<String>,
+    /// Sent to the agent once the workspace is ready.
+    first_message: Option<String>,
+}
+
+async fn gh_json(dir: &Path, args: &[&str]) -> Option<serde_json::Value> {
+    let out = tokio::process::Command::new("gh")
+        .args(args)
+        .current_dir(dir)
+        .env("GH_PROMPT_DISABLED", "1")
+        .output()
+        .await
+        .ok()?;
+    out.status.success().then_some(())?;
+    serde_json::from_slice(&out.stdout).ok()
+}
+
+fn issue_message(number: u32, issue: &serde_json::Value) -> String {
+    let title = issue["title"].as_str().unwrap_or_default();
+    let url = issue["url"].as_str().unwrap_or_default();
+    let body = issue["body"].as_str().unwrap_or_default().trim();
+    let mut msg = format!("Work on GitHub issue #{number}: {title}\n{url}\n");
+    if !body.is_empty() {
+        msg.push_str(&format!("\n{body}\n"));
+    }
+    msg.push_str(
+        "\nStart by understanding the problem and the relevant code, then make the change \
+         with tests where it makes sense. Mention `Fixes #",
+    );
+    msg.push_str(&format!("{number}` in your summary."));
+    msg
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn issue_task_message() {
+        let issue = serde_json::json!({"title": "Login loops forever", "url": "https://github.com/o/r/issues/12",
+            "body": "Steps: log in twice."});
+        let msg = issue_message(12, &issue);
+        assert!(msg.starts_with(
+            "Work on GitHub issue #12: Login loops forever\nhttps://github.com/o/r/issues/12\n"
+        ));
+        assert!(msg.contains("Steps: log in twice."));
+        assert!(msg.ends_with("Mention `Fixes #12` in your summary."));
+    }
 }

@@ -56,7 +56,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [ ] Bantu MCP server injected into every session (diff, comments, terminal, notify)
 - [ ] Model picker (done) and loadouts; effort/fast mode; several chats per workspace (done); fork a chat
 - [ ] Spotlight: sync a workspace into the main checkout for testing
-- [ ] Create a workspace from a PR, a branch or a GitHub issue
+- [x] Create a workspace from a branch (local or origin), a PR (incl. forks via pull/N/head) or a GitHub issue (the agent starts on it)
 
 ## M3 — Anywhere (weeks 6–7)
 

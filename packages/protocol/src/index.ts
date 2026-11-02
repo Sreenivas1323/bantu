@@ -23,6 +23,7 @@ export type { Terminal } from "./generated/Terminal";
 export type { TerminalKind } from "./generated/TerminalKind";
 export type { Workspace } from "./generated/Workspace";
 export type { WorkspaceDiff } from "./generated/WorkspaceDiff";
+export type { WorkspaceSource } from "./generated/WorkspaceSource";
 export type { WorkspaceState } from "./generated/WorkspaceState";
 
 export const PROTOCOL_VERSION = 1;

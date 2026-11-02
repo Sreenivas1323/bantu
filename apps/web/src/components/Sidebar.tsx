@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
-import type { Repo, Session, Workspace } from "@bantu/protocol";
+import type { Repo, Session, Workspace, WorkspaceSource } from "@bantu/protocol";
+import { NewFromForm } from "./NewFromForm.tsx";
 import { StateDot } from "./StateDot.tsx";
 
 type Props = {
@@ -13,7 +14,7 @@ type Props = {
   onToggleArchived: () => void;
   onSelect: (workspaceId: string) => void;
   onAddRepo: (path: string) => Promise<void>;
-  onNewWorkspace: (repoId: string) => Promise<void>;
+  onNewWorkspace: (repoId: string, from?: WorkspaceSource) => Promise<void>;
   onRemoveRepo: (repoId: string) => Promise<void>;
 };
 
@@ -66,10 +67,11 @@ function RepoGroup({
   waitingWorkspaces: Set<string>;
   selectedId: string | null;
   onSelect: (id: string) => void;
-  onNewWorkspace: (repoId: string) => Promise<void>;
+  onNewWorkspace: (repoId: string, from?: WorkspaceSource) => Promise<void>;
   onRemoveRepo: (repoId: string) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const [showFrom, setShowFrom] = useState(false);
   return (
     <section className="mt-2">
       <div className="group flex items-center gap-1 px-2 py-1">
@@ -102,7 +104,25 @@ function RepoGroup({
         >
           + New
         </button>
+        <button
+          type="button"
+          onClick={() => setShowFrom((v) => !v)}
+          aria-expanded={showFrom}
+          className="rounded px-1 py-0.5 text-xs text-muted hover:bg-raised hover:text-fg"
+          title="New workspace from a branch, pull request or issue"
+        >
+          …
+        </button>
       </div>
+      {showFrom && (
+        <NewFromForm
+          onCancel={() => setShowFrom(false)}
+          onCreate={async (from) => {
+            await onNewWorkspace(repo.id, from);
+            setShowFrom(false);
+          }}
+        />
+      )}
       <ul>
         {workspaces.map((w) => {
           const sessions = sessionsByWorkspace[w.id] ?? [];

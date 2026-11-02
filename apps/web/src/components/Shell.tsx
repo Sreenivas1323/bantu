@@ -76,8 +76,8 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
         onAddRepo={async (path) => {
           await run({ type: "repo.add", path });
         }}
-        onNewWorkspace={async (repoId) => {
-          const res = await run({ type: "workspace.create", repo_id: repoId, name: null, base_ref: null });
+        onNewWorkspace={async (repoId, from) => {
+          const res = await run({ type: "workspace.create", repo_id: repoId, name: null, base_ref: null, from: from ?? null });
           const created = res?.result as Workspace | undefined;
           if (created?.id) setSelectedId(created.id);
         }}

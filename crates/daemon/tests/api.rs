@@ -1267,3 +1267,114 @@ async fn codex_sessions() {
     );
     assert!(calls[1].ends_with("| second task"), "{}", calls[1]);
 }
+
+#[tokio::test]
+async fn workspaces_from_existing_branches() {
+    let h = Harness::start().await;
+    let (_fixture, clone) = fixture();
+    // A branch that only exists on origin, and one that only exists locally.
+    sh(&clone, &["checkout", "-q", "-b", "feature/remote"]);
+    std::fs::write(clone.join("remote.txt"), "from origin\n").unwrap();
+    sh(&clone, &["add", "remote.txt"]);
+    sh(&clone, &["commit", "-qm", "remote work"]);
+    sh(&clone, &["push", "-q", "origin", "feature/remote"]);
+    sh(&clone, &["checkout", "-q", "main"]);
+    sh(&clone, &["branch", "-q", "-D", "feature/remote"]);
+    sh(&clone, &["branch", "-q", "local-only"]);
+
+    let (_, body) = h
+        .command(json!({"type": "repo.add", "path": clone}), None)
+        .await;
+    let repo_id = body["result"]["id"].as_str().unwrap().to_string();
+    let create =
+        |from: Value| json!({"type": "workspace.create", "repo_id": repo_id, "from": from});
+
+    let (status, body) = h
+        .command(
+            create(json!({"kind": "branch", "branch": "feature/remote"})),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let ws = h
+        .wait_for(
+            body["result"]["id"].as_str().unwrap(),
+            WorkspaceState::Ready,
+        )
+        .await;
+    assert_eq!(ws.branch, "feature/remote");
+    assert!(Path::new(&ws.path).join("remote.txt").exists());
+    let upstream = Proc::new("git")
+        .arg("-C")
+        .arg(&ws.path)
+        .args(["rev-parse", "--abbrev-ref", "@{upstream}"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&upstream.stdout).trim(),
+        "origin/feature/remote"
+    );
+
+    let (status, body) = h
+        .command(
+            create(json!({"kind": "branch", "branch": "local-only"})),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let ws2 = h
+        .wait_for(
+            body["result"]["id"].as_str().unwrap(),
+            WorkspaceState::Ready,
+        )
+        .await;
+    assert_eq!(ws2.branch, "local-only");
+
+    // A branch can only be checked out once; main is in the original clone.
+    let (status, body) = h
+        .command(create(json!({"kind": "branch", "branch": "main"})), None)
+        .await;
+    assert_eq!(status, 409, "{body}");
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("already checked out"));
+    let (status, _) = h
+        .command(
+            create(json!({"kind": "branch", "branch": "bad..name"})),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400);
+
+    // The first message must not rename a branch the user chose.
+    let session = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws2.id)
+        {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    h.command(
+        json!({"type": "session.send", "session_id": session.id, "text": "rename me please"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let after = h
+        .state()
+        .await
+        .workspaces
+        .into_iter()
+        .find(|w| w.id == ws2.id)
+        .unwrap();
+    assert_eq!(after.branch, "local-only");
+}

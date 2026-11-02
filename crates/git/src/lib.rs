@@ -114,6 +114,50 @@ pub async fn worktree_add(root: &Path, path: &Path, branch: &str, base: &str) ->
     .map(|_| ())
 }
 
+/// `git worktree add <path> <branch>` for a branch that already exists locally.
+pub async fn worktree_add_existing(root: &Path, path: &Path, branch: &str) -> Result<()> {
+    let path = path.to_string_lossy();
+    git(root, &["worktree", "add", &path, branch])
+        .await
+        .map(|_| ())
+}
+
+/// Creates local `branch` tracking `upstream` (e.g. `origin/feature`) in a new worktree.
+pub async fn worktree_add_tracking(
+    root: &Path,
+    path: &Path,
+    branch: &str,
+    upstream: &str,
+) -> Result<()> {
+    let path = path.to_string_lossy();
+    git(
+        root,
+        &["worktree", "add", "--track", "-b", branch, &path, upstream],
+    )
+    .await
+    .map(|_| ())
+}
+
+/// The worktree path that has `branch` checked out, if any.
+pub async fn branch_checked_out_at(root: &Path, branch: &str) -> Result<Option<String>> {
+    let list = git(root, &["worktree", "list", "--porcelain"]).await?;
+    let mut path = None;
+    for line in list.lines() {
+        if let Some(p) = line.strip_prefix("worktree ") {
+            path = Some(p.to_string());
+        } else if line == format!("branch refs/heads/{branch}") {
+            return Ok(path);
+        }
+    }
+    Ok(None)
+}
+
+pub async fn valid_branch_name(root: &Path, branch: &str) -> Result<bool> {
+    Ok(git_opt(root, &["check-ref-format", "--branch", branch])
+        .await?
+        .is_some())
+}
+
 /// Removes a worktree (forcefully) and prunes stale worktree metadata.
 pub async fn worktree_remove(root: &Path, path: &Path) -> Result<()> {
     let p = path.to_string_lossy();
