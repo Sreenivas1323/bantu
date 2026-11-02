@@ -34,6 +34,12 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: TypeScript bindings are up to date
+        run: |
+          git diff --exit-code -- packages/protocol || {
+            echo "::error::Run 'cargo test -p bantu-protocol' and commit packages/protocol/src/generated";
+            exit 1;
+          }
 
   web:
     name: Web
