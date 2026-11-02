@@ -40,6 +40,7 @@ pub struct Daemon {
     alloc_lock: Mutex<()>,
     pub(crate) running: crate::sessions::Running,
     pub(crate) terminals: crate::terminals::Terminals,
+    pub(crate) permissions: crate::permissions::Permissions,
 }
 
 impl Daemon {
@@ -50,6 +51,7 @@ impl Daemon {
             alloc_lock: Mutex::new(()),
             running: Default::default(),
             terminals: Default::default(),
+            permissions: Default::default(),
         }
     }
 
@@ -84,6 +86,14 @@ impl Daemon {
             }
             Command::SessionRewind { session_id, turn } => {
                 serde_json::to_value(self.rewind_session(&session_id, turn).await?)
+            }
+            Command::PermissionRespond {
+                request_id,
+                allow,
+                message,
+            } => {
+                self.respond_permission(&request_id, allow, message).await?;
+                Ok(serde_json::Value::Null)
             }
             Command::CommentAdd {
                 workspace_id,

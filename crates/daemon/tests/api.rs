@@ -12,19 +12,8 @@ use bantu_protocol::{
 use futures::StreamExt;
 use serde_json::{json, Value};
 
-/// Stands in for Claude Code: logs its arguments, echoes the prompt back as
-/// stream-json, and sleeps when asked to so tests can queue and cancel.
-const FAKE_CLAUDE: &str = r#"#!/bin/sh
-{ printf '%s ' "$@" | tr '\n' ' '; echo; } >> "CALLS"
-prompt=$(cat)
-case "$prompt" in *slow*) sleep 3 ;; esac
-case "$prompt" in *edit*) echo agent-was-here >> README.md; echo new > agent-file.txt ;; esac
-echo '{"type":"system","subtype":"init"}'
-echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}'
-echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"README.md","is_error":false}]}}'
-printf '{"type":"assistant","message":{"content":[{"type":"text","text":"echo: %s"}]}}\n' "$prompt"
-echo '{"type":"result","is_error":false,"duration_ms":5,"total_cost_usd":0.25,"usage":{"input_tokens":3,"output_tokens":2}}'
-"#;
+/// Stands in for Claude Code (see the script for what each prompt does).
+const FAKE_CLAUDE: &str = include_str!("../../../scripts/fake-claude.sh");
 
 struct Harness {
     base: String,
@@ -43,7 +32,10 @@ impl Harness {
         let claude_bin = home.path().join("fake-claude");
         std::fs::write(
             &claude_bin,
-            FAKE_CLAUDE.replace("CALLS", claude_calls.to_str().unwrap()),
+            FAKE_CLAUDE.replace(
+                "${BANTU_FAKE_CLAUDE_LOG:-/dev/null}",
+                claude_calls.to_str().unwrap(),
+            ),
         )
         .unwrap();
         #[cfg(unix)]
@@ -61,6 +53,7 @@ impl Harness {
         let started = bantud::start(config, false).await.unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        started.daemon.set_listen_addr(addr);
         tokio::spawn(async move { axum::serve(listener, started.router).await.unwrap() });
         Self {
             base: format!("http://{addr}"),
@@ -970,4 +963,96 @@ async fn rewind_restores_files() {
         )
         .await;
     assert_eq!(status, 400);
+}
+
+#[tokio::test]
+async fn permission_prompts() {
+    let h = Harness::start().await;
+    let (_fixture, clone) = fixture();
+    let (_, body) = h
+        .command(json!({"type": "repo.add", "path": clone}), None)
+        .await;
+    let repo_id = body["result"]["id"].as_str().unwrap().to_string();
+    let (_, body) = h
+        .command(
+            json!({"type": "workspace.create", "repo_id": repo_id}),
+            None,
+        )
+        .await;
+    let ws: Workspace = serde_json::from_value(body["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws.id)
+        {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let send = |text: &str| json!({"type": "session.send", "session_id": session.id, "text": text});
+    let wait_request = || async {
+        for _ in 0..200 {
+            if let Some(r) = h.state().await.permissions.into_iter().next() {
+                return r;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("no permission request arrived");
+    };
+
+    // The agent's tool call waits for the user; allowing lets it proceed.
+    h.command(send("needs permission"), None).await;
+    let req = wait_request().await;
+    assert_eq!(req.tool_name, "Bash");
+    assert_eq!(req.tool_input["command"], "rm -rf build");
+    assert_eq!(req.session_id, session.id);
+    let (status, _) = h
+        .command(json!({"type": "permission.respond", "request_id": req.id, "allow": true, "message": null}), None)
+        .await;
+    assert_eq!(status, 200);
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    assert!(h.state().await.permissions.is_empty());
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(items.contains(&ChatItem::Assistant {
+        text: "echo: decision allow".into()
+    }));
+
+    // Answering twice is a clear 404, not a crash.
+    let (status, _) = h
+        .command(json!({"type": "permission.respond", "request_id": req.id, "allow": false, "message": null}), None)
+        .await;
+    assert_eq!(status, 404);
+
+    // Stopping the agent denies whatever it was waiting on.
+    h.command(send("permission again"), None).await;
+    wait_request().await;
+    h.command(
+        json!({"type": "session.cancel", "session_id": session.id}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| s.status == SessionStatus::Idle)
+        .await;
+    assert!(h.state().await.permissions.is_empty());
+
+    // The hook endpoint only accepts the hook token.
+    let res = h
+        .http
+        .post(format!(
+            "{}/v1/hooks/permission?session={}",
+            h.base, session.id
+        ))
+        .bearer_auth(&h.token)
+        .json(&json!({"tool_name": "Bash", "tool_input": {}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
 }

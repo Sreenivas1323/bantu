@@ -6,11 +6,14 @@ export function GitStatus({
   diff,
   pr,
   canCreatePr,
+  createPrBlocked,
   onCreatePr,
 }: {
   diff: WorkspaceDiff | null;
   pr: PullRequest | null;
   canCreatePr: boolean;
+  /** Why Create PR is unavailable, shown as its tooltip. */
+  createPrBlocked?: string;
   onCreatePr: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -47,7 +50,11 @@ export function GitStatus({
               setBusy(false);
             }
           }}
-          title={canCreatePr ? "Ask the agent to commit, push and open a pull request" : "Needs a ready workspace with an idle chat"}
+          title={
+            canCreatePr
+              ? "Ask the agent to commit, push and open a pull request"
+              : (createPrBlocked ?? "Needs a ready workspace with an idle chat")
+          }
           className="rounded-md border border-line px-2.5 py-1 text-muted hover:bg-raised hover:text-fg disabled:opacity-40"
         >
           Create PR

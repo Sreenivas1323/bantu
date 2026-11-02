@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import type { Command, CommandResponse, Session, Workspace } from "@bantu/protocol";
+import type { Command, CommandResponse, PermissionRequest, Session, Workspace } from "@bantu/protocol";
 import type { ChatEntry } from "../../lib/store.ts";
 import { Composer } from "./Composer.tsx";
+import { PermissionCard } from "./PermissionCard.tsx";
 import { Transcript } from "./Transcript.tsx";
 
 type Run = (command: Command) => Promise<CommandResponse | null>;
@@ -12,6 +13,7 @@ export function ChatPanel({
   active,
   onSelect: setActiveId,
   chat,
+  permissions,
   run,
 }: {
   workspace: Workspace;
@@ -21,6 +23,8 @@ export function ChatPanel({
   active: Session | undefined;
   onSelect: (sessionId: string) => void;
   chat: Record<string, ChatEntry[]>;
+  /** Pending permission requests for this workspace. */
+  permissions: PermissionRequest[];
   run: Run;
 }) {
   // Jump to a chat the user just created once the daemon reports it.
@@ -73,7 +77,11 @@ export function ChatPanel({
                 }`}
                 title={s.title}
               >
-                {s.status === "running" && <span aria-label="running" className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent" />}
+                {permissions.some((p) => p.session_id === s.id) ? (
+                  <span aria-label="needs approval" className="size-1.5 shrink-0 rounded-full bg-warn" />
+                ) : (
+                  s.status === "running" && <span aria-label="running" className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
+                )}
                 <span className="truncate">{s.title}</span>
               </button>
             ))}
@@ -97,6 +105,22 @@ export function ChatPanel({
           await run({ type: "session.rewind", session_id: active.id, turn });
         }}
       />
+      {permissions.some((p) => p.session_id === active.id) && (
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-5 pb-2">
+          {permissions
+            .filter((p) => p.session_id === active.id)
+            .map((p) => (
+              <PermissionCard
+                key={p.id}
+                request={p}
+                workspacePath={workspace.path}
+                onRespond={async (allow, message) => {
+                  await run({ type: "permission.respond", request_id: p.id, allow, message });
+                }}
+              />
+            ))}
+        </div>
+      )}
       <Composer
         session={active}
         disabledReason={ready ? null : `Workspace is ${workspace.state}`}

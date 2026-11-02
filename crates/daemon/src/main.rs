@@ -80,6 +80,7 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("binding {addr} (is another bantud running?)"))?;
+    started.daemon.set_listen_addr(listener.local_addr()?);
     tracing::info!(
         "bantud {} listening on http://{addr}",
         env!("CARGO_PKG_VERSION")

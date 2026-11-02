@@ -4,6 +4,7 @@ import { formatCost } from "./format.ts";
 
 const MODES: { value: PermissionMode; label: string }[] = [
   { value: "auto", label: "Auto" },
+  { value: "ask", label: "Ask first" },
   { value: "accept_edits", label: "Accept edits" },
   { value: "plan", label: "Plan" },
   { value: "bypass_permissions", label: "Bypass permissions" },

@@ -152,6 +152,8 @@ impl Daemon {
 
     pub async fn cancel_session(&self, session_id: &str) -> CmdResult<Session> {
         let (mut s, agent_id) = self.require_session(session_id).await?;
+        // A turn blocked on a permission prompt must be released to stop.
+        self.deny_session_permissions(session_id).await;
         if let Some(r) = self.running.turns.lock().await.get_mut(session_id) {
             r.stopped = true;
             r.queue.clear();
@@ -336,6 +338,10 @@ impl Daemon {
         if let Some(m) = &s.model {
             cmd.args(["--model", m]);
         }
+        if let Some(settings) = self.permission_hook_settings(&s.id) {
+            cmd.args(["--settings", &settings])
+                .env("BANTU_HOOK_TOKEN", &self.permissions.hook_token);
+        }
         let mut child = cmd
             .current_dir(&ws.path)
             .env("BANTU_PORT", ws.port_base.to_string())
@@ -431,6 +437,7 @@ pub fn checkpoint_ref(session_id: &str, turn: u32) -> String {
 fn claude_permission_mode(m: PermissionMode) -> &'static str {
     match m {
         PermissionMode::Auto => "auto",
+        PermissionMode::Ask => "default",
         PermissionMode::AcceptEdits => "acceptEdits",
         PermissionMode::Plan => "plan",
         PermissionMode::BypassPermissions => "bypassPermissions",

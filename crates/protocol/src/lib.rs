@@ -86,15 +86,18 @@ pub enum AgentKind {
     Claude,
 }
 
-/// How much the agent may do without asking. Bantu can't answer permission
-/// prompts yet, so anything that would prompt is denied.
+/// How much the agent may do without asking. Anything that needs approval
+/// shows up as a [`PermissionRequest`] for the user to answer.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum PermissionMode {
-    /// A classifier approves safe actions automatically.
+    /// A classifier approves safe actions automatically; anything it won't
+    /// approve becomes a permission request in Bantu.
     #[default]
     Auto,
+    /// Ask in Bantu before edits, commands and other risky actions.
+    Ask,
     /// File edits are allowed; other risky actions are denied.
     AcceptEdits,
     /// Read-only planning; the agent proposes instead of changing files.
@@ -107,6 +110,7 @@ impl PermissionMode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
+            Self::Ask => "ask",
             Self::AcceptEdits => "accept_edits",
             Self::Plan => "plan",
             Self::BypassPermissions => "bypass_permissions",
@@ -116,6 +120,7 @@ impl PermissionMode {
     pub fn parse(s: &str) -> Option<Self> {
         Some(match s {
             "auto" => Self::Auto,
+            "ask" => Self::Ask,
             "accept_edits" => Self::AcceptEdits,
             "plan" => Self::Plan,
             "bypass_permissions" => Self::BypassPermissions,
@@ -298,6 +303,19 @@ pub struct Terminal {
     pub created_at: String,
 }
 
+/// An agent waiting for the user to allow or deny a tool call.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct PermissionRequest {
+    pub id: String,
+    pub session_id: String,
+    pub workspace_id: String,
+    pub tool_name: String,
+    #[ts(type = "unknown")]
+    pub tool_input: serde_json::Value,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[serde(tag = "type")]
 #[ts(export)]
@@ -345,6 +363,14 @@ pub enum Command {
     /// started. The conversation is kept; the agent is told on its next turn.
     #[serde(rename = "session.rewind")]
     SessionRewind { session_id: String, turn: u32 },
+    /// Answer a pending permission request.
+    #[serde(rename = "permission.respond")]
+    PermissionRespond {
+        request_id: String,
+        allow: bool,
+        /// Shown to the agent when denying, e.g. what to do instead.
+        message: Option<String>,
+    },
     /// Add a draft review comment on a line of the workspace diff.
     #[serde(rename = "comment.add")]
     CommentAdd {
@@ -419,6 +445,15 @@ pub enum EventData {
         comment_id: String,
         workspace_id: String,
     },
+    #[serde(rename = "permission.requested")]
+    PermissionRequested { request: PermissionRequest },
+    #[serde(rename = "permission.resolved")]
+    PermissionResolved {
+        request_id: String,
+        session_id: String,
+        workspace_id: String,
+        allowed: bool,
+    },
     #[serde(rename = "terminal.updated")]
     TerminalUpdated { terminal: Terminal },
     #[serde(rename = "terminal.closed")]
@@ -449,6 +484,8 @@ impl EventData {
             Self::CommentUpdated { comment } => Some(&comment.workspace_id),
             Self::CommentDeleted { workspace_id, .. } => Some(workspace_id),
             Self::TerminalUpdated { terminal } => Some(&terminal.workspace_id),
+            Self::PermissionRequested { request } => Some(&request.workspace_id),
+            Self::PermissionResolved { workspace_id, .. } => Some(workspace_id),
             Self::TerminalClosed { workspace_id, .. } => Some(workspace_id),
         }
     }
@@ -486,6 +523,8 @@ pub struct StateSnapshot {
     pub sessions: Vec<Session>,
     pub comments: Vec<DiffComment>,
     pub terminals: Vec<Terminal>,
+    /// Requests still waiting for an answer.
+    pub permissions: Vec<PermissionRequest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -518,6 +557,7 @@ mod tests {
             "Health",
             "LogStream",
             "PermissionMode",
+            "PermissionRequest",
             "PullRequest",
             "Repo",
             "Session",

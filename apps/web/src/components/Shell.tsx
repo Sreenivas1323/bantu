@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Command, Session, Workspace } from "@bantu/protocol";
 import type { Connection } from "../lib/connection.ts";
 import { useDaemon } from "../lib/useDaemon.ts";
+import { useNotifications } from "../lib/useNotifications.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 import { WorkspaceView } from "./WorkspaceView.tsx";
@@ -52,6 +53,13 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
     }
   };
 
+  // Workspaces where an agent is blocked on the user.
+  const waitingWorkspaces = useMemo(
+    () => new Set(Object.values(state.permissions).map((p) => p.workspace_id)),
+    [state.permissions],
+  );
+  useNotifications(state);
+
   const selected = selectedId ? state.workspaces[selectedId] : undefined;
 
   return (
@@ -60,6 +68,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
         repos={repos}
         workspacesByRepo={workspacesByRepo}
         sessionsByWorkspace={sessionsByWorkspace}
+        waitingWorkspaces={waitingWorkspaces}
         selectedId={selectedId}
         showArchived={showArchived}
         onToggleArchived={() => setShowArchived((v) => !v)}
@@ -85,6 +94,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             sessions={sessionsByWorkspace[selected.id] ?? []}
             chat={state.chat}
             comments={Object.values(state.comments).filter((c) => c.workspace_id === selected.id)}
+            permissions={Object.values(state.permissions).filter((p) => p.workspace_id === selected.id)}
             terminals={Object.values(state.terminals)
               .filter((t) => t.workspace_id === selected.id)
               .sort((a, b) => a.created_at.localeCompare(b.created_at))}

@@ -464,6 +464,8 @@ fn event_kind(data: &EventData) -> &'static str {
         EventData::CommentUpdated { .. } => "comment.updated",
         EventData::CommentDeleted { .. } => "comment.deleted",
         EventData::TerminalUpdated { .. } => "terminal.updated",
+        EventData::PermissionRequested { .. } => "permission.requested",
+        EventData::PermissionResolved { .. } => "permission.resolved",
         EventData::TerminalClosed { .. } => "terminal.closed",
     }
 }

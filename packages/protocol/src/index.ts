@@ -12,6 +12,7 @@ export type { FileStatus } from "./generated/FileStatus";
 export type { Health } from "./generated/Health";
 export type { LogStream } from "./generated/LogStream";
 export type { PermissionMode } from "./generated/PermissionMode";
+export type { PermissionRequest } from "./generated/PermissionRequest";
 export type { PullRequest } from "./generated/PullRequest";
 export type { Repo } from "./generated/Repo";
 export type { Session } from "./generated/Session";

@@ -33,7 +33,7 @@ Feature-by-feature status against Conductor and Pane lives in
   - [ ] token-by-token streaming (`--include-partial-messages`)
   - [x] message queue
   - [x] plan mode and other permission modes
-  - [ ] permission prompts answered from the UI
+  - [x] permission prompts answered from the UI (Claude `PermissionRequest` HTTP hook → approval card; new "Ask first" mode)
   - [x] cancel
 - [x] Session persistence and resume after a daemon restart
 - [x] Diff viewer (workspace vs merge-base, incl. uncommitted + untracked), with line comments sent to the agent
@@ -41,7 +41,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Terminal panel (PTY over WebSocket), scrollback replayed after a reload
 - [x] Run scripts (`run = "…"` or `[scripts.run.<id>]`); stop hangs up the process group
 - [ ] Agent names the branch from the first message
-- [ ] Notify inbox (desktop): questions, permission requests, "done"
+- [x] Desktop notifications for approvals and finished turns (browser Notification API); pending count in the tab title. A cross-device inbox comes with M3.
 - [x] Login-shell PATH for Dock-launched daemons
 
 ## M2 — Conductor parity (weeks 4–5)

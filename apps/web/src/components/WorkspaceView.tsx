@@ -1,5 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type { Command, CommandResponse, DiffComment, Repo, Session, Terminal, Workspace } from "@bantu/protocol";
+import type {
+  Command,
+  CommandResponse,
+  DiffComment,
+  PermissionRequest,
+  Repo,
+  Session,
+  Terminal,
+  Workspace,
+} from "@bantu/protocol";
 import type { DaemonClient } from "../lib/api.ts";
 import type { ChatEntry, LogLine } from "../lib/store.ts";
 import { useWorkspaceGit } from "../lib/useWorkspaceGit.ts";
@@ -21,6 +30,7 @@ export function WorkspaceView({
   chat,
   comments,
   terminals,
+  permissions,
   client,
   run,
   onArchive,
@@ -34,6 +44,7 @@ export function WorkspaceView({
   comments: DiffComment[];
   /** This workspace's terminals, oldest first. */
   terminals: Terminal[];
+  permissions: PermissionRequest[];
   client: DaemonClient;
   run: (command: Command) => Promise<CommandResponse | null>;
   onArchive: (id: string) => Promise<void>;
@@ -89,7 +100,8 @@ export function WorkspaceView({
           <GitStatus
             diff={git.diff}
             pr={git.pr}
-            canCreatePr={!!active && active.status === "idle"}
+            canCreatePr={!!repo?.remote_url && !!active && active.status === "idle"}
+            createPrBlocked={repo && !repo.remote_url ? "This repository has no origin remote" : undefined}
             onCreatePr={async () => {
               if (!active) return;
               if (await run({ type: "workspace.create_pr", workspace_id: workspace.id, session_id: active.id })) setTab("chat");
@@ -155,7 +167,15 @@ export function WorkspaceView({
       </div>
 
       {tab === "chat" ? (
-        <ChatPanel workspace={workspace} sessions={sessions} active={active} onSelect={setActiveId} chat={chat} run={run} />
+        <ChatPanel
+          workspace={workspace}
+          sessions={sessions}
+          active={active}
+          onSelect={setActiveId}
+          chat={chat}
+          permissions={permissions}
+          run={run}
+        />
       ) : tab === "terminal" ? (
         <TerminalPanel
           workspace={workspace}

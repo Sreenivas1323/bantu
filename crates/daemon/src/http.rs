@@ -48,6 +48,7 @@ pub fn router(state: AppState) -> Router {
 
     let mut app = Router::new()
         .route("/v1/health", get(health))
+        .route("/v1/hooks/permission", post(permission_hook))
         .merge(api)
         .with_state(state.clone());
 
@@ -141,7 +142,35 @@ async fn get_state(State(state): State<AppState>) -> Result<Json<StateSnapshot>,
         sessions: store.sessions().await?,
         comments: store.comments().await?,
         terminals: state.daemon.terminals().await,
+        permissions: state.daemon.pending_permissions().await,
     }))
+}
+
+#[derive(Deserialize)]
+struct HookQuery {
+    session: String,
+}
+
+/// Claude Code's `PermissionRequest` HTTP hook. Authenticated with the hook
+/// token (not the client token) and blocks until the user answers.
+async fn permission_hook(
+    State(state): State<AppState>,
+    Query(q): Query<HookQuery>,
+    headers: HeaderMap,
+    Json(input): Json<serde_json::Value>,
+) -> Response {
+    let presented = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "));
+    if presented != Some(state.daemon.hook_token()) {
+        return (StatusCode::UNAUTHORIZED, "bad hook token").into_response();
+    }
+    let session = match state.daemon.store.session(&q.session).await {
+        Ok(Some((s, _))) => s,
+        _ => return (StatusCode::NOT_FOUND, "no such session").into_response(),
+    };
+    Json(state.daemon.request_permission(&session, &input).await).into_response()
 }
 
 /// Raw PTY bytes both ways. Binary frames are input/output; text frames carry

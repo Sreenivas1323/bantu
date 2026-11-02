@@ -3,6 +3,7 @@ import type {
   DiffComment,
   Event,
   LogStream,
+  PermissionRequest,
   Repo,
   Session,
   StateSnapshot,
@@ -27,6 +28,8 @@ export type DaemonState = {
   /** Diff review comments by id (drafts and sent). */
   comments: Record<string, DiffComment>;
   terminals: Record<string, Terminal>;
+  /** Tool calls waiting for the user to allow or deny, by request id. */
+  permissions: Record<string, PermissionRequest>;
 };
 
 export const emptyState: DaemonState = {
@@ -39,6 +42,7 @@ export const emptyState: DaemonState = {
   chat: {},
   comments: {},
   terminals: {},
+  permissions: {},
 };
 
 export type Action =
@@ -62,6 +66,7 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         sessions: Object.fromEntries(snapshot.sessions.map((s) => [s.id, s])),
         comments: Object.fromEntries(snapshot.comments.map((c) => [c.id, c])),
         terminals: Object.fromEntries(snapshot.terminals.map((t) => [t.id, t])),
+        permissions: Object.fromEntries(snapshot.permissions.map((p) => [p.id, p])),
         // History isn't in the snapshot; it's backfilled per workspace.
         logs: state.logs,
         chat: state.chat,
@@ -141,6 +146,12 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
     case "comment.deleted": {
       const { [data.comment_id]: _gone, ...comments } = state.comments;
       return { ...next, comments };
+    }
+    case "permission.requested":
+      return { ...next, permissions: { ...state.permissions, [data.request.id]: data.request } };
+    case "permission.resolved": {
+      const { [data.request_id]: _done, ...permissions } = state.permissions;
+      return { ...next, permissions };
     }
     case "terminal.updated":
       return { ...next, terminals: { ...state.terminals, [data.terminal.id]: data.terminal } };

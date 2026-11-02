@@ -6,6 +6,8 @@ type Props = {
   repos: Repo[];
   workspacesByRepo: Record<string, Workspace[]>;
   sessionsByWorkspace: Record<string, Session[]>;
+  /** Workspaces with an agent waiting for approval. */
+  waitingWorkspaces: Set<string>;
   selectedId: string | null;
   showArchived: boolean;
   onToggleArchived: () => void;
@@ -31,6 +33,7 @@ export function Sidebar(props: Props) {
             repo={repo}
             workspaces={(workspacesByRepo[repo.id] ?? []).filter((w) => showArchived || w.state !== "archived")}
             sessionsByWorkspace={props.sessionsByWorkspace}
+            waitingWorkspaces={props.waitingWorkspaces}
             selectedId={selectedId}
             onSelect={props.onSelect}
             onNewWorkspace={props.onNewWorkspace}
@@ -50,6 +53,7 @@ function RepoGroup({
   repo,
   workspaces,
   sessionsByWorkspace,
+  waitingWorkspaces,
   selectedId,
   onSelect,
   onNewWorkspace,
@@ -58,6 +62,8 @@ function RepoGroup({
   repo: Repo;
   workspaces: Workspace[];
   sessionsByWorkspace: Record<string, Session[]>;
+  /** Workspaces with an agent waiting for approval. */
+  waitingWorkspaces: Set<string>;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onNewWorkspace: (repoId: string) => Promise<void>;
@@ -112,7 +118,9 @@ function RepoGroup({
                 w.id === selectedId ? "bg-raised" : "hover:bg-raised/60"
               }`}
             >
-              {running ? (
+              {waitingWorkspaces.has(w.id) ? (
+                <span role="img" aria-label="needs your approval" title="Needs your approval" className="size-2 shrink-0 rounded-full bg-warn" />
+              ) : running ? (
                 <span role="img" aria-label="agent working" title="Agent working" className="relative inline-flex size-2 shrink-0">
                   <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-60" />
                   <span className="relative inline-flex size-2 rounded-full bg-accent" />

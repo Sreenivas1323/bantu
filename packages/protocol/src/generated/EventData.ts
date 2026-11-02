@@ -2,9 +2,10 @@
 import type { ChatItem } from "./ChatItem";
 import type { DiffComment } from "./DiffComment";
 import type { LogStream } from "./LogStream";
+import type { PermissionRequest } from "./PermissionRequest";
 import type { Repo } from "./Repo";
 import type { Session } from "./Session";
 import type { Terminal } from "./Terminal";
 import type { Workspace } from "./Workspace";
 
-export type EventData = { "type": "repo.added", repo: Repo, } | { "type": "repo.removed", repo_id: string, } | { "type": "workspace.updated", workspace: Workspace, } | { "type": "workspace.log", workspace_id: string, stream: LogStream, line: string, } | { "type": "session.updated", session: Session, } | { "type": "comment.updated", comment: DiffComment, } | { "type": "comment.deleted", comment_id: string, workspace_id: string, } | { "type": "terminal.updated", terminal: Terminal, } | { "type": "terminal.closed", terminal_id: string, workspace_id: string, } | { "type": "session.item", session_id: string, workspace_id: string, turn: number, item: ChatItem, };
+export type EventData = { "type": "repo.added", repo: Repo, } | { "type": "repo.removed", repo_id: string, } | { "type": "workspace.updated", workspace: Workspace, } | { "type": "workspace.log", workspace_id: string, stream: LogStream, line: string, } | { "type": "session.updated", session: Session, } | { "type": "comment.updated", comment: DiffComment, } | { "type": "comment.deleted", comment_id: string, workspace_id: string, } | { "type": "permission.requested", request: PermissionRequest, } | { "type": "permission.resolved", request_id: string, session_id: string, workspace_id: string, allowed: boolean, } | { "type": "terminal.updated", terminal: Terminal, } | { "type": "terminal.closed", terminal_id: string, workspace_id: string, } | { "type": "session.item", session_id: string, workspace_id: string, turn: number, item: ChatItem, };
