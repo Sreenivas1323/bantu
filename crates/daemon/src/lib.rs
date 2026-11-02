@@ -6,6 +6,7 @@ pub mod names;
 pub mod ops;
 pub mod permissions;
 pub mod review;
+pub mod service;
 pub mod sessions;
 pub mod settings;
 pub mod store;

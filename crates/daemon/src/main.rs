@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
 use bantud::Config;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 /// The Bantu daemon: runs coding agents in isolated git worktrees.
 #[derive(Parser, Debug)]
@@ -38,6 +38,32 @@ struct Args {
     /// Print the local access token and exit.
     #[arg(long)]
     print_token: bool,
+    #[command(subcommand)]
+    command: Option<Cmd>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Cmd {
+    /// Run bantud in the background at login (launchd on macOS, systemd on Linux).
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
+    /// Print the web app URL with this machine's token (`--open` to open it).
+    Url {
+        #[arg(long)]
+        open: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ServiceAction {
+    /// Register and start the service (replacing any previous one).
+    Install,
+    /// Stop and remove the service; data in ~/.bantu is kept.
+    Uninstall,
+    /// Show whether the service is running.
+    Status,
 }
 
 #[tokio::main]
@@ -58,6 +84,34 @@ async fn main() -> Result<()> {
         .context("HOME is not set")?;
     let home = args.home.unwrap_or_else(|| home_dir.join(".bantu"));
 
+    match &args.command {
+        Some(Cmd::Service { action }) => {
+            return match action {
+                ServiceAction::Install => {
+                    let exe = std::env::current_exe()?.canonicalize()?;
+                    bantud::service::install(&exe, &home)
+                }
+                ServiceAction::Uninstall => bantud::service::uninstall(),
+                ServiceAction::Status => bantud::service::status(),
+            };
+        }
+        Some(Cmd::Url { open }) => {
+            std::fs::create_dir_all(&home)?;
+            let token = bantud::load_or_create_token(&home)?;
+            let url = format!("http://127.0.0.1:{}/#token={token}", args.port);
+            println!("{url}");
+            if *open {
+                let opener = if cfg!(target_os = "macos") {
+                    "open"
+                } else {
+                    "xdg-open"
+                };
+                let _ = std::process::Command::new(opener).arg(&url).status();
+            }
+            return Ok(());
+        }
+        None => {}
+    }
     if args.print_token {
         std::fs::create_dir_all(&home)?;
         println!("{}", bantud::load_or_create_token(&home)?);
