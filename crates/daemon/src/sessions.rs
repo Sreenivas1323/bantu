@@ -135,6 +135,9 @@ impl Daemon {
 
         if s.title == DEFAULT_TITLE {
             s.title = title_from(&text);
+            if let Err(e) = self.name_branch(&ws, &text).await {
+                tracing::warn!("couldn't rename branch for {}: {e:#}", ws.id);
+            }
         }
         let text = match self.store.last_session_item(&s.id).await? {
             Some(ChatItem::Rewound { to_turn }) => format!(
@@ -195,6 +198,34 @@ impl Daemon {
             .session_item(&s, s.turns, ChatItem::Rewound { to_turn: turn })
             .await?;
         Ok(s)
+    }
+
+    /// Replaces the placeholder branch (`bantu/<city>`) with one named after
+    /// the task, e.g. `bantu/fix-login-redirect`, before anything is pushed.
+    async fn name_branch(&self, ws: &Workspace, first_message: &str) -> anyhow::Result<()> {
+        let placeholder = format!("{}{}", self.config.branch_prefix, ws.name);
+        if ws.branch != placeholder {
+            return Ok(());
+        }
+        let path = std::path::Path::new(&ws.path);
+        if git::ref_exists(path, &format!("refs/remotes/origin/{}", ws.branch)).await? {
+            return Ok(());
+        }
+        let Some(slug) = branch_slug(first_message) else {
+            return Ok(());
+        };
+        let base = format!("{}{slug}", self.config.branch_prefix);
+        let mut candidate = base.clone();
+        let mut n = 2;
+        while git::ref_exists(path, &format!("refs/heads/{candidate}")).await? {
+            candidate = format!("{base}-{n}");
+            n += 1;
+        }
+        git::git(path, &["branch", "-m", &ws.branch, &candidate]).await?;
+        let mut ws = ws.clone();
+        ws.branch = candidate;
+        self.store.upsert_workspace(&ws).await?;
+        Ok(())
     }
 
     /// Snapshot the worktree before a turn so it can be rewound. Best effort:
@@ -459,6 +490,37 @@ fn workspace_context(ws: &Workspace) -> String {
     )
 }
 
+/// A short, readable branch name from a task description:
+/// "Please fix the login redirect bug!" → `fix-login-redirect-bug`.
+pub fn branch_slug(text: &str) -> Option<String> {
+    const SKIP: &[&str] = &[
+        "a", "an", "the", "to", "and", "of", "in", "on", "for", "with", "please", "can", "could",
+        "you", "i", "me", "my", "we", "our", "this", "that", "it", "is", "are", "be", "so", "just",
+        "hey", "hi", "let's", "lets", "some", "any",
+    ];
+    let words: Vec<String> = text
+        .lines()
+        .next()
+        .unwrap_or("")
+        .to_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '\'')
+        .map(|w| w.replace('\'', ""))
+        .filter(|w| !w.is_empty() && !SKIP.contains(&w.as_str()))
+        .take(5)
+        .collect();
+    let mut slug = String::new();
+    for w in words {
+        if slug.len() + w.len() + 1 > 40 {
+            break;
+        }
+        if !slug.is_empty() {
+            slug.push('-');
+        }
+        slug.push_str(&w);
+    }
+    (slug.len() >= 3).then_some(slug)
+}
+
 fn title_from(text: &str) -> String {
     let line = text.lines().next().unwrap_or("").trim();
     let mut title: String = line.chars().take(60).collect();
@@ -603,6 +665,24 @@ mod tests {
         );
 
         assert!(parse_stream_line(&json!({"type":"system","subtype":"init"})).is_empty());
+    }
+
+    #[test]
+    fn branch_slugs() {
+        assert_eq!(
+            branch_slug("Please fix the login redirect bug!").as_deref(),
+            Some("fix-login-redirect-bug")
+        );
+        assert_eq!(
+            branch_slug("Add dark mode to settings page and footer").as_deref(),
+            Some("add-dark-mode-settings-page")
+        );
+        assert_eq!(
+            branch_slug("Don't crash on empty config").as_deref(),
+            Some("dont-crash-empty-config")
+        );
+        assert_eq!(branch_slug("修正"), None);
+        assert_eq!(branch_slug("hi"), None);
     }
 
     #[test]

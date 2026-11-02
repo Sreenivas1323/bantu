@@ -451,6 +451,24 @@ async fn agent_sessions() {
         })
         .await;
     assert_eq!(s.title, "hello there");
+    // The placeholder branch is renamed after the task.
+    let renamed = h
+        .state()
+        .await
+        .workspaces
+        .into_iter()
+        .find(|w| w.id == ws.id)
+        .unwrap();
+    assert_eq!(renamed.branch, "bantu/hello-there");
+    sh(
+        Path::new(&renamed.path),
+        &[
+            "rev-parse",
+            "--verify",
+            "-q",
+            "refs/heads/bantu/hello-there",
+        ],
+    );
     assert!((s.total_cost_usd - 0.25).abs() < 1e-9);
     let items = chat(&h.history(&ws.id).await, &session.id);
     assert_eq!(
@@ -707,8 +725,17 @@ async fn review_flow() {
         _ => None,
     });
     let prompt = prompt.unwrap();
+    let branch = h
+        .state()
+        .await
+        .workspaces
+        .into_iter()
+        .find(|w| w.id == ws.id)
+        .unwrap()
+        .branch;
+    assert!(branch.starts_with("bantu/address-these-review"), "{branch}");
     assert!(
-        prompt.contains(&format!("--base main --head {}", ws.branch)),
+        prompt.contains(&format!("--base main --head {branch}")),
         "{prompt}"
     );
 

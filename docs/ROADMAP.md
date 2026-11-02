@@ -40,7 +40,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Create PR via the agent + `gh`; PR status and checks summary
 - [x] Terminal panel (PTY over WebSocket), scrollback replayed after a reload
 - [x] Run scripts (`run = "…"` or `[scripts.run.<id>]`); stop hangs up the process group
-- [ ] Agent names the branch from the first message
+- [x] Placeholder branch renamed from the first message (`bantu/hyderabad` → `bantu/fix-login-redirect`) while unpushed
 - [x] Desktop notifications for approvals and finished turns (browser Notification API); pending count in the tab title. A cross-device inbox comes with M3.
 - [x] Login-shell PATH for Dock-launched daemons
 
