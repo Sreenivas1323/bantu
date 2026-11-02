@@ -98,7 +98,36 @@ jobs:
             apps/desktop/src-tauri
       - run: bun install --frozen-lockfile
       - run: scripts/prepare-desktop.sh ${{ matrix.target }}
-      # Not notarized yet (no Apple Developer ID); the app is ad-hoc signed.
+      # Sign with the Developer ID and notarize when the secrets exist
+      # (see docs/RELEASING.md); otherwise Tauri ad-hoc signs the app.
+      - name: Signing setup
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No Developer ID secrets; building an ad-hoc signed app."
+            exit 0
+          fi
+          {
+            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            echo "KEYCHAIN_PASSWORD=$(openssl rand -hex 16)"
+          } >> "$GITHUB_ENV"
+          if [ -n "$APPLE_API_PRIVATE_KEY" ]; then
+            key="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY.p8"
+            echo "$APPLE_API_PRIVATE_KEY" | base64 --decode > "$key"
+            {
+              echo "APPLE_API_ISSUER=$APPLE_API_ISSUER"
+              echo "APPLE_API_KEY=$APPLE_API_KEY"
+              echo "APPLE_API_KEY_PATH=$key"
+            } >> "$GITHUB_ENV"
+          fi
       - run: bun x tauri build --target ${{ matrix.target }} --bundles app,dmg
         working-directory: apps/desktop
       - name: Collect
