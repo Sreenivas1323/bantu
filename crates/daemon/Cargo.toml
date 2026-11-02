@@ -9,8 +9,8 @@ repository.workspace = true
 [dependencies]
 anyhow = "1.0.104"
 axum = { version = "0.8.9", features = ["ws"] }
-bantu-git = { version = "0.1.0-alpha.2", path = "../git" }
-bantu-protocol = { version = "0.1.0-alpha.2", path = "../protocol" }
+bantu-git = { version = "0.1.0-alpha.3", path = "../git" }
+bantu-protocol = { version = "0.1.0-alpha.3", path = "../protocol" }
 chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 futures = "0.3.34"
