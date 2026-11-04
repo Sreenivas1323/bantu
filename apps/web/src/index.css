@@ -23,6 +23,10 @@ html,
 body,
 #root {
   height: 100%;
+  /* An app, not a page: every pane scrolls itself, so the window never
+     scrolls or rubber-bands (WebKit otherwise lets wide content pan it). */
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {

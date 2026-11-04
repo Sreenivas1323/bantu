@@ -79,7 +79,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const selected = selectedId ? state.workspaces[selectedId] : undefined;
 
   return (
-    <div className="grid h-full grid-cols-[264px_1fr] grid-rows-[1fr_auto]">
+    <div className="grid h-full grid-cols-[264px_minmax(0,1fr)] grid-rows-[1fr_auto]">
       <Sidebar
         repos={repos}
         workspacesByRepo={workspacesByRepo}

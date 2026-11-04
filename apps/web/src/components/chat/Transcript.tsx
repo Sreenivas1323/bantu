@@ -56,7 +56,7 @@ export function Transcript({
       }}
       className="min-h-0 flex-1 overflow-y-auto"
     >
-      <div className="mx-auto flex max-w-3xl flex-col gap-6 px-5 py-5">
+      <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-6 px-5 py-5">
         {turns.length === 0 && !running && (
           <p className="py-10 text-center text-muted">
             Describe a task. The agent works on this workspace's branch, so other workspaces aren't affected.
@@ -97,7 +97,7 @@ function Item({
   switch (item.kind) {
     case "user":
       return (
-        <div className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-lg bg-raised px-3 py-2 text-[14px] leading-6">
+        <div className="ml-auto max-w-[85%] whitespace-pre-wrap [overflow-wrap:anywhere] rounded-lg bg-raised px-3 py-2 text-[14px] leading-6">
           {item.text}
         </div>
       );

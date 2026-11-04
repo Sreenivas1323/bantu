@@ -79,10 +79,10 @@ export function WorkspaceView({
   const canArchive = workspace.state === "ready" || workspace.state === "failed";
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-start justify-between gap-4 px-5 pt-4 pb-2">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-5 pt-4 pb-2">
         <div className="min-w-0">
-          <p className="text-xs text-muted">
+          <p className="truncate text-xs text-muted">
             {repo?.name ?? "Unknown repository"} · <span className="font-mono">{workspace.branch}</span>
           </p>
           <h2 className="mt-0.5 flex items-center gap-2 text-lg font-semibold tracking-tight">
@@ -93,7 +93,7 @@ export function WorkspaceView({
             </span>
           </h2>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-2">
         {ready && (
           <button
             type="button"
@@ -247,7 +247,7 @@ export function WorkspaceView({
         />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-4 p-5">
-          <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 rounded-md border border-line bg-panel p-3">
+          <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 rounded-md border border-line bg-panel p-3">
             <Field label="Branch">
               <span className="font-mono">{workspace.branch}</span>
               <CopyButton text={workspace.branch} />

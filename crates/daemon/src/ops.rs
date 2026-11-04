@@ -548,6 +548,9 @@ impl Daemon {
             sys("Fetching origin…".into()).await;
             if let Err(e) = git::fetch(&root, "origin").await {
                 sys(format!("Fetch failed, continuing with local refs: {e}")).await;
+                if let Some(hint) = fetch_hint(&e.to_string()) {
+                    sys(hint.into()).await;
+                }
             }
         }
         if !git::ref_exists(&root, &ws.base_ref).await? {
@@ -797,6 +800,22 @@ fn copy_recursive(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Plain-language fixes for the fetch failures people actually hit.
+fn fetch_hint(err: &str) -> Option<&'static str> {
+    if err.contains("git-credential") && err.contains("No such file") {
+        Some(
+            "Hint: git is configured to use a credential helper that no longer exists \
+             (often an old `gh` path). Run `gh auth setup-git` to fix it.",
+        )
+    } else if err.contains("could not read Username") || err.contains("Authentication failed") {
+        Some("Hint: git has no GitHub credentials. Run `gh auth login`, then `gh auth setup-git`.")
+    } else if err.contains("Permission denied (publickey)") {
+        Some("Hint: your SSH key isn't accepted. Check `ssh -T git@github.com`.")
+    } else {
+        None
+    }
+}
+
 /// A clone URL if `input` names a remote repo rather than a local path:
 /// `https://…`, `git@host:owner/repo`, `ssh://…`, or GitHub shorthand `owner/repo`.
 fn clone_source(input: &str) -> Option<String> {
@@ -888,6 +907,15 @@ fn issue_message(number: u32, issue: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explains_fetch_failures() {
+        let stale = "git fetch --prune origin failed: /usr/local/bin/gh auth git-credential get: \
+                     /usr/local/bin/gh: No such file or directory";
+        assert!(fetch_hint(stale).unwrap().contains("gh auth setup-git"));
+        assert!(fetch_hint("fatal: could not read Username for 'https://github.com'").is_some());
+        assert_eq!(fetch_hint("network unreachable"), None);
+    }
 
     #[test]
     fn recognizes_clone_sources() {

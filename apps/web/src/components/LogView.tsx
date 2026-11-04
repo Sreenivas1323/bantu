@@ -25,7 +25,7 @@ export function LogView({ lines }: { lines: LogLine[] }) {
         <p className="text-faint">No output yet. Setup and archive script output appears here.</p>
       ) : (
         lines.map((l) => (
-          <div key={l.seq} className={`whitespace-pre-wrap break-words ${streamTone[l.stream]}`}>
+          <div key={l.seq} className={`whitespace-pre-wrap [overflow-wrap:anywhere] ${streamTone[l.stream]}`}>
             {l.line}
           </div>
         ))
