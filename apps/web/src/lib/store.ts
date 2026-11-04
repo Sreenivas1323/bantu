@@ -4,6 +4,7 @@ import type {
   Event,
   LogStream,
   PermissionRequest,
+  Preferences,
   Repo,
   Session,
   StateSnapshot,
@@ -36,6 +37,7 @@ export type DaemonState = {
   streaming: Record<string, { turn: number; text: string }>;
   /** Conflict-radar results per repo id. */
   conflicts: Record<string, WorkspaceConflict[]>;
+  preferences: Preferences;
 };
 
 export const emptyState: DaemonState = {
@@ -51,6 +53,7 @@ export const emptyState: DaemonState = {
   permissions: {},
   streaming: {},
   conflicts: {},
+  preferences: { claude_user_setup: false },
 };
 
 export type Action =
@@ -77,6 +80,7 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         terminals: Object.fromEntries(snapshot.terminals.map((t) => [t.id, t])),
         permissions: Object.fromEntries(snapshot.permissions.map((p) => [p.id, p])),
         conflicts: groupConflicts(snapshot.conflicts),
+        preferences: snapshot.preferences,
         // History isn't in the snapshot; it's backfilled per workspace.
         logs: state.logs,
         chat: state.chat,
@@ -168,6 +172,8 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
     }
     case "conflicts.updated":
       return { ...next, conflicts: { ...state.conflicts, [data.repo_id]: data.conflicts } };
+    case "preferences.updated":
+      return { ...next, preferences: data.preferences };
     case "permission.requested":
       return { ...next, permissions: { ...state.permissions, [data.request.id]: data.request } };
     case "permission.resolved": {

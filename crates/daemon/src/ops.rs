@@ -97,6 +97,14 @@ impl Daemon {
             Command::SessionRewind { session_id, turn } => {
                 serde_json::to_value(self.rewind_session(&session_id, turn).await?)
             }
+            Command::PreferencesUpdate { claude_user_setup } => {
+                let mut p = self.store.preferences().await?;
+                if let Some(v) = claude_user_setup {
+                    p.claude_user_setup = v;
+                }
+                self.store.set_preferences(&p).await?;
+                serde_json::to_value(p)
+            }
             Command::AgentLogin { agent, method } => {
                 serde_json::to_value(self.agent_login(agent, method).await?)
             }

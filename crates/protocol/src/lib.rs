@@ -507,6 +507,24 @@ pub enum Command {
         workspace_id: String,
         session_id: String,
     },
+    /// Change daemon-wide preferences. Omitted fields are left as they are.
+    #[serde(rename = "preferences.update")]
+    PreferencesUpdate {
+        #[serde(default)]
+        claude_user_setup: Option<bool>,
+    },
+}
+
+/// Daemon-wide preferences, changed with `preferences.update`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Preferences {
+    /// Load the user's own Claude Code setup (global settings, plugins, hooks,
+    /// skills, MCP servers, `~/.claude/CLAUDE.md`) into every Claude turn.
+    /// Off by default: a turn then costs about a third of the input tokens.
+    /// The repo's own `CLAUDE.md` and `.claude/settings.json` always load.
+    #[serde(default)]
+    pub claude_user_setup: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -552,6 +570,8 @@ pub enum EventData {
         repo_id: String,
         conflicts: Vec<WorkspaceConflict>,
     },
+    #[serde(rename = "preferences.updated")]
+    PreferencesUpdated { preferences: Preferences },
     #[serde(rename = "permission.requested")]
     PermissionRequested { request: PermissionRequest },
     #[serde(rename = "permission.resolved")]
@@ -582,9 +602,10 @@ impl EventData {
     /// The workspace an event belongs to, for per-workspace history.
     pub fn workspace_id(&self) -> Option<&str> {
         match self {
-            Self::RepoAdded { .. } | Self::RepoRemoved { .. } | Self::ConflictsUpdated { .. } => {
-                None
-            }
+            Self::RepoAdded { .. }
+            | Self::RepoRemoved { .. }
+            | Self::ConflictsUpdated { .. }
+            | Self::PreferencesUpdated { .. } => None,
             Self::WorkspaceUpdated { workspace } => Some(&workspace.id),
             Self::WorkspaceLog { workspace_id, .. } | Self::SessionItem { workspace_id, .. } => {
                 Some(workspace_id)
@@ -636,6 +657,7 @@ pub struct StateSnapshot {
     pub permissions: Vec<PermissionRequest>,
     /// Latest conflict-radar results across all repos.
     pub conflicts: Vec<WorkspaceConflict>,
+    pub preferences: Preferences,
 }
 
 /// How an agent CLI on this machine is installed and signed in.

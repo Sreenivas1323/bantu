@@ -142,6 +142,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
         <AccountsDialog
           agents={agents}
           terminals={state.terminals}
+          preferences={state.preferences}
           client={client}
           run={run}
           onRefresh={refreshAgents}

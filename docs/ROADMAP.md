@@ -43,6 +43,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Placeholder branch renamed from the first message (`bantu/hyderabad` → `bantu/fix-login-redirect`) while unpushed
 - [x] Desktop notifications for approvals and finished turns (browser Notification API); pending count in the tab title. A cross-device inbox comes with M3.
 - [x] Login-shell PATH for Dock-launched daemons
+- [x] Lean context by default: turns skip the user's global plugins, hooks, skills and MCP servers (about a third of the input tokens); one switch in Accounts brings them back
 
 ## M2 — Conductor parity (weeks 4–5)
 

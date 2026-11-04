@@ -252,6 +252,7 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `comments.send` | `workspace_id`, `session_id` | `Session` | Sends every draft comment to the agent as one message (sorted by file and line), then marks them sent. 400 if there are none. |
 | `terminal.open` | `workspace_id`, `cols?`, `rows?` | `Terminal` | Opens an interactive login shell in the worktree. |
 | `terminal.close` | `terminal_id` | — | Hangs up the terminal's whole process group and forgets it. |
+| `preferences.update` | `claude_user_setup?` | `Preferences` | Changes daemon-wide preferences (also in `StateSnapshot.preferences`; changes arrive as `preferences.updated`). |
 
 ```json
 { "type": "session.send", "session_id": "s_123", "text": "Fix the flaky login test" }
@@ -285,12 +286,14 @@ claude -p --output-format stream-json --verbose --include-partial-messages \
   --permission-prompts none --permission-mode <mode> \
   --session-id <uuid> | --resume <uuid> \
   --append-system-prompt <workspace context> [--model <m>] \
-  --settings <PermissionRequest hook JSON>
+  [--setting-sources project,local --strict-mcp-config] \
+  --settings <PermissionRequest hook JSON> --mcp-config <Bantu MCP server>
 ```
 
 - **One process per turn.** The prompt goes in over stdin. The first turn uses `--session-id`; every later turn uses `--resume` with the same id, so the conversation continues. A daemon restart never strands a process: turns that were running are marked with an `error` item `"Interrupted by a daemon restart"`, and the next message simply resumes.
 - **Output** is parsed line by line into `ChatItem`s (`session.item` events). Partial text becomes `delta` frames.
 - **Workspace context** is appended to the system prompt: the workspace name, branch, base, and its reserved ports.
+- **Lean context.** Unless `preferences.claude_user_setup` is on, turns skip the user's global Claude setup (`~/.claude/settings.json`, its plugins, hooks and skills, user MCP servers and `~/.claude/CLAUDE.md`). A trivial turn then sends about 17k input tokens instead of about 53k with a heavily customised setup. The repo's `CLAUDE.md`, `.claude/settings.json` and `.claude/settings.local.json` still load, and so do Bantu's hook and MCP server.
 - **Environment**: `BANTU_PORT`, `BANTU_WORKSPACE_ID`, `BANTU_WORKSPACE_NAME`, `BANTU_WORKSPACE_PATH`, `BANTU_SESSION_ID`.
 - **Permission prompts.** `--settings` installs a `PermissionRequest` HTTP hook pointing at `POST /v1/hooks/permission?session=<id>`.
   - The hook token travels in the `BANTU_HOOK_TOKEN` environment variable (referenced as `$BANTU_HOOK_TOKEN` in the hook's headers), never in argv.

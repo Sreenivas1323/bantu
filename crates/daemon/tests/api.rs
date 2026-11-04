@@ -573,6 +573,13 @@ async fn agent_sessions() {
     assert!(calls[0].contains("--session-id"), "{}", calls[0]);
     assert!(calls[1].contains("--resume"), "{}", calls[1]);
     assert!(calls[1].contains("--permission-mode auto"), "{}", calls[1]);
+    // By default the user's global Claude setup stays out of Bantu turns.
+    assert!(
+        calls[1].contains("--setting-sources project,local --strict-mcp-config"),
+        "{}",
+        calls[1]
+    );
+    assert!(!h.state().await.preferences.claude_user_setup);
 
     // Messages sent mid-turn are queued and run afterwards, in order.
     h.command(send("slow one"), None).await;
@@ -643,6 +650,25 @@ async fn agent_sessions() {
         last.contains("--model haiku") && last.contains("--permission-mode plan"),
         "{last}"
     );
+
+    // Opting in to the user's own setup drops those flags from the next turn.
+    let (status, body) = h
+        .command(
+            json!({"type": "preferences.update", "claude_user_setup": true}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert!(h.state().await.preferences.claude_user_setup);
+    h.command(send("with my setup"), None).await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 7
+    })
+    .await;
+    let calls = std::fs::read_to_string(&h.claude_calls).unwrap();
+    let last = calls.lines().last().unwrap();
+    assert!(!last.contains("--setting-sources"), "{last}");
+    assert!(!last.contains("--strict-mcp-config"), "{last}");
 }
 
 #[tokio::test]

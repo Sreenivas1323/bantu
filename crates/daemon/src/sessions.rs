@@ -503,6 +503,13 @@ impl Daemon {
                 if let Some(m) = &s.model {
                     cmd.args(["--model", m]);
                 }
+                if !self.store.preferences().await?.claude_user_setup {
+                    // Skip the user's global plugins, hooks, skills and MCP
+                    // servers: they load into every turn and can triple its
+                    // input tokens. The repo's own config still applies.
+                    cmd.args(["--setting-sources", "project,local"])
+                        .arg("--strict-mcp-config");
+                }
                 if let Some(settings) = self.permission_hook_settings(&s.id) {
                     cmd.args(["--settings", &settings])
                         .env("BANTU_HOOK_TOKEN", &self.permissions.hook_token);

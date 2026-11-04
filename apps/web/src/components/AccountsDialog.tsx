@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentKind, AgentStatus, Command, CommandResponse, LoginMethod, Terminal } from "@bantu/protocol";
+import type { AgentKind, AgentStatus, Command, CommandResponse, LoginMethod, Preferences, Terminal } from "@bantu/protocol";
 import type { DaemonClient } from "../lib/api.ts";
 import { accountKind, agentLabel } from "../lib/useAgents.ts";
 import { TerminalView } from "./terminal/TerminalView.tsx";
@@ -29,6 +29,7 @@ const METHODS: Record<AgentKind, { method: LoginMethod; label: string; hint: str
 export function AccountsDialog({
   agents,
   terminals,
+  preferences,
   client,
   run,
   onRefresh,
@@ -36,6 +37,7 @@ export function AccountsDialog({
 }: {
   agents: AgentStatus[] | null;
   terminals: Record<string, Terminal>;
+  preferences: Preferences;
   client: DaemonClient;
   run: (command: Command) => Promise<CommandResponse | null>;
   onRefresh: () => Promise<void>;
@@ -113,6 +115,22 @@ export function AccountsDialog({
             )}
           </section>
         ))}
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-line p-3">
+          <input
+            type="checkbox"
+            checked={preferences.claude_user_setup}
+            onChange={(e) => void run({ type: "preferences.update", claude_user_setup: e.target.checked })}
+            className="mt-0.5 accent-accent"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span>Load my Claude setup in Bantu chats</span>
+            <span className="text-[12.5px] text-muted">
+              Your global plugins, hooks, skills, MCP servers and <code className="font-mono">~/.claude/CLAUDE.md</code>.
+              Off by default, which cuts each turn's input to about a third and saves your plan's limits. The repo's
+              own <code className="font-mono">CLAUDE.md</code> and settings always load.
+            </span>
+          </span>
+        </label>
         {login && (
           <section className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between text-[12.5px]">
