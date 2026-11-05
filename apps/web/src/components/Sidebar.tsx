@@ -24,6 +24,7 @@ type Props = {
   client: DaemonClient;
   onNewWorkspace: (repoId: string, from?: WorkspaceSource) => Promise<void>;
   onRemoveRepo: (repoId: string) => Promise<void>;
+  onOpenLoops: (repoId: string) => void;
 };
 
 export function Sidebar(props: Props) {
@@ -55,6 +56,7 @@ export function Sidebar(props: Props) {
             onSelect={props.onSelect}
             onNewWorkspace={props.onNewWorkspace}
             onRemoveRepo={props.onRemoveRepo}
+            onOpenLoops={props.onOpenLoops}
           />
         ))}
       </nav>
@@ -76,6 +78,7 @@ function RepoGroup({
   onSelect,
   onNewWorkspace,
   onRemoveRepo,
+  onOpenLoops,
 }: {
   repo: Repo;
   workspaces: Workspace[];
@@ -88,6 +91,7 @@ function RepoGroup({
   onSelect: (id: string) => void;
   onNewWorkspace: (repoId: string, from?: WorkspaceSource) => Promise<void>;
   onRemoveRepo: (repoId: string) => Promise<void>;
+  onOpenLoops: (repoId: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [showFrom, setShowFrom] = useState(false);
@@ -106,6 +110,14 @@ function RepoGroup({
           title="Remove repository"
         >
           Remove
+        </button>
+        <button
+          type="button"
+          onClick={() => onOpenLoops(repo.id)}
+          className="rounded px-1 py-0.5 text-xs text-muted hover:bg-raised hover:text-fg"
+          title="Agents that start on a schedule or from GitHub"
+        >
+          Loops
         </button>
         <button
           type="button"

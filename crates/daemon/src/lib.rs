@@ -9,6 +9,7 @@ pub mod codex;
 pub mod discover;
 pub mod http;
 pub mod inbox;
+pub mod loops;
 pub mod mcp;
 pub mod names;
 pub mod ops;
@@ -88,6 +89,7 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     daemon.recover_terminals().await?;
     daemon.recover_reviews().await?;
     daemon.start_push()?;
+    daemon.start_loops().await?;
     let state = AppState {
         daemon: daemon.clone(),
         token_hash: http::hash_token(&token).into(),

@@ -80,7 +80,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Definition of done: `[scripts] check` runs after every agent turn that changed files (not in plan mode, not when the user queued a message); failures go back to the agent up to 2 times in a row
 - [x] Review: a fresh read-only (plan mode) chat reviews the workspace diff; Shift-click to review with Codex
 - [x] Automatic cross-agent review (`[review] auto = true`): a different agent reviews finished work, findings go back to the author for up to 2 rounds, and approval marks the workspace ready
-- [ ] Loops / routines: cron, GitHub triggers
+- [x] Loops: cron schedules and GitHub triggers (issues and PRs by label, polled with `gh`), each run in a fresh workspace, archived automatically if it changes nothing — GitHub polling is unit-tested, not yet run against a real repo
 - [ ] Vercel Sandbox burst runners
 - [ ] Import sessions from Conductor and Pane
 - [ ] Windows support

@@ -190,6 +190,7 @@ async fn get_state(State(state): State<AppState>) -> Result<Json<StateSnapshot>,
         inbox: state.daemon.inbox_items().await,
         conflicts: state.daemon.all_conflicts().await,
         spotlights: store.spotlights().await?,
+        loops: store.loops().await?,
         preferences: store.preferences().await?,
     }))
 }

@@ -437,7 +437,11 @@ impl Daemon {
         .await
     }
 
-    async fn wait_ready(&self, id: &str, timeout: Duration) -> Result<Workspace, String> {
+    pub(crate) async fn wait_ready(
+        &self,
+        id: &str,
+        timeout: Duration,
+    ) -> Result<Workspace, String> {
         let deadline = Instant::now() + timeout;
         loop {
             let ws = self.require_workspace(id).await.map_err(err)?;
@@ -487,7 +491,7 @@ impl Daemon {
             .ok_or_else(|| format!("no workspace {key:?} in this repo; see list_workspaces"))
     }
 
-    async fn first_session(&self, workspace_id: &str) -> Option<Session> {
+    pub(crate) async fn first_session(&self, workspace_id: &str) -> Option<Session> {
         self.store
             .sessions()
             .await

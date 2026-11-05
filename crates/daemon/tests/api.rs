@@ -24,6 +24,7 @@ struct Harness {
     hook_token: String,
     /// Arguments of every fake `claude` invocation, one line each.
     claude_calls: std::path::PathBuf,
+    daemon: std::sync::Arc<bantud::Daemon>,
     http: reqwest::Client,
     _dirs: Vec<tempfile::TempDir>,
 }
@@ -101,12 +102,14 @@ impl Harness {
         let preview_router = started.preview_router;
         tokio::spawn(async move { axum::serve(preview_listener, preview_router).await.unwrap() });
         let hook_token = started.daemon.hook_token().to_string();
+        let daemon = started.daemon.clone();
         tokio::spawn(async move { axum::serve(listener, started.router).await.unwrap() });
         Self {
             base: format!("http://{addr}"),
             token: started.token,
             hook_token,
             claude_calls,
+            daemon,
             http: reqwest::Client::new(),
             _dirs: vec![home, workspaces],
         }
@@ -3428,4 +3431,166 @@ async fn automatic_cross_agent_review() {
     assert_eq!(reviews().await, 6, "the first review plus two rounds");
     let fixes = std::fs::read_to_string(path.join("review-stubborn.txt")).unwrap();
     assert_eq!(fixes.lines().count(), 2, "findings went back exactly twice");
+}
+
+#[tokio::test]
+async fn loops_run_in_fresh_workspaces() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+
+    let create = |trigger: Value, prompt: &str| json!({"type":"loop.create","repo_id":repo.id,"name":"Nightly","trigger":trigger,"prompt":prompt});
+    let (status, _) = h
+        .command(
+            create(json!({"kind":"cron","schedule":"not a schedule"}), "x"),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400);
+    let (status, _) = h
+        .command(create(json!({"kind":"github_issue","label":""}), "x"), None)
+        .await;
+    assert_eq!(status, 400);
+
+    let (status, res) = h
+        .command(
+            create(
+                json!({"kind":"cron","schedule":"0 3 * * *"}),
+                "check for typos",
+            ),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let id = res["result"]["id"].as_str().unwrap().to_string();
+    assert!(res["result"]["next_run_at"].is_string(), "{res}");
+    assert_eq!(h.state().await.loops.len(), 1);
+
+    // A run that changes nothing archives its own workspace.
+    let (status, res) = h
+        .command(json!({"type":"loop.run","loop_id":id}), None)
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    assert_eq!(ws.loop_id.as_deref(), Some(id.as_str()));
+    h.wait_for(&ws.id, WorkspaceState::Archived).await;
+    let done = &h.state().await.loops[0];
+    assert_eq!(done.last_workspace_id.as_deref(), Some(ws.id.as_str()));
+    let result = done.last_result.clone().unwrap();
+    assert!(result.contains("No changes"), "{result}");
+    let items = chat(
+        &h.history(&ws.id).await,
+        &h.state()
+            .await
+            .sessions
+            .iter()
+            .find(|s| s.workspace_id == ws.id)
+            .unwrap()
+            .id,
+    );
+    assert!(items
+        .iter()
+        .any(|i| matches!(i, ChatItem::User { text } if text == "check for typos")));
+
+    // One that changes files is kept for review.
+    let (status, _) = h
+        .command(
+            json!({"type":"loop.update","loop_id":id,"prompt":"edit the readme"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    let (_, res) = h
+        .command(json!({"type":"loop.run","loop_id":id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let mut result = String::new();
+    for _ in 0..200 {
+        result = h.state().await.loops[0].last_result.clone().unwrap();
+        if result.starts_with("Changes ready") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(result.starts_with("Changes ready"), "{result}");
+    assert_eq!(
+        h.wait_for(&ws.id, WorkspaceState::Ready).await.state,
+        WorkspaceState::Ready
+    );
+
+    // Following up in a kept run never archives it, even if that changes nothing.
+    sh(Path::new(&ws.path), &["checkout", "--", "README.md"]);
+    std::fs::remove_file(Path::new(&ws.path).join("agent-file.txt")).unwrap();
+    let session_id = h
+        .state()
+        .await
+        .sessions
+        .iter()
+        .find(|s| s.workspace_id == ws.id)
+        .unwrap()
+        .id
+        .clone();
+    h.command(
+        json!({"type":"session.send","session_id":session_id,"text":"what happened?"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session_id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        h.state()
+            .await
+            .workspaces
+            .iter()
+            .find(|w| w.id == ws.id)
+            .unwrap()
+            .state,
+        WorkspaceState::Ready
+    );
+
+    // Paused loops don't run, and their next run is cleared.
+    let (_, res) = h
+        .command(
+            json!({"type":"loop.update","loop_id":id,"enabled":false}),
+            None,
+        )
+        .await;
+    assert_eq!(res["result"]["next_run_at"], Value::Null);
+    let far_future = chrono::Utc::now() + chrono::Duration::days(3);
+    h.daemon.run_due_loops(far_future).await;
+    let count = |h_state: &StateSnapshot| h_state.workspaces.len();
+    assert_eq!(count(&h.state().await), 2);
+
+    // A due loop runs once, and its next run moves on.
+    let (_, res) = h
+        .command(
+            json!({"type":"loop.update","loop_id":id,"enabled":true}),
+            None,
+        )
+        .await;
+    let first_next = res["result"]["next_run_at"].as_str().unwrap().to_string();
+    h.daemon.run_due_loops(far_future).await;
+    let state = h.state().await;
+    assert_eq!(count(&state), 3);
+    assert_ne!(
+        state.loops[0].next_run_at.as_deref(),
+        Some(first_next.as_str())
+    );
+    h.daemon.run_due_loops(chrono::Utc::now()).await;
+    assert_eq!(count(&h.state().await), 3);
+
+    // Deleting a loop keeps its runs' workspaces.
+    let (status, _) = h
+        .command(json!({"type":"loop.delete","loop_id":id}), None)
+        .await;
+    assert_eq!(status, 200);
+    let state = h.state().await;
+    assert!(state.loops.is_empty());
+    assert_eq!(count(&state), 3);
 }

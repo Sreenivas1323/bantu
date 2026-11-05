@@ -159,6 +159,45 @@ impl Daemon {
                 self.store.delete_push_subscription(&endpoint).await?;
                 Ok(serde_json::Value::Null)
             }
+            Command::LoopCreate {
+                repo_id,
+                name,
+                trigger,
+                prompt,
+                agent,
+                model,
+                permission_mode,
+            } => serde_json::to_value(
+                self.create_loop(bantu_protocol::Loop {
+                    id: String::new(),
+                    repo_id,
+                    name,
+                    trigger,
+                    prompt,
+                    agent: agent.unwrap_or(bantu_protocol::AgentKind::Claude),
+                    model: model.filter(|m| !m.trim().is_empty()),
+                    permission_mode: permission_mode.unwrap_or_default(),
+                    enabled: true,
+                    last_run_at: None,
+                    next_run_at: None,
+                    last_workspace_id: None,
+                    last_result: None,
+                    created_at: String::new(),
+                })
+                .await?,
+            ),
+            Command::LoopUpdate {
+                loop_id,
+                enabled,
+                prompt,
+            } => serde_json::to_value(self.update_loop(&loop_id, enabled, prompt).await?),
+            Command::LoopDelete { loop_id } => {
+                self.delete_loop(&loop_id).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::LoopRun { loop_id } => {
+                serde_json::to_value(self.run_loop(&loop_id, None, None).await?)
+            }
             Command::CommentAdd {
                 workspace_id,
                 path,
@@ -346,6 +385,7 @@ impl Daemon {
                 "archive the repository's {active} workspace(s) first"
             )));
         }
+        self.delete_repo_loops(repo_id).await?;
         self.store.delete_repo(repo_id).await?;
         Ok(())
     }
@@ -708,7 +748,7 @@ impl Daemon {
         Ok(())
     }
 
-    async fn archive_workspace(self: &Arc<Self>, id: &str) -> CmdResult<Workspace> {
+    pub(crate) async fn archive_workspace(self: &Arc<Self>, id: &str) -> CmdResult<Workspace> {
         let mut ws = self
             .store
             .workspace(id)
@@ -987,7 +1027,7 @@ pub struct SourcePlan {
     first_message: Option<String>,
 }
 
-async fn gh_json(dir: &Path, args: &[&str]) -> Option<serde_json::Value> {
+pub(crate) async fn gh_json(dir: &Path, args: &[&str]) -> Option<serde_json::Value> {
     let out = tokio::process::Command::new("gh")
         .args(args)
         .current_dir(dir)

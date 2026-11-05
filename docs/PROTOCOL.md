@@ -290,6 +290,10 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `inbox.dismiss` | `item_id` | — | Clears a notice, or declines to answer a question. |
 | `push.subscribe` | `endpoint`, `p256dh`, `auth` | — | Sends this browser alerts through Web Push. 400 unless the endpoint uses HTTPS. |
 | `push.unsubscribe` | `endpoint` | — | |
+| `loop.create` | `repo_id`, `name`, `trigger`, `prompt`, `agent?`, `model?`, `permission_mode?` | `Loop` | Creates a loop, enabled; see below. |
+| `loop.update` | `loop_id`, `enabled?`, `prompt?` | `Loop` | Pauses, resumes or changes a loop. |
+| `loop.delete` | `loop_id` | — | Existing runs' workspaces are kept. |
+| `loop.run` | `loop_id` | `Workspace` | Starts a run now. 409 if the last run is still working or the repo has 10 active workspaces. |
 | `comment.add` | `workspace_id`, `path`, `line`, `body` | `DiffComment` | Adds a draft review comment. |
 | `comment.delete` | `comment_id` | — | |
 | `comments.send` | `workspace_id`, `session_id` | `Session` | Sends every draft comment to the agent as one message (sorted by file and line), then marks them sent. 400 if there are none. |
@@ -312,6 +316,24 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
    - `.env*` files, by default.
 6. Runs the repo's setup script, if any. Its output streams as `workspace.log` events.
 7. Ends in state `ready` with one idle `Session`, or in `failed` with `error` set.
+
+### Loops
+
+A `Loop` runs an agent on its own: `{ id, repo_id, name, trigger, prompt, agent, model, permission_mode, enabled, last_run_at, next_run_at, last_workspace_id, last_result, created_at }`. Listed in `StateSnapshot.loops`; changes arrive as `loop.updated` and `loop.deleted`.
+
+`trigger` is tagged by `kind`:
+
+| `kind` | Fields | When |
+|---|---|---|
+| `cron` | `schedule` | Five cron fields (`*`, `5`, `1-5`, `*/15`, lists) in the daemon's time zone, or `@hourly`, `@daily`, `@weekly`, `@monthly` |
+| `github_issue` | `label` | A new open issue with that label, polled about once a minute with `gh` |
+| `github_pull_request` | `label` | A new open PR with that label, not from a fork |
+
+- **Each run gets a fresh workspace**, with `loop_id` set. A run that changes nothing is archived automatically. A failed one is kept, so you can see why.
+- **One at a time.** A run is skipped if the last one is still working or the repo already has 10 active workspaces, and `last_result` says so.
+- **Missed runs aren't caught up on.** If the daemon or machine was off at the scheduled time, the next run is the next one due.
+- **GitHub triggers need a label**, because labels take triage rights while anyone can open an issue, and an issue's text goes into the agent's prompt. They refuse `bypass_permissions` and don't check out forks' PRs. The first poll records what's already open, so turning a loop on doesn't start a run for every old issue.
+- **Alerts.** A finished loop run sends no push alert, but one that asks for approval still does.
 
 ### `workspace.integrate`
 A workspace created through the `create_workspace` MCP tool records its lead in `parent_id`. This command merges the lead's children with `git merge --no-edit`, in the lead's worktree, one at a time.
@@ -461,6 +483,8 @@ These agents speak the [Agent Client Protocol](https://agentclientprotocol.com):
 | `comment.deleted` | `comment_id`, `workspace_id` | |
 | `permission.requested` | `request` | An agent is waiting for approval |
 | `permission.resolved` | `request_id`, `session_id`, `workspace_id`, `allowed` | Answered, stopped or timed out |
+| `loop.updated` | `loop` | A loop was created or changed, including after a run (full object) |
+| `loop.deleted` | `loop_id` | |
 | `spotlight.updated` | `repo_id`, `spotlight` | A workspace entered or updated the main checkout; `spotlight` is `null` when it returned to its branch |
 | `inbox.added` | `item` | An agent sent a notice or question |
 | `inbox.removed` | `item_id`, `workspace_id` | It was answered, dismissed, timed out or released by a stop |

@@ -98,6 +98,7 @@ impl Daemon {
                     if let Err(e) = self.maybe_start_review(&s).await {
                         tracing::warn!("automatic review didn't start for {}: {e:#}", s.id);
                     }
+                    self.finish_loop_run(&s).await;
                 }
             }
         })

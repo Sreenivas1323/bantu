@@ -10,6 +10,7 @@ import { RepoSuggestions } from "./RepoSuggestions.tsx";
 import type { DaemonClient } from "../lib/api.ts";
 import { AccountsDialog } from "./AccountsDialog.tsx";
 import { InboxDialog } from "./InboxDialog.tsx";
+import { LoopsDialog } from "./LoopsDialog.tsx";
 import { useAgents } from "../lib/useAgents.ts";
 import { WorkspaceView } from "./WorkspaceView.tsx";
 
@@ -21,6 +22,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const { agents, refresh: refreshAgents } = useAgents(client);
   const [showAccounts, setShowAccounts] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
+  const [loopsRepoId, setLoopsRepoId] = useState<string | null>(null);
   // Phones show one thing at a time: the workspace list slides over the page.
   const [navOpen, setNavOpen] = useState(true);
 
@@ -136,6 +138,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
         onRemoveRepo={async (repoId) => {
           await run({ type: "repo.remove", repo_id: repoId });
         }}
+        onOpenLoops={setLoopsRepoId}
       />
       <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
         <div className="flex items-center gap-2 border-b border-line bg-panel px-2 py-1.5 md:hidden">
@@ -202,6 +205,21 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
           run={run}
           onRefresh={refreshAgents}
           onClose={() => setShowAccounts(false)}
+        />
+      )}
+      {loopsRepoId && state.repos[loopsRepoId] && (
+        <LoopsDialog
+          repo={state.repos[loopsRepoId]}
+          loops={Object.values(state.loops).filter((l) => l.repo_id === loopsRepoId)}
+          workspaces={state.workspaces}
+          agents={agents}
+          run={run}
+          onSelectWorkspace={(id) => {
+            setSelectedId(id);
+            setLoopsRepoId(null);
+            setNavOpen(false);
+          }}
+          onClose={() => setLoopsRepoId(null)}
         />
       )}
       {showInbox && (

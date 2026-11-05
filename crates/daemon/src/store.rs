@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bantu_protocol::{
-    AgentKind, ChatItem, DiffComment, Event, EventData, LogStream, PermissionMode, Preferences,
-    Repo, ReviewState, Session, SessionStatus, Spotlight, Workspace, WorkspaceState,
+    AgentKind, ChatItem, DiffComment, Event, EventData, LogStream, Loop, PermissionMode,
+    Preferences, Repo, ReviewState, Session, SessionStatus, Spotlight, Workspace, WorkspaceState,
 };
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
@@ -303,6 +303,79 @@ impl Store {
             spotlight: spotlight.cloned(),
         };
         self.finish(guard, tx, data).await
+    }
+
+    pub async fn upsert_loop(&self, l: &Loop) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query(
+            "INSERT INTO preferences (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(format!("loop:{}", l.id))
+        .bind(serde_json::to_string(l)?)
+        .execute(&mut *tx)
+        .await?;
+        let data = EventData::LoopUpdated { loop_: l.clone() };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn delete_loop(&self, id: &str) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query("DELETE FROM preferences WHERE key = ? OR key = ?")
+            .bind(format!("loop:{id}"))
+            .bind(format!("loopseen:{id}"))
+            .execute(&mut *tx)
+            .await?;
+        let data = EventData::LoopDeleted {
+            loop_id: id.to_string(),
+        };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn get_loop(&self, id: &str) -> Result<Option<Loop>> {
+        let value: Option<String> =
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key = ?")
+                .bind(format!("loop:{id}"))
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(value.and_then(|v| serde_json::from_str(&v).ok()))
+    }
+
+    pub async fn loops(&self) -> Result<Vec<Loop>> {
+        let values: Vec<String> =
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key LIKE 'loop:%'")
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(values
+            .iter()
+            .filter_map(|v| serde_json::from_str(v).ok())
+            .collect())
+    }
+
+    /// GitHub issue or PR numbers a loop has already seen. `None` before its first poll.
+    pub async fn loop_seen(&self, id: &str) -> Result<Option<std::collections::BTreeSet<u32>>> {
+        let value: Option<String> =
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key = ?")
+                .bind(format!("loopseen:{id}"))
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(value.and_then(|v| serde_json::from_str(&v).ok()))
+    }
+
+    pub async fn set_loop_seen(
+        &self,
+        id: &str,
+        seen: &std::collections::BTreeSet<u32>,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO preferences (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(format!("loopseen:{id}"))
+        .bind(serde_json::to_string(seen)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn upsert_push_subscription(&self, s: &crate::push::Subscription) -> Result<()> {
@@ -651,6 +724,8 @@ fn event_kind(data: &EventData) -> &'static str {
         EventData::PermissionResolved { .. } => "permission.resolved",
         EventData::TerminalClosed { .. } => "terminal.closed",
         EventData::SpotlightUpdated { .. } => "spotlight.updated",
+        EventData::LoopUpdated { .. } => "loop.updated",
+        EventData::LoopDeleted { .. } => "loop.deleted",
         EventData::InboxAdded { .. } => "inbox.added",
         EventData::InboxRemoved { .. } => "inbox.removed",
     }

@@ -3,6 +3,7 @@ import type {
   DiffComment,
   Event,
   InboxItem,
+  Loop,
   LogStream,
   PermissionRequest,
   Preferences,
@@ -41,6 +42,7 @@ export type DaemonState = {
   streaming: Record<string, { turn: number; text: string }>;
   /** Conflict-radar results per repo id. */
   conflicts: Record<string, WorkspaceConflict[]>;
+  loops: Record<string, Loop>;
   /** What's in each repo's main checkout, by repo id. */
   spotlights: Record<string, Spotlight>;
   preferences: Preferences;
@@ -61,6 +63,7 @@ export const emptyState: DaemonState = {
   streaming: {},
   conflicts: {},
   spotlights: {},
+  loops: {},
   preferences: { claude_user_setup: false, loadouts: [] },
 };
 
@@ -90,6 +93,7 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         inbox: Object.fromEntries(snapshot.inbox.map((i) => [i.id, i])),
         conflicts: groupConflicts(snapshot.conflicts),
         spotlights: Object.fromEntries(snapshot.spotlights.map((s) => [s.repo_id, s])),
+        loops: Object.fromEntries(snapshot.loops.map((l) => [l.id, l])),
         preferences: snapshot.preferences,
         // History isn't in the snapshot; it's backfilled per workspace.
         logs: state.logs,
@@ -193,6 +197,12 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
     case "spotlight.updated": {
       const { [data.repo_id]: _previous, ...spotlights } = state.spotlights;
       return { ...next, spotlights: data.spotlight ? { ...spotlights, [data.repo_id]: data.spotlight } : spotlights };
+    }
+    case "loop.updated":
+      return { ...next, loops: { ...state.loops, [data.loop.id]: data.loop } };
+    case "loop.deleted": {
+      const { [data.loop_id]: _gone, ...loops } = state.loops;
+      return { ...next, loops };
     }
     case "inbox.added":
       return { ...next, inbox: { ...state.inbox, [data.item.id]: data.item } };

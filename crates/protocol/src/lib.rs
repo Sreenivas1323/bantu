@@ -599,6 +599,42 @@ pub struct ForwardedPort {
     pub url: Option<String>,
 }
 
+/// What starts a loop's runs.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum LoopTrigger {
+    /// A five-field cron schedule in the daemon's time zone, or `@hourly`,
+    /// `@daily`, `@weekly`, `@monthly`.
+    Cron { schedule: String },
+    /// A new open issue with this label.
+    GithubIssue { label: String },
+    /// A new open pull request with this label, not from a fork.
+    GithubPullRequest { label: String },
+}
+
+/// An agent that starts on its own. Each run gets a fresh workspace.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Loop {
+    pub id: String,
+    pub repo_id: String,
+    pub name: String,
+    pub trigger: LoopTrigger,
+    pub prompt: String,
+    pub agent: AgentKind,
+    pub model: Option<String>,
+    pub permission_mode: PermissionMode,
+    pub enabled: bool,
+    pub last_run_at: Option<String>,
+    /// When a cron loop next runs. `None` while paused and for GitHub triggers.
+    pub next_run_at: Option<String>,
+    pub last_workspace_id: Option<String>,
+    /// How the last run went, in words.
+    pub last_result: Option<String>,
+    pub created_at: String,
+}
+
 /// A notice or question an agent sent to the user.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
@@ -725,6 +761,34 @@ pub enum Command {
     },
     #[serde(rename = "push.unsubscribe")]
     PushUnsubscribe { endpoint: String },
+    /// Create a loop. `model` and `agent` default like a new chat's; it starts enabled.
+    #[serde(rename = "loop.create")]
+    LoopCreate {
+        repo_id: String,
+        name: String,
+        trigger: LoopTrigger,
+        prompt: String,
+        #[serde(default)]
+        agent: Option<AgentKind>,
+        #[serde(default)]
+        model: Option<String>,
+        #[serde(default)]
+        permission_mode: Option<PermissionMode>,
+    },
+    /// Pause or resume a loop, or change its prompt.
+    #[serde(rename = "loop.update")]
+    LoopUpdate {
+        loop_id: String,
+        #[serde(default)]
+        enabled: Option<bool>,
+        #[serde(default)]
+        prompt: Option<String>,
+    },
+    #[serde(rename = "loop.delete")]
+    LoopDelete { loop_id: String },
+    /// Start a run now.
+    #[serde(rename = "loop.run")]
+    LoopRun { loop_id: String },
     /// Add a draft review comment on a line of the workspace diff.
     #[serde(rename = "comment.add")]
     CommentAdd {
@@ -919,6 +983,14 @@ pub enum EventData {
         repo_id: String,
         spotlight: Option<Spotlight>,
     },
+    #[serde(rename = "loop.updated")]
+    LoopUpdated {
+        #[serde(rename = "loop")]
+        #[ts(rename = "loop")]
+        loop_: Loop,
+    },
+    #[serde(rename = "loop.deleted")]
+    LoopDeleted { loop_id: String },
     #[serde(rename = "inbox.added")]
     InboxAdded { item: InboxItem },
     #[serde(rename = "inbox.removed")]
@@ -951,6 +1023,8 @@ impl EventData {
             | Self::RepoRemoved { .. }
             | Self::ConflictsUpdated { .. }
             | Self::SpotlightUpdated { .. }
+            | Self::LoopUpdated { .. }
+            | Self::LoopDeleted { .. }
             | Self::PreferencesUpdated { .. } => None,
             Self::WorkspaceUpdated { workspace } => Some(&workspace.id),
             Self::WorkspaceLog { workspace_id, .. } | Self::SessionItem { workspace_id, .. } => {
@@ -1011,6 +1085,8 @@ pub struct StateSnapshot {
     /// Workspaces currently shown in their repo's main checkout.
     #[serde(default)]
     pub spotlights: Vec<Spotlight>,
+    #[serde(default)]
+    pub loops: Vec<Loop>,
     pub preferences: Preferences,
 }
 
@@ -1098,6 +1174,8 @@ mod tests {
             "IntegrationSkip",
             "LogStream",
             "Loadout",
+            "Loop",
+            "LoopTrigger",
             "LoginMethod",
             "PermissionMode",
             "PermissionRequest",

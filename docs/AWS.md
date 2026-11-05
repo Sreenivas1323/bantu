@@ -66,6 +66,9 @@ example `owner/repo`); Bantu clones it into `~/bantu/repos`.
 Bookmark the **WakeLink** output. When the machine has idled out, open it, wait a minute,
 then open Bantu.
 
+Loops only run while the machine is on. If you use them on a machine that stops itself, set
+`IdleStopMinutes=0`, or the schedule waits until you next wake it.
+
 ## Remove
 
 ```sh

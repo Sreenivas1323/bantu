@@ -48,3 +48,5 @@ export type { ChildWorkspace } from "./generated/ChildWorkspace";
 export type { IntegrationResult } from "./generated/IntegrationResult";
 export type { IntegrationSkip } from "./generated/IntegrationSkip";
 export type { ReviewState } from "./generated/ReviewState";
+export type { Loop } from "./generated/Loop";
+export type { LoopTrigger } from "./generated/LoopTrigger";

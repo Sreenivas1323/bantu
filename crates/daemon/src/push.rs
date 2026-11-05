@@ -298,6 +298,11 @@ impl Daemon {
         let Some(ws) = self.store.workspace(workspace_id).await? else {
             return Ok(());
         };
+        // Only runs a person started are worth a buzz when they finish. Loops
+        // still alert when they need someone.
+        if ws.loop_id.is_some() && what == "is done" {
+            return Ok(());
+        }
         let body: String = body.chars().take(MAX_BODY_CHARS).collect();
         let payload = json!({
             "title": format!("{} {what}", ws.name),
