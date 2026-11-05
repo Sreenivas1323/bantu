@@ -8,3 +8,10 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>,
 );
+
+// Installs need a service worker, and the dev server doesn't serve one.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  void navigator.serviceWorker.register("./sw.js").catch(() => {
+    // Plain http:// on another machine can't use one; the app works without it.
+  });
+}

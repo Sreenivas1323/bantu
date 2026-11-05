@@ -6,6 +6,9 @@ import type { DaemonClient } from "../lib/api.ts";
 import { StateDot } from "./StateDot.tsx";
 
 type Props = {
+  /** On phones the list is a drawer; on wider screens it's always shown. */
+  open: boolean;
+  onClose: () => void;
   repos: Repo[];
   workspacesByRepo: Record<string, Workspace[]>;
   sessionsByWorkspace: Record<string, Session[]>;
@@ -26,9 +29,16 @@ type Props = {
 export function Sidebar(props: Props) {
   const { repos, workspacesByRepo, selectedId, showArchived } = props;
   return (
-    <aside className="flex min-h-0 flex-col border-r border-line bg-panel">
+    <aside
+      className={`absolute inset-y-0 left-0 z-30 flex w-[min(19rem,85vw)] min-h-0 flex-col border-r border-line bg-panel transition-transform duration-200 ease-out motion-reduce:transition-none md:static md:z-auto md:row-span-1 md:w-auto md:translate-x-0 md:transition-none ${
+        props.open ? "translate-x-0" : "-translate-x-full"
+      }`}
+    >
       <div className="flex items-center justify-between px-3 py-2.5">
         <span className="font-semibold tracking-tight">Bantu</span>
+        <button type="button" onClick={props.onClose} aria-label="Close the workspace list" className="flex size-8 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg md:hidden">
+          ✕
+        </button>
       </div>
       <AddRepo onAdd={props.onAddRepo} client={props.client} />
       <nav className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
@@ -92,7 +102,7 @@ function RepoGroup({
           onClick={() => {
             if (confirm(`Remove ${repo.name} from Bantu? Files on disk are not touched.`)) void onRemoveRepo(repo.id);
           }}
-          className="rounded px-1 text-xs text-faint opacity-0 hover:text-bad group-hover:opacity-100 focus-visible:opacity-100"
+          className="rounded px-1 text-xs text-faint opacity-0 hover:text-bad group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
           title="Remove repository"
         >
           Remove

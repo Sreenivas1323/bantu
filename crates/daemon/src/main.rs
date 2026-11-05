@@ -79,6 +79,10 @@ enum Cmd {
         /// Also print a QR code to scan with a phone.
         #[arg(long)]
         qr: bool,
+        /// Where you host the web client, if not on this daemon
+        /// (e.g. https://bantu.example.com). The link then names the daemon too.
+        #[arg(long, env = "BANTU_APP_URL")]
+        app: Option<String>,
     },
 }
 
@@ -121,14 +125,14 @@ async fn main() -> Result<()> {
                 ServiceAction::Status => bantud::service::status(),
             };
         }
-        Some(Cmd::Url { open, qr }) => {
+        Some(Cmd::Url { open, qr, app }) => {
             std::fs::create_dir_all(&home)?;
             let token = bantud::load_or_create_token(&home)?;
             let base = args
                 .public_url
                 .clone()
                 .unwrap_or_else(|| format!("http://127.0.0.1:{}", args.port));
-            let url = format!("{}/#token={token}", base.trim_end_matches('/'));
+            let url = pairing_url(&base, app.as_deref(), &token);
             println!("{url}");
             if *qr {
                 println!("\n{}", qr_code(&url)?);
@@ -256,6 +260,16 @@ async fn adopt_login_shell_path() {
     }
 }
 
+/// The link that opens the app already connected. The token stays in the
+/// `#fragment`, which browsers never send to the server hosting the page.
+fn pairing_url(daemon: &str, app: Option<&str>, token: &str) -> String {
+    let daemon = daemon.trim_end_matches('/');
+    match app.map(|a| a.trim_end_matches('/')) {
+        Some(app) => format!("{app}/#daemon={daemon}&token={token}"),
+        None => format!("{daemon}/#token={token}"),
+    }
+}
+
 /// `https://box.example.ts.net:8443/x` → `box.example.ts.net`.
 fn url_host(url: &str) -> Option<String> {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
@@ -299,6 +313,18 @@ fn qr_code(text: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pairing_urls() {
+        assert_eq!(
+            pairing_url("https://box.ts.net/", None, "t"),
+            "https://box.ts.net/#token=t"
+        );
+        assert_eq!(
+            pairing_url("https://box.ts.net", Some("https://app.example.com/"), "t"),
+            "https://app.example.com/#daemon=https://box.ts.net&token=t"
+        );
+    }
 
     #[test]
     fn url_hosts() {

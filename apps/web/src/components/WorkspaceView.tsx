@@ -92,8 +92,8 @@ export function WorkspaceView({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
-      <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-5 pt-4 pb-2">
-        <div className="min-w-0">
+      <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-5 pt-4 pb-2 max-md:px-3 max-md:pt-2">
+        <div className="min-w-0 max-md:hidden">
           <p className="truncate text-xs text-muted">
             {repo?.name ?? "Unknown repository"} · <span className="font-mono">{workspace.branch}</span>
           </p>
@@ -105,7 +105,7 @@ export function WorkspaceView({
             </span>
           </h2>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2 max-md:justify-start">
         {ready && (
           <button
             type="button"
@@ -196,7 +196,7 @@ export function WorkspaceView({
         {canArchive &&
           (confirming ? (
             <div className="flex items-center gap-1.5">
-              <span className="text-muted">Remove the worktree? The branch is kept.</span>
+              <span className="text-muted max-md:hidden">Remove the worktree? The branch is kept.</span>
               <button
                 type="button"
                 disabled={busy}
@@ -262,7 +262,7 @@ export function WorkspaceView({
             : undefined
         }
       />
-      <div className="flex gap-1 border-b border-line px-5" role="tablist" aria-label="Workspace">
+      <div className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto border-b border-line px-5 max-md:px-2" role="tablist" aria-label="Workspace">
         <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
           Chat
         </TabButton>
@@ -394,7 +394,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`-mb-px border-b-2 px-2.5 py-1.5 ${active ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"}`}
+      className={`-mb-px shrink-0 border-b-2 px-2.5 py-1.5 max-md:py-2.5 ${active ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"}`}
     >
       {children}
     </button>

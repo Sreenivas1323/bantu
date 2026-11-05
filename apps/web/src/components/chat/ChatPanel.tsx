@@ -133,7 +133,7 @@ export function ChatPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {(sessions.length > 1 || ready) && (
-        <div className="flex items-center gap-0.5 overflow-x-auto border-b border-line px-3" role="tablist" aria-label="Chats">
+        <div className="scroll-quiet flex items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-line px-3 max-md:px-1" role="tablist" aria-label="Chats">
           {sessions.length > 1 &&
             sessions.map((s) => (
               <button

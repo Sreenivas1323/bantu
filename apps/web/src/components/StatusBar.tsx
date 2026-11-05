@@ -44,13 +44,13 @@ export function StatusBar({
 }) {
   const [askable, setAskable] = useState(notificationsAvailable);
   return (
-    <footer className="col-span-2 flex items-center gap-4 border-t border-line bg-panel px-3 py-1.5 text-xs text-muted">
+    <footer className="scroll-quiet flex items-center gap-4 overflow-x-auto border-t border-line bg-panel px-3 py-1.5 text-xs whitespace-nowrap text-muted md:col-span-2">
       <span className="flex items-center gap-1.5">
         <span className={`size-2 rounded-full ${tone[status]}`} />
         {label[status]}
       </span>
-      {daemonVersion && <span>bantud {daemonVersion}</span>}
-      <span className="tabular-nums">seq {lastSeq}</span>
+      {daemonVersion && <span className="max-md:hidden">bantud {daemonVersion}</span>}
+      <span className="tabular-nums max-md:hidden">seq {lastSeq}</span>
       {agents
         ?.filter((a) => a.installed)
         .map((a) => (
@@ -59,7 +59,7 @@ export function StatusBar({
             type="button"
             onClick={onOpenAccounts}
             title={[a.account, a.organization].filter(Boolean).join(" · ") || "Agent account"}
-            className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-raised hover:text-fg"
+            className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-raised hover:text-fg max-md:hidden"
           >
             <span className={`size-1.5 rounded-full ${a.logged_in ? "bg-ok" : "bg-warn"}`} />
             {agentLabel(a.agent)} · {accountKind(a)}

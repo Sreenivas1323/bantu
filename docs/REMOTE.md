@@ -54,3 +54,32 @@ the request arrives as `127.0.0.1`.
 | `--allow-remote` | Bind non-loopback addresses and accept any `Host`. Only behind a trusted proxy. |
 
 Requests for any other `Host` get `403`, which blocks DNS-rebinding attacks from web pages.
+
+## Install it as an app
+
+The web client is a PWA. On a phone, open your daemon's HTTPS address and use **Add to Home
+Screen**; on desktop Chrome or Edge, use the install icon in the address bar. It opens in
+its own window, and the workspace list becomes a drawer on small screens. Installing needs
+HTTPS, which Tailscale Serve and Cloudflare Tunnel both provide.
+
+## Host the web client yourself
+
+`bantud` already serves the client, so this is optional. It's useful if you want one
+address for several daemons, or to keep the client up while a machine is stopped. The client is
+plain static files, and nothing about your daemon or token reaches the host:
+
+```sh
+bun install && bun run build:web    # output in apps/web/dist
+```
+
+Upload `apps/web/dist` to any static host (GitHub Pages, Vercel, Cloudflare Pages, S3), in any
+folder. Then pair a device with a link that names both:
+
+```sh
+BANTU_APP_URL=https://bantu.example.com bantud url --qr
+# → https://bantu.example.com/#daemon=https://box.tail1234.ts.net&token=…
+```
+
+The daemon needs an HTTPS address, because browsers block `http://` requests from an HTTPS
+page. The exception is a daemon on the same machine at `http://127.0.0.1:47800`, though
+some browsers ask for permission to reach local addresses from a public site.

@@ -48,7 +48,8 @@ export function Composer({
   const drafts = useRef(new Map<string, string>());
   useEffect(() => {
     setText(drafts.current.get(session.id) ?? "");
-    ref.current?.focus();
+    // On a touch screen, focusing would open the keyboard over the transcript.
+    if (!window.matchMedia("(pointer: coarse)").matches) ref.current?.focus();
   }, [session.id]);
 
   useLayoutEffect(() => {
@@ -69,7 +70,7 @@ export function Composer({
       }
     } finally {
       setSending(false);
-      ref.current?.focus();
+      if (!window.matchMedia("(pointer: coarse)").matches) ref.current?.focus();
     }
   };
 
@@ -85,7 +86,7 @@ export function Composer({
   const modelOptions = model && !known.includes(model) ? [...known, model] : known;
 
   return (
-    <div className="border-t border-line bg-panel/60 px-5 pt-3 pb-3">
+    <div className="border-t border-line bg-panel/60 px-5 pt-3 pb-3 max-md:px-2 max-md:pt-2 max-md:pb-2">
       <div className="mx-auto max-w-3xl">
         <div className="rounded-lg border border-line bg-bg focus-within:border-accent/60">
           <textarea
@@ -198,7 +199,7 @@ export function Composer({
             </button>
           </div>
         </div>
-        <p className="mt-1.5 text-[11px] text-faint">
+        <p className="mt-1.5 text-[11px] text-faint max-md:hidden">
           Enter to send · Shift+Enter for a new line
           {session.permission_mode === "bypass_permissions" && (
             <span className="text-warn"> · Bypass lets the agent run anything without asking</span>

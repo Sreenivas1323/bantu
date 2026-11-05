@@ -21,6 +21,8 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const { agents, refresh: refreshAgents } = useAgents(client);
   const [showAccounts, setShowAccounts] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
+  // Phones show one thing at a time: the workspace list slides over the page.
+  const [navOpen, setNavOpen] = useState(true);
 
   useEffect(() => {
     if (status === "unauthorized") onDisconnect("The daemon rejected this token. Paste a fresh one.");
@@ -87,8 +89,18 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const selected = selectedId ? state.workspaces[selectedId] : undefined;
 
   return (
-    <div className="grid h-full grid-cols-[264px_minmax(0,1fr)] grid-rows-[1fr_auto]">
+    <div className="relative grid h-full grid-cols-1 grid-rows-[1fr_auto] md:grid-cols-[264px_minmax(0,1fr)]">
+      {navOpen && (
+        <button
+          type="button"
+          aria-label="Close the workspace list"
+          onClick={() => setNavOpen(false)}
+          className="absolute inset-0 z-20 bg-black/50 md:hidden"
+        />
+      )}
       <Sidebar
+        open={navOpen}
+        onClose={() => setNavOpen(false)}
         repos={repos}
         workspacesByRepo={workspacesByRepo}
         sessionsByWorkspace={sessionsByWorkspace}
@@ -97,7 +109,10 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
         selectedId={selectedId}
         showArchived={showArchived}
         onToggleArchived={() => setShowArchived((v) => !v)}
-        onSelect={setSelectedId}
+        onSelect={(id) => {
+          setSelectedId(id);
+          setNavOpen(false);
+        }}
         client={client}
         onAddRepo={async (path) => {
           await run({ type: "repo.add", path });
@@ -111,7 +126,24 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
           await run({ type: "repo.remove", repo_id: repoId });
         }}
       />
-      <main className="min-h-0 min-w-0 overflow-hidden">
+      <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-line bg-panel px-2 py-1.5 md:hidden">
+          <button
+            type="button"
+            onClick={() => setNavOpen(true)}
+            aria-label="Open the workspace list"
+            className="flex size-9 items-center justify-center rounded-md text-lg text-muted hover:bg-raised hover:text-fg"
+          >
+            ☰
+          </button>
+          <span className="min-w-0 flex-1 truncate font-medium">{selected?.name ?? "Bantu"}</span>
+          {waitingWorkspaces.size > 0 && (
+            <button type="button" onClick={() => setShowInbox(true)} className="shrink-0 rounded-full bg-warn/15 px-2 py-0.5 text-[12px] font-medium text-warn">
+              {waitingWorkspaces.size} waiting
+            </button>
+          )}
+        </div>
+        <div className="min-h-0 flex-1">
         {selected ? (
           <WorkspaceView
             workspace={selected}
@@ -148,6 +180,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             }}
           />
         )}
+        </div>
       </main>
       {showAccounts && (
         <AccountsDialog

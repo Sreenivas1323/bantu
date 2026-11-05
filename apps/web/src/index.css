@@ -29,6 +29,13 @@ body,
   overscroll-behavior: none;
 }
 
+/* Keyboards and browser toolbars change the visible height on phones. */
+#root {
+  height: 100dvh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   background: var(--color-bg);
@@ -36,6 +43,11 @@ body {
   font-family: var(--font-sans);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Tab bars scroll sideways on narrow screens; a scrollbar would only crowd them. */
+.scroll-quiet {
+  scrollbar-width: none;
 }
 
 ::selection {

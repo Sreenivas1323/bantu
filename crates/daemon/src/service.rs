@@ -14,6 +14,7 @@ pub const LABEL: &str = "dev.bantu.bantud";
 const PERSISTED_ENV: &[&str] = &[
     "BANTUD_PORT",
     "BANTU_PUBLIC_URL",
+    "BANTU_APP_URL",
     "BANTU_ALLOWED_HOSTS",
     "BANTU_WORKSPACES_DIR",
     "BANTU_CLAUDE_BIN",

@@ -29,7 +29,7 @@ export function TerminalPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-0.5 overflow-x-auto border-b border-line px-3" role="tablist" aria-label="Terminals">
+      <div className="scroll-quiet flex items-center gap-0.5 overflow-x-auto border-b border-line px-3" role="tablist" aria-label="Terminals">
         {terminals.map((t) => (
           <div
             key={t.id}
