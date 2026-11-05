@@ -1,0 +1,472 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Bantu on your own AWS account, at your own domain through CloudFront: a small
+  Graviton EC2 machine running bantud that stops itself when idle and wakes from a
+  private link. https://github.com/Sreenivas1323/bantu
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: Domain }
+        Parameters: [HostedZoneId, AppDomain, PreviewDomain, OriginDomain, PreviewOriginDomain, CertificateArn, CloudFrontPrefixListId]
+      - Label: { default: Machine }
+        Parameters: [InstanceType, DiskGiB, IdleStopMinutes, BantuVersion]
+
+Parameters:
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: The Route 53 hosted zone for your domain. The names below must be inside it.
+  AppDomain:
+    Type: String
+    AllowedPattern: "^[a-z0-9.-]+$"
+    Description: Where you'll open Bantu, e.g. bantu.example.com.
+  PreviewDomain:
+    Type: String
+    AllowedPattern: "^[a-z0-9.-]+$"
+    Description: Where port previews open, e.g. preview.bantu.example.com. It must differ from AppDomain so previewed pages can't reach the daemon's token.
+  OriginDomain:
+    Type: String
+    AllowedPattern: "^[a-z0-9.-]+$"
+    Description: The machine's own name, which CloudFront connects to, e.g. origin.bantu.example.com.
+  PreviewOriginDomain:
+    Type: String
+    AllowedPattern: "^[a-z0-9.-]+$"
+    Description: The machine's name for previews, e.g. preview-origin.bantu.example.com.
+  CertificateArn:
+    Type: String
+    AllowedPattern: "^arn:aws[a-z-]*:acm:us-east-1:.*"
+    Description: An ACM certificate in us-east-1 covering AppDomain and PreviewDomain. CloudFront only uses certificates from that region.
+  CloudFrontPrefixListId:
+    Type: String
+    AllowedPattern: "^pl-[0-9a-f]+$"
+    Description: >-
+      This region's prefix list for CloudFront. Find it with: aws ec2 describe-managed-prefix-lists
+      --filters Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing
+  InstanceType:
+    Type: String
+    Default: t4g.medium
+    AllowedValues: [t4g.small, t4g.medium, t4g.large, t4g.xlarge]
+    Description: t4g.medium (2 vCPU, 4 GB) suits 2-4 parallel agents. You pay only while it runs.
+  DiskGiB:
+    Type: Number
+    Default: 30
+    MinValue: 16
+    MaxValue: 500
+    Description: Encrypted gp3 disk for repos and worktrees (~$0.08 per GiB-month, also while stopped).
+  IdleStopMinutes:
+    Type: Number
+    Default: 60
+    MinValue: 0
+    Description: Stop the machine after this many idle minutes (no agent working, no terminal or browser connected). 0 = never.
+  BantuVersion:
+    Type: String
+    Default: latest
+    Description: Bantu release tag to install, e.g. v0.1.0-alpha.2.
+
+Resources:
+  # --- Network ------------------------------------------------------------
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.42.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}" }]
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: { VpcId: !Ref Vpc, InternetGatewayId: !Ref InternetGateway }
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: { VpcId: !Ref Vpc }
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  SubnetRoutes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref Subnet, RouteTableId: !Ref RouteTable }
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Bantu - HTTPS from CloudFront only; port 80 for certificate renewal
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, SourcePrefixListId: !Ref CloudFrontPrefixListId }
+        # Let's Encrypt's HTTP challenge. Everything else here redirects to HTTPS.
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0 }
+      SecurityGroupEgress:
+        - { IpProtocol: "-1", CidrIp: 0.0.0.0/0 }
+  Address:
+    Type: AWS::EC2::EIP
+    DependsOn: GatewayAttachment
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref Instance
+
+  # --- Machine ------------------------------------------------------------
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      # Session Manager gives you a shell (for `claude login`) without SSH.
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore]
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: { Roles: [!Ref InstanceRole] }
+
+  Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: DefaultRoute
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64}}"
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !Ref Subnet
+      SecurityGroupIds: [!Ref SecurityGroup]
+      # `shutdown` from the idle timer stops (not terminates) the machine.
+      InstanceInitiatedShutdownBehavior: stop
+      MetadataOptions: { HttpTokens: required }
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeSize: !Ref DiskGiB, VolumeType: gp3, Encrypted: true }
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}" }]
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            set -euxo pipefail
+            exec > >(tee /var/log/bantu-setup.log) 2>&1
+            U=ec2-user
+            H=/home/$U
+
+            dnf install -y git tmux jq
+            dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+            dnf install -y gh
+
+            # Caddy gets a certificate for the origin names and renews it. Only
+            # requests carrying CloudFront's secret header reach the daemon: the
+            # prefix list alone admits every CloudFront customer.
+            curl -fsSL 'https://caddyserver.com/api/download?os=linux&arch=arm64' -o /usr/local/bin/caddy
+            chmod 755 /usr/local/bin/caddy
+            useradd --system --home-dir /var/lib/caddy --create-home --shell /sbin/nologin caddy || true
+            mkdir -p /etc/caddy
+            cat > /etc/caddy/Caddyfile <<'CADDY'
+            ${OriginDomain} {
+              @cloudfront header X-Bantu-Origin ${OriginSecret}
+              handle @cloudfront {
+                reverse_proxy 127.0.0.1:47800 {
+                  flush_interval -1
+                }
+              }
+              handle {
+                respond 403
+              }
+            }
+            ${PreviewOriginDomain} {
+              @cloudfront header X-Bantu-Origin ${OriginSecret}
+              handle @cloudfront {
+                reverse_proxy 127.0.0.1:47801 {
+                  flush_interval -1
+                }
+              }
+              handle {
+                respond 403
+              }
+            }
+            CADDY
+            cat > /etc/systemd/system/caddy.service <<'UNIT'
+            [Unit]
+            Description=Caddy
+            After=network-online.target
+            Wants=network-online.target
+            [Service]
+            User=caddy
+            AmbientCapabilities=CAP_NET_BIND_SERVICE
+            ExecStart=/usr/local/bin/caddy run --config /etc/caddy/Caddyfile
+            Restart=on-failure
+            RestartSec=30
+            [Install]
+            WantedBy=multi-user.target
+            UNIT
+
+            # Claude Code and Bantu for the regular user.
+            sudo -u $U bash -lc 'curl -fsSL https://claude.ai/install.sh | bash'
+            sudo -u $U env BANTU_VERSION='${BantuVersion}' BANTU_NO_SERVICE=1 \
+              bash -lc 'curl -fsSL https://raw.githubusercontent.com/Sreenivas1323/bantu/main/deploy/install.sh | sh'
+
+            cat > /etc/systemd/system/bantud.service <<UNIT
+            [Unit]
+            Description=Bantu daemon
+            After=network-online.target
+            [Service]
+            User=$U
+            Environment=HOME=$H
+            Environment=PATH=$H/.local/bin:/usr/local/bin:/usr/bin:/bin
+            Environment=BANTU_PUBLIC_URL=https://${AppDomain}
+            Environment=BANTU_PREVIEW_URL=https://${PreviewDomain}
+            Environment=BANTU_ALLOWED_HOSTS=${OriginDomain},${PreviewOriginDomain}
+            ExecStart=$H/.local/bin/bantud
+            Restart=on-failure
+            [Install]
+            WantedBy=multi-user.target
+            UNIT
+            # So `bantud url --qr` in a shell prints the public address.
+            echo 'export BANTU_PUBLIC_URL=https://${AppDomain}' > /etc/profile.d/bantu.sh
+
+            # Idle auto-stop: nothing running, nothing connected, nobody logged in.
+            cat > /usr/local/bin/bantu-idle-stop <<'SCRIPT'
+            #!/bin/bash
+            limit_min=${IdleStopMinutes}
+            [ "$limit_min" -gt 0 ] || exit 0
+            # Give a fresh boot time to settle.
+            [ "$(cut -d. -f1 /proc/uptime)" -gt 900 ] || exit 0
+            [ "$(who | wc -l)" -eq 0 ] || exit 0
+            token=$(cat /home/ec2-user/.bantu/local-token 2>/dev/null) || exit 0
+            a=$(curl -fs -H "Authorization: Bearer $token" http://127.0.0.1:47800/v1/activity) || exit 0
+            [ "$(echo "$a" | jq -r .busy)" = false ] || exit 0
+            [ "$(echo "$a" | jq -r .idle_seconds)" -ge $((limit_min * 60)) ] || exit 0
+            logger -t bantu "idle for ${IdleStopMinutes}+ minutes; stopping the machine"
+            shutdown -h now
+            SCRIPT
+            chmod 755 /usr/local/bin/bantu-idle-stop
+            cat > /etc/systemd/system/bantu-idle-stop.service <<'UNIT'
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/local/bin/bantu-idle-stop
+            UNIT
+            cat > /etc/systemd/system/bantu-idle-stop.timer <<'UNIT'
+            [Timer]
+            OnBootSec=5min
+            OnUnitActiveSec=5min
+            [Install]
+            WantedBy=timers.target
+            UNIT
+
+            systemctl daemon-reload
+            systemctl enable --now caddy.service bantud.service bantu-idle-stop.timer
+            echo "Bantu is ready at https://${AppDomain}"
+          - OriginSecret: !Select [2, !Split ["/", !Ref AWS::StackId]]
+
+  # --- DNS ----------------------------------------------------------------
+  OriginRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref OriginDomain
+      Type: A
+      TTL: "300"
+      ResourceRecords: [!Ref Address]
+  PreviewOriginRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref PreviewOriginDomain
+      Type: A
+      TTL: "300"
+      ResourceRecords: [!Ref Address]
+  AppRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref AppDomain
+      Type: A
+      AliasTarget:
+        # CloudFront's fixed hosted zone id.
+        HostedZoneId: Z2FDTNDATAQYW2
+        DNSName: !GetAtt AppDistribution.DomainName
+  PreviewRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref PreviewDomain
+      Type: A
+      AliasTarget:
+        HostedZoneId: Z2FDTNDATAQYW2
+        DNSName: !GetAtt PreviewDistribution.DomainName
+
+  # --- CloudFront: HTTPS at the edge, nothing cached ----------------------
+  # Live events and terminals pass straight through (SSE keepalives every 15 s
+  # stay inside the read timeout). Previews get a distribution of their own, so
+  # they stay on a different origin from the daemon's token.
+  AppDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "Bantu (${AWS::StackName})"
+        Aliases: [!Ref AppDomain]
+        HttpVersion: http2
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - Id: machine
+            DomainName: !Ref OriginDomain
+            OriginCustomHeaders:
+              - HeaderName: X-Bantu-Origin
+                HeaderValue: !Select [2, !Split ["/", !Ref AWS::StackId]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+        DefaultCacheBehavior:
+          TargetOriginId: machine
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          Compress: false
+          # Managed policies: CachingDisabled, AllViewerExceptHostHeader.
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+  PreviewDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "Bantu previews (${AWS::StackName})"
+        Aliases: [!Ref PreviewDomain]
+        HttpVersion: http2
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - Id: machine
+            DomainName: !Ref PreviewOriginDomain
+            OriginCustomHeaders:
+              - HeaderName: X-Bantu-Origin
+                HeaderValue: !Select [2, !Split ["/", !Ref AWS::StackId]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+        DefaultCacheBehavior:
+          TargetOriginId: machine
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          Compress: false
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+
+  # --- Wake link: a private URL that starts the machine -------------------
+  WakeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole]
+      Policies:
+        - PolicyName: start-bantu-instance
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [ec2:StartInstances]
+                Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${Instance}"
+              - Effect: Allow
+                Action: [ec2:DescribeInstances]
+                Resource: "*"
+  WakeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.13
+      Architectures: [arm64]
+      Handler: index.handler
+      Timeout: 15
+      MemorySize: 128
+      Role: !GetAtt WakeRole.Arn
+      Environment:
+        Variables:
+          INSTANCE_ID: !Ref Instance
+          # The stack's UUID doubles as the link's secret.
+          WAKE_KEY: !Select [2, !Split ["/", !Ref AWS::StackId]]
+          APP_URL: !Sub "https://${AppDomain}"
+      Code:
+        ZipFile: |
+          import hmac, html, os
+          import boto3
+
+          ec2 = boto3.client("ec2")
+
+          def page(status, body):
+              return {"statusCode": status, "headers": {"content-type": "text/html; charset=utf-8"},
+                      "body": "<!doctype html><meta name=viewport content='width=device-width'>"
+                              "<body style='font:16px system-ui;background:#111;color:#eee;padding:2rem'>"
+                              + body}
+
+          def handler(event, _context):
+              key = (event.get("queryStringParameters") or {}).get("key", "")
+              if not hmac.compare_digest(key, os.environ["WAKE_KEY"]):
+                  return page(403, "Not allowed.")
+              iid = os.environ["INSTANCE_ID"]
+              state = ec2.describe_instances(InstanceIds=[iid])["Reservations"][0]["Instances"][0]["State"]["Name"]
+              if state == "stopped":
+                  ec2.start_instances(InstanceIds=[iid])
+                  msg = "Starting your Bantu machine. It's usually ready in about a minute."
+              elif state == "running":
+                  msg = "Your Bantu machine is already running."
+              else:
+                  msg = f"Your Bantu machine is {html.escape(state)}; try again shortly."
+              url = html.escape(os.environ["APP_URL"])
+              return page(200, f"<h1>Bantu</h1><p>{msg}</p><p>Then open <a style='color:#7fb2ff' href='{url}'>{url}</a>.</p>")
+  WakeUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !GetAtt WakeFunction.Arn
+  WakeUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref WakeFunction
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+  # Newer accounts also require InvokeFunction for public function URLs. The
+  # function checks the key itself, so direct invokes can't do anything.
+  WakeInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WakeFunction
+      Principal: "*"
+
+Outputs:
+  OpenBantu:
+    Description: Open this from any device (setup takes ~5 minutes after the stack completes).
+    Value: !Sub "https://${AppDomain}"
+  WakeLink:
+    Description: Bookmark this private link to start the machine after it idles out.
+    Value: !Sub
+      - "${Url}?key=${Key}"
+      - Url: !GetAtt WakeUrl.FunctionUrl
+        Key: !Select [2, !Split ["/", !Ref AWS::StackId]]
+  Shell:
+    Description: Open a shell on the machine (then run `claude login` once, and `bantud url --qr` to pair a phone).
+    Value: !Sub "aws ssm start-session --region ${AWS::Region} --target ${Instance}"
+  InstanceId:
+    Value: !Ref Instance

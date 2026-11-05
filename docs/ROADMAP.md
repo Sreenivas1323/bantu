@@ -67,8 +67,8 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Web/PWA client: installable, deployable as a static site (`#daemon=…&token=…` pairing with `BANTU_APP_URL`), with a phone layout
 - [x] Web Push from the daemon (VAPID) for approvals, inbox items and finished turns — encryption matches the RFC 8291 test vector and delivery is tested with a local push server, but not yet against a real browser push service
 - [x] AWS template (Tailscale variant): EC2 t4g, no open ports, idle auto-stop via `/v1/activity`, Lambda wake link, Session Manager shell ([AWS.md](AWS.md)) — lint-checked, not yet deployed end to end
-- [ ] CloudFront variant (needs your own domain + certificate on the instance)
-- [ ] Launch Stack button (needs a public S3 copy of the template)
+- [x] CloudFront variant: your own domain, Caddy for the origin certificate, CloudFront-only access with a secret header, and a separate distribution for previews ([AWS.md](AWS.md)) — lint-checked and its routing tested with the real Caddy, not yet deployed end to end
+- [ ] Launch Stack button: the release can publish the templates to S3 and the link format is documented, but it needs a public bucket to exist first ([RELEASING.md](RELEASING.md))
 - [x] Guides: Tailscale Serve, Cloudflare Tunnel, SSH ([REMOTE.md](REMOTE.md)); `--allowed-host` instead of all-or-nothing
 - [x] Port forwarding for dev-server previews: HTTP and WebSockets through a separate origin, with short-lived per-port grants
 

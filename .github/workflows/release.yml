@@ -146,7 +146,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: bantu-*
@@ -162,3 +164,12 @@ jobs:
           pre=""; case "${GITHUB_REF_NAME}" in *-*) pre="--prerelease" ;; esac
           gh release create "${GITHUB_REF_NAME}" bantu-*.tar.gz Bantu-macOS-*.dmg SHA256SUMS $pre \
             --repo "${GITHUB_REPOSITORY}" --title "Bantu ${GITHUB_REF_NAME}" --generate-notes
+      # Launch Stack links need the templates in a public bucket (docs/RELEASING.md).
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: vars.AWS_TEMPLATE_BUCKET != ''
+        with:
+          role-to-assume: ${{ secrets.AWS_TEMPLATE_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_TEMPLATE_REGION || 'us-east-1' }}
+      - name: Publish CloudFormation templates
+        if: vars.AWS_TEMPLATE_BUCKET != ''
+        run: aws s3 cp deploy/aws/ "s3://${{ vars.AWS_TEMPLATE_BUCKET }}/" --recursive --exclude '*' --include '*.yaml'
