@@ -112,16 +112,30 @@ in Bantu chats** in the accounts dialog. This is on `main` and isn't in v0.1.0-a
 | Diff review with line comments sent to the agent; Create PR; PR checks summary | ✅ |
 | Terminals and run scripts (PTY over WebSocket) | ✅ |
 | Per-turn checkpoints and "restore files to before this turn" | ✅ |
-| ACP agents (OpenCode, Cursor, Gemini), chat ⇄ terminal | M2 |
+| ACP agents (OpenCode, Cursor, Gemini) | ✅ (tested with a fake agent; no full turn against a real one yet) |
+| Chat ⇄ terminal on one conversation; any CLI in a terminal | ✅ |
+| Checks tab: CI, deployments, PR comments, todos | ✅ |
+| Per-repo prompts, loadouts, effort and fast mode, forking a chat | ✅ |
+| Agents can read terminals, leave comments, notify you and ask questions | ✅ |
+| Spotlight: try a workspace in your main checkout | ✅ |
 | Remote access via Tailscale, Cloudflare Tunnel or SSH; pairing by QR code | ✅ |
 | AWS template with idle auto-stop (Tailscale) | ✅ (lint-checked, not yet deployed end to end) |
 | Lean Claude turns: global setup skipped by default | ✅ (on `main`) |
-| Phone layout, Web Push, Launch Stack button | M3 |
+| Installable web app with a phone layout, hostable on its own | ✅ |
+| Port forwarding for dev-server previews | ✅ |
+| Web Push alerts from the daemon | ✅ (tested with a local push server, not a real browser service yet) |
+| AWS template with CloudFront and your own domain | ✅ (lint-checked, not yet deployed end to end) |
+| Launch Stack button | Needs a public bucket for the templates |
 | Orchestration: a chat starts, watches and reviews other workspaces via Bantu's MCP tools | ✅ |
 | Conflict radar: warns when workspaces (or a workspace and its base) will conflict | ✅ |
 | Definition of done: a repo `check` runs after agent edits; failures go back to the agent | ✅ |
 | One-click review in a read-only chat (Claude or Codex) | ✅ |
-| Orchestrator board, automatic cross-agent review before "Ready" | M4 |
+| Orchestrator board, merging child workspaces into one branch | ✅ |
+| Automatic cross-agent review before "Ready" (opt-in) | ✅ |
+| Loops: agents on a schedule or from GitHub labels | ✅ (GitHub polling not yet run against a real repo) |
+| Import workspaces and chats from Conductor and Pane | ✅ |
+| Vercel Sandbox burst runs | ✅ (not yet run against Vercel) |
+| Windows | Preview: builds in CI, not yet tried on a real machine |
 
 ## Your own cloud, at cost
 
@@ -145,7 +159,7 @@ The project itself costs about $99 a year to run (Apple code signing). See
                           |
    bantud: one Rust binary on macOS, Linux or EC2
      ├─ workspaces   git worktrees, scripts, port ranges
-     ├─ agents       your own `claude` and `codex` CLIs
+     ├─ agents       your own `claude`, `codex`, `opencode`, `gemini` and `agent` CLIs
      ├─ checkpoints  per-turn snapshots in private git refs
      └─ SQLite       append-only event log
 ```
