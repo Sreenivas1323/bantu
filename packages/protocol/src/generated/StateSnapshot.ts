@@ -5,6 +5,7 @@ import type { PermissionRequest } from "./PermissionRequest";
 import type { Preferences } from "./Preferences";
 import type { Repo } from "./Repo";
 import type { Session } from "./Session";
+import type { Spotlight } from "./Spotlight";
 import type { Terminal } from "./Terminal";
 import type { Workspace } from "./Workspace";
 import type { WorkspaceConflict } from "./WorkspaceConflict";
@@ -21,4 +22,8 @@ inbox: Array<InboxItem>,
 /**
  * Latest conflict-radar results across all repos.
  */
-conflicts: Array<WorkspaceConflict>, preferences: Preferences, };
+conflicts: Array<WorkspaceConflict>, 
+/**
+ * Workspaces currently shown in their repo's main checkout.
+ */
+spotlights: Array<Spotlight>, preferences: Preferences, };

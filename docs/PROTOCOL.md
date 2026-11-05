@@ -246,6 +246,9 @@ One transcript entry, normalized across agents and tagged by `kind`:
 - `kind` is `"notice"` or `"question"`. A question's agent is waiting for an answer; `options` are suggestions, and the user can type their own.
 - Items live in the daemon's memory and are empty after a restart. Stopping a chat releases its questions.
 
+### `Spotlight`
+`{ repo_id, workspace_id, restore_to, commit, synced_at }`: a workspace shown in its repo's main checkout. `restore_to` is where the checkout returns afterwards. Listed in `StateSnapshot.spotlights`; changes arrive as `spotlight.updated`.
+
 ### `LogStream`
 `"stdout" | "stderr" | "system"`
 
@@ -260,6 +263,8 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `workspace.create` | `repo_id`, `name?`, `base_ref?` | `Workspace` (`creating`) | Creates a worktree and branch; see below. |
 | `workspace.archive` | `workspace_id` | `Workspace` (`archiving`) | Stops its agents and terminals, then archives; see below. |
 | `workspace.run` | `workspace_id` | `Terminal` | Starts the repo's run script in a `run` terminal, or returns the one already running. 400 if there's no run script. |
+| `workspace.spotlight` | `workspace_id` | `Spotlight` | Shows the workspace's work in the repo's main checkout; see below. 409 if the main checkout has uncommitted changes. |
+| `repo.spotlight_stop` | `repo_id` | — | Returns the main checkout to its branch. 409 if it has uncommitted changes. |
 | `workspace.create_pr` | `workspace_id`, `session_id` | `Session` | Asks the agent to commit, push and `gh pr create` against `base_ref`. 400 without an `origin` remote. |
 | `workspace.fix_checks` | `workspace_id`, `session_id` | `Session` | Sends failing checks and their logs to the agent. |
 | `workspace.address_comments` | `workspace_id`, `session_id` | `Session` | Sends the PR's comments to the agent. 400 without a PR or comments. |
@@ -297,6 +302,17 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
    - `.env*` files, by default.
 6. Runs the repo's setup script, if any. Its output streams as `workspace.log` events.
 7. Ends in state `ready` with one idle `Session`, or in `failed` with `error` set.
+
+### `workspace.spotlight`
+Tests a workspace in the repo's main checkout, where the user's own dev servers, `.env` files and tools already live.
+
+1. Takes a snapshot of the workspace (commits, uncommitted and untracked files) and keeps it at `refs/bantu/spotlight/<repo id>`.
+2. Runs `git checkout --detach <snapshot>` in the main checkout. Detaching means no branch moves, and the workspace's branch stays usable in its worktree.
+3. Repeats after each agent turn in that workspace.
+
+`repo.spotlight_stop` checks out the original branch again, and archiving the workspace does the same. The state is kept in the database, because the checkout stays that way across a daemon restart.
+
+The main checkout belongs to the user, so nothing here overwrites it. Tracked changes or a merge in progress refuse the command with 409. If that happens during an automatic update, the update is skipped and the reason goes in the workspace log. Gitignored files are left alone.
 
 ### `workspace.archive`
 1. Stops running agent turns and closes terminals.
@@ -395,6 +411,7 @@ These agents speak the [Agent Client Protocol](https://agentclientprotocol.com):
 | `comment.deleted` | `comment_id`, `workspace_id` | |
 | `permission.requested` | `request` | An agent is waiting for approval |
 | `permission.resolved` | `request_id`, `session_id`, `workspace_id`, `allowed` | Answered, stopped or timed out |
+| `spotlight.updated` | `repo_id`, `spotlight` | A workspace entered or updated the main checkout; `spotlight` is `null` when it returned to its branch |
 | `inbox.added` | `item` | An agent sent a notice or question |
 | `inbox.removed` | `item_id`, `workspace_id` | It was answered, dismissed, timed out or released by a stop |
 | `terminal.updated` | `terminal` | A terminal opened or its process exited (full object) |

@@ -17,6 +17,7 @@ pub mod review;
 pub mod service;
 pub mod sessions;
 pub mod settings;
+pub mod spotlight;
 pub mod store;
 pub mod terminal_driver;
 pub mod terminals;

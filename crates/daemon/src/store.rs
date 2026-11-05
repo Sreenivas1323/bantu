@@ -12,7 +12,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use bantu_protocol::{
     AgentKind, ChatItem, DiffComment, Event, EventData, LogStream, PermissionMode, Preferences,
-    Repo, Session, SessionStatus, Workspace, WorkspaceState,
+    Repo, Session, SessionStatus, Spotlight, Workspace, WorkspaceState,
 };
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
@@ -265,6 +265,40 @@ impl Store {
         self.finish(guard, tx, data).await
     }
 
+    /// Which workspace is in the repo's main checkout. It must survive a
+    /// restart, because the checkout stays that way until it's stopped.
+    pub async fn set_spotlight(
+        &self,
+        repo_id: &str,
+        spotlight: Option<&Spotlight>,
+    ) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        let key = format!("spotlight:{repo_id}");
+        match spotlight {
+            Some(s) => {
+                sqlx::query(
+                    "INSERT INTO preferences (key, value) VALUES (?, ?)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                )
+                .bind(&key)
+                .bind(serde_json::to_string(s)?)
+                .execute(&mut *tx)
+                .await?;
+            }
+            None => {
+                sqlx::query("DELETE FROM preferences WHERE key = ?")
+                    .bind(&key)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        let data = EventData::SpotlightUpdated {
+            repo_id: repo_id.to_string(),
+            spotlight: spotlight.cloned(),
+        };
+        self.finish(guard, tx, data).await
+    }
+
     /// Records an event that has no projection (e.g. in-memory terminals).
     pub async fn emit(&self, data: EventData) -> Result<Event> {
         let (guard, tx) = self.begin().await?;
@@ -340,6 +374,26 @@ impl Store {
         Ok(value
             .and_then(|v| serde_json::from_str(&v).ok())
             .unwrap_or_default())
+    }
+
+    pub async fn spotlight(&self, repo_id: &str) -> Result<Option<Spotlight>> {
+        let value: Option<String> =
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key = ?")
+                .bind(format!("spotlight:{repo_id}"))
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(value.and_then(|v| serde_json::from_str(&v).ok()))
+    }
+
+    pub async fn spotlights(&self) -> Result<Vec<Spotlight>> {
+        let values: Vec<String> =
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key LIKE 'spotlight:%'")
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(values
+            .iter()
+            .filter_map(|v| serde_json::from_str(v).ok())
+            .collect())
     }
 
     pub async fn repos(&self) -> Result<Vec<Repo>> {
@@ -553,6 +607,7 @@ fn event_kind(data: &EventData) -> &'static str {
         EventData::PermissionRequested { .. } => "permission.requested",
         EventData::PermissionResolved { .. } => "permission.resolved",
         EventData::TerminalClosed { .. } => "terminal.closed",
+        EventData::SpotlightUpdated { .. } => "spotlight.updated",
         EventData::InboxAdded { .. } => "inbox.added",
         EventData::InboxRemoved { .. } => "inbox.removed",
     }

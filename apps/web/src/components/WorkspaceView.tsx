@@ -9,6 +9,7 @@ import type {
   PermissionRequest,
   Repo,
   Session,
+  Spotlight,
   Terminal,
   Workspace,
 } from "@bantu/protocol";
@@ -45,6 +46,7 @@ export function WorkspaceView({
   allWorkspaces,
   onSelectWorkspace,
   loadouts,
+  spotlight,
   client,
   run,
   onArchive,
@@ -68,6 +70,8 @@ export function WorkspaceView({
   allWorkspaces: Record<string, Workspace>;
   onSelectWorkspace: (id: string) => void;
   loadouts: Loadout[];
+  /** What's in this repo's main checkout, if anything. */
+  spotlight: Spotlight | undefined;
   client: DaemonClient;
   run: (command: Command) => Promise<CommandResponse | null>;
   onArchive: (id: string) => Promise<void>;
@@ -102,6 +106,29 @@ export function WorkspaceView({
           </h2>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+        {ready && (
+          <button
+            type="button"
+            aria-pressed={spotlight?.workspace_id === workspace.id}
+            onClick={() =>
+              void run(
+                spotlight?.workspace_id === workspace.id
+                  ? { type: "repo.spotlight_stop", repo_id: workspace.repo_id }
+                  : { type: "workspace.spotlight", workspace_id: workspace.id },
+              )
+            }
+            title={
+              spotlight?.workspace_id === workspace.id
+                ? `Return the main checkout to ${spotlight.restore_to}`
+                : "Try this work in the repo's main checkout, where your own servers and .env files live"
+            }
+            className={`rounded-md border px-2.5 py-1 text-[12px] hover:bg-raised ${
+              spotlight?.workspace_id === workspace.id ? "border-accent/60 text-accent" : "border-line text-muted hover:text-fg"
+            }`}
+          >
+            {spotlight?.workspace_id === workspace.id ? "Stop spotlight" : "Spotlight"}
+          </button>
+        )}
         {ready && (
           <button
             type="button"
@@ -206,6 +233,23 @@ export function WorkspaceView({
         <div className="mx-5 mb-2 rounded-md border border-bad/40 bg-bad/10 px-3 py-2 text-bad">{workspace.error}</div>
       )}
 
+      {spotlight && (
+        <p role="status" className="border-b border-accent/30 bg-accent/5 px-5 py-1.5 text-[12.5px] text-accent">
+          {spotlight.workspace_id === workspace.id ? (
+            <>
+              The main checkout is showing this workspace at <span className="font-mono">{spotlight.commit.slice(0, 8)}</span>, and updates after each agent turn.
+            </>
+          ) : (
+            <>
+              The main checkout is showing{" "}
+              <button type="button" onClick={() => onSelectWorkspace(spotlight.workspace_id)} className="font-medium underline-offset-2 hover:underline">
+                {allWorkspaces[spotlight.workspace_id]?.name ?? "another workspace"}
+              </button>
+              . Spotlighting this one switches it here.
+            </>
+          )}
+        </p>
+      )}
       <ConflictBanner
         conflicts={conflicts}
         workspaces={allWorkspaces}

@@ -129,6 +129,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             allWorkspaces={state.workspaces}
             onSelectWorkspace={setSelectedId}
             loadouts={state.preferences.loadouts}
+            spotlight={state.spotlights[selected.repo_id]}
             terminals={Object.values(state.terminals)
               .filter((t) => t.workspace_id === selected.id)
               .sort((a, b) => a.created_at.localeCompare(b.created_at))}

@@ -2632,3 +2632,157 @@ async fn effort_fast_mode_and_forks() {
     assert_eq!(status, 200, "{res}");
     assert_eq!(h.state().await.preferences.loadouts[0].name, "Deep");
 }
+
+#[tokio::test]
+async fn spotlight_shows_a_workspace_in_the_main_checkout() {
+    let (_dir, root) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":root}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let head = |dir: &Path| {
+        let out = Proc::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let branch = head(&root);
+    assert_ne!(branch, "HEAD");
+
+    // Uncommitted work in the workspace reaches the main checkout.
+    std::fs::write(Path::new(&ws.path).join("draft.txt"), "work in progress").unwrap();
+    let (status, res) = h
+        .command(
+            json!({"type":"workspace.spotlight","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["restore_to"], json!(branch));
+    assert_eq!(
+        std::fs::read_to_string(root.join("draft.txt")).unwrap(),
+        "work in progress"
+    );
+    assert_eq!(head(&root), "HEAD", "detached, so the branch isn't touched");
+    assert_eq!(h.state().await.spotlights.len(), 1);
+
+    // It follows the agent's turns.
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"edit the readme"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    for _ in 0..100 {
+        if root.join("agent-file.txt").exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        root.join("agent-file.txt").exists(),
+        "the turn should have synced"
+    );
+
+    // Changes the user makes in the main checkout are never overwritten.
+    let readme = root.join("README.md");
+    let edited = format!("{}my own edit\n", std::fs::read_to_string(&readme).unwrap());
+    std::fs::write(&readme, &edited).unwrap();
+    let (status, res) = h
+        .command(
+            json!({"type":"repo.spotlight_stop","repo_id":repo.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 409, "{res}");
+    assert!(res["error"]
+        .as_str()
+        .unwrap()
+        .contains("uncommitted changes"));
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"edit it again"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    assert_eq!(std::fs::read_to_string(&readme).unwrap(), edited);
+    let mut logged = false;
+    for _ in 0..100 {
+        logged = h.history(&ws.id).await.iter().any(|e| {
+            matches!(&e.data, EventData::WorkspaceLog { line, .. } if line.starts_with("Spotlight didn't update"))
+        });
+        if logged {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(logged, "a skipped sync should say why");
+
+    // Once that's cleaned up, the main checkout goes back to its branch.
+    sh(&root, &["checkout", "--", "README.md"]);
+    let (status, res) = h
+        .command(
+            json!({"type":"repo.spotlight_stop","repo_id":repo.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(head(&root), branch);
+    assert!(!root.join("draft.txt").exists());
+    assert!(h.state().await.spotlights.is_empty());
+    let (status, _) = h
+        .command(
+            json!({"type":"repo.spotlight_stop","repo_id":repo.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 404);
+
+    // A dirty main checkout refuses to start, and archiving ends the spotlight.
+    std::fs::write(&readme, "dirty").unwrap();
+    let (status, _) = h
+        .command(
+            json!({"type":"workspace.spotlight","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 409);
+    sh(&root, &["checkout", "--", "README.md"]);
+    let (status, _) = h
+        .command(
+            json!({"type":"workspace.spotlight","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    let (status, res) = h
+        .command(
+            json!({"type":"workspace.archive","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(head(&root), branch);
+    assert!(h.state().await.spotlights.is_empty());
+}

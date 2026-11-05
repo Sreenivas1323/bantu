@@ -8,6 +8,7 @@ import type {
   Preferences,
   Repo,
   Session,
+  Spotlight,
   StateSnapshot,
   StreamDelta,
   Terminal,
@@ -40,6 +41,8 @@ export type DaemonState = {
   streaming: Record<string, { turn: number; text: string }>;
   /** Conflict-radar results per repo id. */
   conflicts: Record<string, WorkspaceConflict[]>;
+  /** What's in each repo's main checkout, by repo id. */
+  spotlights: Record<string, Spotlight>;
   preferences: Preferences;
 };
 
@@ -57,6 +60,7 @@ export const emptyState: DaemonState = {
   inbox: {},
   streaming: {},
   conflicts: {},
+  spotlights: {},
   preferences: { claude_user_setup: false, loadouts: [] },
 };
 
@@ -85,6 +89,7 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         permissions: Object.fromEntries(snapshot.permissions.map((p) => [p.id, p])),
         inbox: Object.fromEntries(snapshot.inbox.map((i) => [i.id, i])),
         conflicts: groupConflicts(snapshot.conflicts),
+        spotlights: Object.fromEntries(snapshot.spotlights.map((s) => [s.repo_id, s])),
         preferences: snapshot.preferences,
         // History isn't in the snapshot; it's backfilled per workspace.
         logs: state.logs,
@@ -184,6 +189,10 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
     case "permission.resolved": {
       const { [data.request_id]: _done, ...permissions } = state.permissions;
       return { ...next, permissions };
+    }
+    case "spotlight.updated": {
+      const { [data.repo_id]: _previous, ...spotlights } = state.spotlights;
+      return { ...next, spotlights: data.spotlight ? { ...spotlights, [data.repo_id]: data.spotlight } : spotlights };
     }
     case "inbox.added":
       return { ...next, inbox: { ...state.inbox, [data.item.id]: data.item } };

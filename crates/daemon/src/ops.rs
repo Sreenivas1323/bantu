@@ -194,6 +194,13 @@ impl Daemon {
                 workspace_id,
                 agent,
             } => serde_json::to_value(self.review_workspace(&workspace_id, agent).await?),
+            Command::WorkspaceSpotlight { workspace_id } => {
+                serde_json::to_value(self.start_spotlight(&workspace_id).await?)
+            }
+            Command::RepoSpotlightStop { repo_id } => {
+                self.stop_spotlight(&repo_id).await?;
+                Ok(serde_json::Value::Null)
+            }
             Command::WorkspaceCreatePr {
                 workspace_id,
                 session_id,
@@ -686,6 +693,16 @@ impl Daemon {
             WorkspaceState::Ready | WorkspaceState::Failed => {}
         }
         let repo = self.require_repo(&ws.repo_id).await?;
+        // Don't leave the main checkout on a workspace that's going away.
+        if let Some(s) = self.store.spotlight(&repo.id).await? {
+            if s.workspace_id == ws.id {
+                if let Err(e) = self.stop_spotlight(&repo.id).await {
+                    return Err(CommandError::Conflict(format!(
+                        "this workspace is in the spotlight, and returning the main checkout                          failed: {e}"
+                    )));
+                }
+            }
+        }
         self.cancel_workspace_sessions(&ws.id).await?;
         self.close_workspace_terminals(&ws.id).await?;
         ws.state = WorkspaceState::Archiving;

@@ -57,7 +57,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Bantu MCP server injected into every Claude session (`list_workspaces`, `create_workspace`, `workspace_status`, `wait_for_workspace`, `send_message`, `get_diff`)
 - [x] More MCP tools: `list_terminals`, `get_terminal_output`, `list_diff_comments`, `add_diff_comment`, `notify_user`, `ask_user`, plus an inbox in the UI
 - [x] Model picker, loadouts, effort and fast mode, several chats per workspace, and forking a chat (Claude forks the real conversation; other agents get the transcript)
-- [ ] Spotlight: sync a workspace into the main checkout for testing
+- [x] Spotlight: show a workspace's work in the main checkout as a detached snapshot that follows each agent turn; refuses to touch uncommitted changes there
 - [x] Create a workspace from a branch (local or origin), a PR (incl. forks via pull/N/head) or a GitHub issue (the agent starts on it)
 
 ## M3 — Anywhere (weeks 6–7)

@@ -484,6 +484,19 @@ pub enum InboxKind {
     Question,
 }
 
+/// A workspace's work shown in the repo's main checkout for testing.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Spotlight {
+    pub repo_id: String,
+    pub workspace_id: String,
+    /// The branch (or commit) the main checkout returns to afterwards.
+    pub restore_to: String,
+    /// The snapshot of the workspace now checked out.
+    pub commit: String,
+    pub synced_at: String,
+}
+
 /// A notice or question an agent sent to the user.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
@@ -676,6 +689,13 @@ pub enum Command {
         #[serde(default)]
         agent: Option<AgentKind>,
     },
+    /// Show a workspace's work in the repo's main checkout, following it after
+    /// each agent turn. Refused if the main checkout has uncommitted changes.
+    #[serde(rename = "workspace.spotlight")]
+    WorkspaceSpotlight { workspace_id: String },
+    /// Return the repo's main checkout to the branch it was on.
+    #[serde(rename = "repo.spotlight_stop")]
+    RepoSpotlightStop { repo_id: String },
     /// Ask the session's agent to commit, push and open a pull request.
     #[serde(rename = "workspace.create_pr")]
     WorkspaceCreatePr {
@@ -774,6 +794,12 @@ pub enum EventData {
         workspace_id: String,
         allowed: bool,
     },
+    /// `None` when the main checkout went back to its own branch.
+    #[serde(rename = "spotlight.updated")]
+    SpotlightUpdated {
+        repo_id: String,
+        spotlight: Option<Spotlight>,
+    },
     #[serde(rename = "inbox.added")]
     InboxAdded { item: InboxItem },
     #[serde(rename = "inbox.removed")]
@@ -805,6 +831,7 @@ impl EventData {
             Self::RepoAdded { .. }
             | Self::RepoRemoved { .. }
             | Self::ConflictsUpdated { .. }
+            | Self::SpotlightUpdated { .. }
             | Self::PreferencesUpdated { .. } => None,
             Self::WorkspaceUpdated { workspace } => Some(&workspace.id),
             Self::WorkspaceLog { workspace_id, .. } | Self::SessionItem { workspace_id, .. } => {
@@ -862,6 +889,9 @@ pub struct StateSnapshot {
     pub inbox: Vec<InboxItem>,
     /// Latest conflict-radar results across all repos.
     pub conflicts: Vec<WorkspaceConflict>,
+    /// Workspaces currently shown in their repo's main checkout.
+    #[serde(default)]
+    pub spotlights: Vec<Spotlight>,
     pub preferences: Preferences,
 }
 
@@ -952,6 +982,7 @@ mod tests {
             "Repo",
             "Session",
             "SessionStatus",
+            "Spotlight",
             "StateSnapshot",
             "StreamDelta",
             "Terminal",

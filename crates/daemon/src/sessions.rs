@@ -602,6 +602,7 @@ impl Daemon {
                     // The agent may have changed files other workspaces touch.
                     if let Ok(ws) = self.require_workspace(&s.workspace_id).await {
                         self.sync_branch_name(&ws).await;
+                        self.sync_spotlight(&ws).await;
                         self.rescan_conflicts(&ws.repo_id);
                     }
                     s.status = SessionStatus::Idle;
