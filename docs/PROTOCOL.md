@@ -36,6 +36,7 @@ All bodies are JSON (`content-type: application/json`). Errors are JSON too: `{ 
 | `GET /v1/workspaces/{id}/diff` | token | `WorkspaceDiff` |
 | `GET /v1/workspaces/{id}/pr` | token | `PullRequest` or `null` |
 | `GET /v1/workspaces/{id}/checks` | token | `WorkspaceChecks` |
+| `GET /v1/push/key` | token | `{ public_key }`, the VAPID key browsers subscribe with |
 | `GET /v1/terminals/{id}/ws` | token | WebSocket of raw PTY bytes |
 | `POST /v1/hooks/permission?session=<id>` | hook token | Claude Code hook response (internal) |
 
@@ -280,6 +281,8 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `permission.respond` | `request_id`, `allow`, `message?` | — | Answers a `PermissionRequest`. `message` tells the agent why it was denied. 404 if already answered. |
 | `inbox.respond` | `item_id`, `answer` | — | Answers a question in the inbox. 404 if already handled. |
 | `inbox.dismiss` | `item_id` | — | Clears a notice, or declines to answer a question. |
+| `push.subscribe` | `endpoint`, `p256dh`, `auth` | — | Sends this browser alerts through Web Push. 400 unless the endpoint uses HTTPS. |
+| `push.unsubscribe` | `endpoint` | — | |
 | `comment.add` | `workspace_id`, `path`, `line`, `body` | `DiffComment` | Adds a draft review comment. |
 | `comment.delete` | `comment_id` | — | |
 | `comments.send` | `workspace_id`, `session_id` | `Session` | Sends every draft comment to the agent as one message (sorted by file and line), then marks them sent. 400 if there are none. |
@@ -321,6 +324,15 @@ The main checkout belongs to the user, so nothing here overwrites it. Tracked ch
 4. Removes the worktree and the session checkpoint refs.
 5. Keeps the branch.
 6. Ends in state `archived`.
+
+## Web Push
+
+The daemon sends alerts itself, with no server of ours in the path. It sends one when an agent asks for approval, sends a notice or question, or finishes.
+
+- **Key**: an ES256 VAPID key generated on first start and stored in `<home>/vapid-key` (mode 0600).
+- **Encryption**: RFC 8291 (`aes128gcm`), so the browser's push service only sees ciphertext. Payloads are JSON: `{ title, body, tag }`.
+- **Sending**: a `POST` to the subscription's endpoint, using the system `curl`. Subscriptions that answer 404 or 410 are removed.
+- **Subscribing**: fetch `GET /v1/push/key`, call `pushManager.subscribe`, then send `push.subscribe`. Web Push needs an installed PWA on iOS, and HTTPS everywhere except `localhost`.
 
 ## Agent sessions
 
@@ -477,6 +489,5 @@ curl -N -H "$H" '127.0.0.1:47800/v1/events?since=0'
 
 ## Planned
 
-- Pairing codes for remote clients, Web Push — M3
 
 See [ROADMAP.md](ROADMAP.md).

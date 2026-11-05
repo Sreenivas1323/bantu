@@ -299,6 +299,43 @@ impl Store {
         self.finish(guard, tx, data).await
     }
 
+    pub async fn upsert_push_subscription(&self, s: &crate::push::Subscription) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO push_subscriptions (endpoint, p256dh, auth, created_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth",
+        )
+        .bind(&s.endpoint)
+        .bind(&s.p256dh)
+        .bind(&s.auth)
+        .bind(now())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_push_subscription(&self, endpoint: &str) -> Result<()> {
+        sqlx::query("DELETE FROM push_subscriptions WHERE endpoint = ?")
+            .bind(endpoint)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn push_subscriptions(&self) -> Result<Vec<crate::push::Subscription>> {
+        let rows = sqlx::query("SELECT endpoint, p256dh, auth FROM push_subscriptions")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| crate::push::Subscription {
+                endpoint: r.get("endpoint"),
+                p256dh: r.get("p256dh"),
+                auth: r.get("auth"),
+            })
+            .collect())
+    }
+
     /// Records an event that has no projection (e.g. in-memory terminals).
     pub async fn emit(&self, data: EventData) -> Result<Event> {
         let (guard, tx) = self.begin().await?;

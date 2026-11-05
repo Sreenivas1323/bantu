@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ConnStatus } from "../lib/useDaemon.ts";
 import { notificationsAvailable } from "../lib/useNotifications.ts";
+import { currentPushSubscription, disablePush, enablePush, pushSupported } from "../lib/push.ts";
+import type { DaemonClient } from "../lib/api.ts";
 import type { AgentStatus } from "@bantu/protocol";
 import { accountKind, agentLabel } from "../lib/useAgents.ts";
 
@@ -29,6 +31,8 @@ export function StatusBar({
   onOpenAccounts,
   inboxCount,
   onOpenInbox,
+  client,
+  onError,
 }: {
   status: ConnStatus;
   lastSeq: number;
@@ -41,8 +45,15 @@ export function StatusBar({
   /** Questions, notices and approvals waiting for the user. */
   inboxCount: number;
   onOpenInbox: () => void;
+  client: DaemonClient;
+  onError: (message: string) => void;
 }) {
   const [askable, setAskable] = useState(notificationsAvailable);
+  // Web Push reaches this device even with the app closed.
+  const [pushOn, setPushOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (pushSupported()) void currentPushSubscription().then((s) => setPushOn(!!s));
+  }, []);
   return (
     <footer className="scroll-quiet flex items-center gap-4 overflow-x-auto border-t border-line bg-panel px-3 py-1.5 text-xs whitespace-nowrap text-muted md:col-span-2">
       <span className="flex items-center gap-1.5">
@@ -78,7 +89,26 @@ export function StatusBar({
       >
         Inbox{inboxCount > 0 ? ` (${inboxCount})` : ""}
       </button>
-      {askable && (
+      {pushOn !== null && (
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              if (pushOn) await disablePush(client);
+              else await enablePush(client);
+              setPushOn(!pushOn);
+              setAskable(notificationsAvailable());
+            } catch (err) {
+              onError(err instanceof Error ? err.message : String(err));
+            }
+          }}
+          className="rounded px-1.5 py-0.5 hover:bg-raised hover:text-fg"
+          title="Get alerts on this device when an agent needs you or finishes, even with Bantu closed"
+        >
+          {pushOn ? "Alerts on" : "Turn on alerts"}
+        </button>
+      )}
+      {askable && pushOn === null && (
         <button
           type="button"
           onClick={async () => {

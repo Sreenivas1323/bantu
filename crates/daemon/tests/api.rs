@@ -2786,3 +2786,138 @@ async fn spotlight_shows_a_workspace_in_the_main_checkout() {
     assert_eq!(head(&root), branch);
     assert!(h.state().await.spotlights.is_empty());
 }
+
+#[tokio::test]
+async fn web_push_alerts() {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+    use base64::Engine;
+    use p256::elliptic_curve::sec1::ToEncodedPoint;
+
+    // A push service that records what it gets, then says the browser is gone.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(axum::http::HeaderMap, Vec<u8>)>(8);
+    let gone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let is_gone = gone.clone();
+    let app = axum::Router::new().route(
+        "/push/abc",
+        axum::routing::post(
+            move |headers: axum::http::HeaderMap, body: axum::body::Bytes| {
+                let (tx, is_gone) = (tx.clone(), is_gone.clone());
+                async move {
+                    tx.send((headers, body.to_vec())).await.unwrap();
+                    if is_gone.load(std::sync::atomic::Ordering::SeqCst) {
+                        axum::http::StatusCode::GONE
+                    } else {
+                        axum::http::StatusCode::CREATED
+                    }
+                }
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let service = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let key: Value = h
+        .http
+        .get(format!("{}/v1/push/key", h.base))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let daemon_key = key["public_key"].as_str().unwrap().to_string();
+    assert_eq!(B64.decode(&daemon_key).unwrap().len(), 65);
+
+    // The browser's side of the subscription.
+    let browser = p256::SecretKey::from_slice(&[9u8; 32]).unwrap();
+    let auth = [5u8; 16];
+    let p256dh = B64.encode(browser.public_key().to_encoded_point(false).as_bytes());
+    let (status, _) = h
+        .command(
+            json!({"type":"push.subscribe","endpoint":"http://evil.example/x",
+                   "p256dh":p256dh,"auth":B64.encode(auth)}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400);
+    let (status, res) = h
+        .command(
+            json!({"type":"push.subscribe","endpoint":format!("http://{service}/push/abc"),
+                   "p256dh":p256dh,"auth":B64.encode(auth)}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(
+            json!({"type":"workspace.create","repo_id":repo.id,"name":"lisbon"}),
+            None,
+        )
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+
+    // A finished turn sends an alert only the browser can read.
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"say hello"}),
+        None,
+    )
+    .await;
+    let (headers, body) = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+        .await
+        .expect("no alert arrived")
+        .unwrap();
+    assert_eq!(headers["content-encoding"], "aes128gcm");
+    assert_eq!(headers["ttl"], "86400");
+    let authorization = headers["authorization"].to_str().unwrap();
+    assert!(authorization.starts_with("vapid t="), "{authorization}");
+    assert!(
+        authorization.ends_with(&format!("k={daemon_key}")),
+        "{authorization}"
+    );
+    let plain = bantud::push::decrypt(&body, &browser, &auth).unwrap();
+    let alert: Value = serde_json::from_slice(&plain).unwrap();
+    assert_eq!(alert["title"], "lisbon is done");
+    assert_eq!(alert["body"], "say hello");
+
+    // A subscription the browser dropped is removed after one more attempt.
+    gone.store(true, std::sync::atomic::Ordering::SeqCst);
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"again"}),
+        None,
+    )
+    .await;
+    tokio::time::timeout(Duration::from_secs(10), rx.recv())
+        .await
+        .expect("no second alert")
+        .unwrap();
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"once more"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 3
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        rx.try_recv().is_err(),
+        "the dead subscription should be gone"
+    );
+}

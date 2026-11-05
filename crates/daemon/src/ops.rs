@@ -42,6 +42,7 @@ pub struct Daemon {
     pub(crate) terminals: crate::terminals::Terminals,
     pub(crate) permissions: crate::permissions::Permissions,
     pub(crate) inbox: crate::inbox::Inbox,
+    pub(crate) push: crate::push::Push,
     pub(crate) radar: crate::radar::Radar,
     pub(crate) activity: crate::activity::Tracker,
 }
@@ -56,6 +57,7 @@ impl Daemon {
             terminals: Default::default(),
             permissions: Default::default(),
             inbox: Default::default(),
+            push: Default::default(),
             radar: Default::default(),
             activity: Default::default(),
         }
@@ -137,6 +139,18 @@ impl Daemon {
             }
             Command::InboxDismiss { item_id } => {
                 self.dismiss_inbox(&item_id).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::PushSubscribe {
+                endpoint,
+                p256dh,
+                auth,
+            } => {
+                self.push_subscribe(endpoint, p256dh, auth).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::PushUnsubscribe { endpoint } => {
+                self.store.delete_push_subscription(&endpoint).await?;
                 Ok(serde_json::Value::Null)
             }
             Command::CommentAdd {

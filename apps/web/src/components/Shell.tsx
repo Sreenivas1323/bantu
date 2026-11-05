@@ -209,6 +209,8 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
       <StatusBar
         inboxCount={Object.keys(state.inbox).length + Object.keys(state.permissions).length}
         onOpenInbox={() => setShowInbox(true)}
+        client={client}
+        onError={setError}
         agents={agents}
         onOpenAccounts={() => setShowAccounts(true)}
         status={status}

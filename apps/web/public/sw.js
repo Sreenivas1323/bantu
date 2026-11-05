@@ -55,3 +55,37 @@ self.addEventListener("fetch", (event) => {
     );
   }
 });
+
+// Alerts from the daemon. The push service only ever saw ciphertext; the browser
+// has decrypted this by the time it gets here.
+self.addEventListener("push", (event) => {
+  let alert = { title: "Bantu", body: "", tag: undefined };
+  try {
+    alert = { ...alert, ...event.data.json() };
+  } catch {
+    // Show the generic alert rather than none at all.
+  }
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      // Someone looking at the app already sees this.
+      if (windows.some((w) => w.focused && w.visibilityState === "visible")) return;
+      await self.registration.showNotification(alert.title, {
+        body: alert.body,
+        tag: alert.tag,
+        icon: "icon-192.png",
+      });
+    })(),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      if (windows[0]) return windows[0].focus();
+      return self.clients.openWindow(self.registration.scope);
+    })(),
+  );
+});

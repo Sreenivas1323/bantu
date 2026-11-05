@@ -43,6 +43,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/activity", get(get_activity))
         .route("/v1/agents", get(get_agents))
         .route("/v1/repo-suggestions", get(get_repo_suggestions))
+        .route("/v1/push/key", get(get_push_key))
         .route("/v1/workspaces/{id}/history", get(get_history))
         .route("/v1/workspaces/{id}/diff", get(get_diff))
         .route("/v1/workspaces/{id}/pr", get(get_pr))
@@ -151,6 +152,11 @@ async fn get_repo_suggestions(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<crate::discover::RepoSuggestion>>, ApiError> {
     Ok(Json(state.daemon.suggest_repos().await?))
+}
+
+/// The public key browsers need to subscribe to this daemon's alerts.
+async fn get_push_key(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({"public_key": state.daemon.push_public_key()}))
 }
 
 async fn health() -> Json<Health> {

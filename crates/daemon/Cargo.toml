@@ -7,16 +7,21 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+aes-gcm = "0.10"
 anyhow = "1.0.104"
 axum = { version = "0.8.9", features = ["ws"] }
 bantu-git = { version = "0.1.0-alpha.3", path = "../git" }
 bantu-protocol = { version = "0.1.0-alpha.3", path = "../protocol" }
+base64 = "0.22"
 chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 futures = "0.3.34"
+getrandom = "0.2"
 globset = "0.4.21"
 hex = "0.4.3"
+hmac = "0.13"
 libc = "0.2.191"
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
 portable-pty = "0.9.0"
 qrcode = { version = "0.14.1", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }

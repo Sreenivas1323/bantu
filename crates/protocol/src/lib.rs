@@ -614,6 +614,15 @@ pub enum Command {
     /// Clear a notice, or decline to answer a question.
     #[serde(rename = "inbox.dismiss")]
     InboxDismiss { item_id: String },
+    /// Send this browser alerts through Web Push, from `PushSubscription.toJSON()`.
+    #[serde(rename = "push.subscribe")]
+    PushSubscribe {
+        endpoint: String,
+        p256dh: String,
+        auth: String,
+    },
+    #[serde(rename = "push.unsubscribe")]
+    PushUnsubscribe { endpoint: String },
     /// Add a draft review comment on a line of the workspace diff.
     #[serde(rename = "comment.add")]
     CommentAdd {

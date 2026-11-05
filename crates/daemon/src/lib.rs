@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod names;
 pub mod ops;
 pub mod permissions;
+pub mod push;
 pub mod radar;
 pub mod review;
 pub mod service;
@@ -78,6 +79,7 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     daemon.recover_interrupted().await?;
     daemon.recover_sessions().await?;
     daemon.recover_terminals().await?;
+    daemon.start_push()?;
     let router = http::router(AppState {
         daemon: daemon.clone(),
         token_hash: http::hash_token(&token).into(),
@@ -110,7 +112,7 @@ pub fn load_or_create_token(home: &Path) -> Result<String> {
 }
 
 #[cfg(unix)]
-fn write_private(path: &Path, contents: &str) -> Result<()> {
+pub(crate) fn write_private(path: &Path, contents: &str) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let mut f = std::fs::OpenOptions::new()
@@ -125,6 +127,6 @@ fn write_private(path: &Path, contents: &str) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-fn write_private(path: &Path, contents: &str) -> Result<()> {
+pub(crate) fn write_private(path: &Path, contents: &str) -> Result<()> {
     std::fs::write(path, contents).with_context(|| format!("writing {}", path.display()))
 }

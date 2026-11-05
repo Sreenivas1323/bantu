@@ -62,6 +62,14 @@ Screen**; on desktop Chrome or Edge, use the install icon in the address bar. It
 its own window, and the workspace list becomes a drawer on small screens. Installing needs
 HTTPS, which Tailscale Serve and Cloudflare Tunnel both provide.
 
+## Alerts on your phone
+
+Choose **Turn on alerts** in the status bar. The daemon then alerts that device when an agent
+needs approval, asks a question or finishes, even with Bantu closed. Alerts travel through
+the browser's own push service, encrypted so that only your device can read them. There's no
+server of ours in the path. On iPhone and iPad, add Bantu to your home screen first; Safari
+only offers Web Push to installed apps. The daemon needs outbound HTTPS and `curl`.
+
 ## Host the web client yourself
 
 `bantud` already serves the client, so this is optional. It's useful if you want one

@@ -72,6 +72,11 @@ export class DaemonClient {
     return this.request<WorkspaceChecks>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/checks`);
   }
 
+  /** The key a browser needs to subscribe to this daemon's Web Push alerts. */
+  pushKey() {
+    return this.request<{ public_key: string }>("/v1/push/key");
+  }
+
   /** Agent CLIs on the daemon's machine and the accounts they're signed in to. */
   agents() {
     return this.request<AgentStatus[]>("/v1/agents");

@@ -65,7 +65,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Release builds (macOS arm64/x64, Linux x64/arm64) + `install.sh` with checksums; launchd/systemd service
 - [x] Pairing by QR code (`bantud url --qr`, with `BANTU_PUBLIC_URL`)
 - [x] Web/PWA client: installable, deployable as a static site (`#daemon=…&token=…` pairing with `BANTU_APP_URL`), with a phone layout
-- [ ] Web Push from the daemon (VAPID) for the Notify inbox
+- [x] Web Push from the daemon (VAPID) for approvals, inbox items and finished turns — encryption matches the RFC 8291 test vector and delivery is tested with a local push server, but not yet against a real browser push service
 - [x] AWS template (Tailscale variant): EC2 t4g, no open ports, idle auto-stop via `/v1/activity`, Lambda wake link, Session Manager shell ([AWS.md](AWS.md)) — lint-checked, not yet deployed end to end
 - [ ] CloudFront variant (needs your own domain + certificate on the instance)
 - [ ] Launch Stack button (needs a public S3 copy of the template)
