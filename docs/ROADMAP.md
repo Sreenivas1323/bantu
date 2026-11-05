@@ -49,7 +49,7 @@ Feature-by-feature status against Conductor and Pane lives in
 
 - [x] Per-turn checkpoints in private refs; rewind code (the agent is told; Claude has no partial-conversation rewind)
 - [x] Codex driver (`codex exec --json`, resumed by thread id; sandbox per permission mode) — not yet verified against the live service
-- [ ] Generic ACP driver (OpenCode, Cursor, Gemini)
+- [x] Generic ACP driver (OpenCode via `opencode acp`, Gemini via `gemini --acp`, Cursor via `agent acp`): streaming, tool cards, permission prompts, resume with `session/load` — tested with a fake agent; the handshake is verified against real Gemini CLI, but no full turn has run against a signed-in agent yet
 - [ ] Terminal driver; switch chat ⇄ terminal in the same conversation
 - [x] Fix failing checks: `gh pr checks` + failed-step logs from GitHub Actions (cleaned, last 120 lines) sent to the agent in one click
 - [ ] Full checks tab (deployments, PR comments, todos)

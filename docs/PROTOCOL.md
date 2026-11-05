@@ -150,7 +150,7 @@ One chat with an agent in a workspace. Every workspace gets one automatically wh
 |---|---|---|
 | `id` | string | |
 | `workspace_id` | string | |
-| `agent` | `"claude"` | More agents later |
+| `agent` | `"claude" \| "codex" \| "opencode" \| "gemini" \| "cursor"` | Fixed when the chat is created |
 | `title` | string | `"New chat"` until the first message, which becomes the title |
 | `model` | string \| null | `null` uses the agent's default (e.g. `opus`, `sonnet`, `haiku`, or a full model id) |
 | `permission_mode` | `PermissionMode` | See below |
@@ -303,6 +303,19 @@ claude -p --output-format stream-json --verbose --include-partial-messages \
 - **Checkpoints.** Before each turn the daemon snapshots the worktree to `refs/bantu/cp/<session>/<turn>`: tracked and untracked (non-ignored) files, as a commit whose parent is `HEAD`. It uses a temporary index, so the user's index, branch and files are untouched. It's skipped while a merge or rebase is in progress.
 - **Rewind.** `session.rewind` resets the branch to the checkpoint's parent, restores the snapshot's files (ignored files such as `node_modules` are left alone), and adds a `rewound` item. Claude can't rewind part of a conversation, so the next message is prefixed with a note telling the agent which turn the files went back to.
 
+### ACP agents (OpenCode, Gemini CLI, Cursor)
+
+These agents speak the [Agent Client Protocol](https://agentclientprotocol.com): JSON-RPC 2.0 over stdio. Each turn is one process running `initialize`, then `session/new` (or `session/load` to resume), then `session/prompt`.
+
+- **Commands**: `opencode acp`, `gemini --acp` and `agent acp`. Override the binaries with `BANTU_OPENCODE_BIN`, `BANTU_GEMINI_BIN` and `BANTU_CURSOR_BIN`.
+- **Client capabilities**: Bantu advertises neither `fs` nor `terminal`, so agents use their own file and shell tools inside the worktree.
+- **Bantu's MCP server** is passed to agents that advertise `mcpCapabilities.http`. The token travels over stdin, never in argv.
+- **Workspace context** is prepended to the first prompt, because ACP has no system prompt.
+- **Permission modes** are enforced in the client on `session/request_permission`: `bypass_permissions` allows everything; `plan` allows only `read`, `search`, `fetch` and `think` tools; `accept_edits` allows `edit` tools and asks about the rest; `auto` and `ask` always ask. If the agent advertises a matching mode (such as `plan`, `autoEdit` or `yolo`), it's selected with `session/set_mode` too. An agent decides for itself which tools need permission, so this can only restrict what it asks about.
+- **Models** are selected with `session/set_model` when the agent advertises `models`.
+- **Resuming**: an agent that can't load sessions, or has lost one, gets a new session whose first prompt includes the last 20,000 characters of the transcript.
+- **Handshake timeout**: a turn fails after 60 seconds if the agent hasn't reached `session/prompt`, showing whatever it printed to stderr.
+
 ## Events
 
 `Event = { seq: number, ts: string, data: EventData }`, where `data` is tagged by `type`:
@@ -370,7 +383,7 @@ curl -N -H "$H" '127.0.0.1:47800/v1/events?since=0'
 
 ## Planned
 
-- More agents: Codex (`codex app-server`), ACP agents (OpenCode, Cursor, Gemini), any CLI in a terminal — M2
+- Any CLI in a terminal — M2
 - Checks view with CI failures forwarded to the agent; the Bantu MCP server — M2
 - Pairing codes for remote clients, Web Push — M3
 

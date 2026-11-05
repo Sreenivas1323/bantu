@@ -94,7 +94,7 @@ in Bantu chats** in the accounts dialog. This is on `main` and isn't in v0.1.0-a
 - **Open source.** Apache-2.0.
 - **Daemon first.** One small Rust daemon, `bantud`, runs your agents. The desktop and web apps are thin clients. With `bantud` installed as a service, agents keep working when you close the window.
 - **Bring your own cloud.** The same daemon runs on a spare Mac mini, a Linux box or your own AWS account, at cost price and paid to your provider directly.
-- **Your own agents.** Claude Code and Codex today, with your own login. OpenCode, Cursor and Gemini are planned.
+- **Your own agents.** Claude Code, Codex, OpenCode, Gemini CLI and Cursor, with your own login.
 
 ## Status
 

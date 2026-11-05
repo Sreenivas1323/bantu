@@ -13,6 +13,10 @@ const MODES: { value: PermissionMode; label: string }[] = [
 const MODELS: Record<Session["agent"], string[]> = {
   claude: ["opus", "sonnet", "haiku"],
   codex: ["gpt-5-codex", "gpt-5"],
+  // ACP agents list their own models; type one with Custom.
+  opencode: [],
+  gemini: [],
+  cursor: [],
 };
 const CUSTOM = "__custom__";
 

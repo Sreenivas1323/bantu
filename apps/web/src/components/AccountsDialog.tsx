@@ -7,6 +7,9 @@ import { TerminalView } from "./terminal/TerminalView.tsx";
 const INSTALL: Record<AgentKind, string> = {
   claude: "curl -fsSL https://claude.ai/install.sh | bash",
   codex: "npm install -g @openai/codex",
+  opencode: "curl -fsSL https://opencode.ai/install | bash",
+  gemini: "npm install -g @google/gemini-cli",
+  cursor: "curl https://cursor.com/install -fsS | bash",
 };
 
 const METHODS: Record<AgentKind, { method: LoginMethod; label: string; hint: string }[]> = {
@@ -19,6 +22,9 @@ const METHODS: Record<AgentKind, { method: LoginMethod; label: string; hint: str
     { method: "subscription", label: "ChatGPT", hint: "Use your ChatGPT plan" },
     { method: "console", label: "API key", hint: "OpenAI API, billed per use" },
   ],
+  opencode: [{ method: "subscription", label: "OpenCode", hint: "Pick a provider in OpenCode's own sign-in" }],
+  gemini: [{ method: "subscription", label: "Google", hint: "Sign in from Gemini CLI's first-run screen" }],
+  cursor: [{ method: "subscription", label: "Cursor", hint: "Sign in to your Cursor account" }],
 };
 
 /**
@@ -103,7 +109,7 @@ export function AccountsDialog({
                     title={m.hint}
                     className="rounded-md border border-line px-2.5 py-1 text-[12px] text-muted hover:bg-raised hover:text-fg"
                   >
-                    {a.logged_in ? "Switch to" : "Sign in with"} {m.label}
+                    {a.logged_in ? "Switch account:" : "Sign in with"} {m.label}
                   </button>
                 ))}
               </div>

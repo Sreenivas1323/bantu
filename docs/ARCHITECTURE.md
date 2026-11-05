@@ -22,7 +22,8 @@ bantud: ONE Rust binary, the same on macOS, Linux, EC2, a sandbox (Windows later
   │                     setup/run/archive scripts from .bantu/settings.toml, branch naming
   ├─ agent sessions     normalized ChatItems; message queue; cancel; permission requests
   │     claude      (the user's `claude` CLI, stream-json, one process per turn)   ← today
-  │     codex       (app-server JSON-RPC, from Rust)   acp (OpenCode, Cursor, Gemini)   ← M2
+  │     codex       (`codex exec --json`, one process per turn)
+  │     acp         (OpenCode, Gemini, Cursor: JSON-RPC over stdio, one process per turn)
   │     terminal    (any CLI in a pty)   ← M2
   ├─ permissions        Claude PermissionRequest HTTP hook → approval in any client
   ├─ review             diff vs merge-base (throwaway index), line comments → agent, PR status via gh

@@ -1,5 +1,6 @@
 //! The Bantu daemon (`bantud`). See `docs/ARCHITECTURE.md`.
 
+pub mod acp;
 pub mod activity;
 pub mod agents;
 pub mod codex;
@@ -40,6 +41,10 @@ pub struct Config {
     pub claude_bin: PathBuf,
     /// The OpenAI Codex CLI used for agent sessions.
     pub codex_bin: PathBuf,
+    /// Agents driven over the Agent Client Protocol.
+    pub opencode_bin: PathBuf,
+    pub gemini_bin: PathBuf,
+    pub cursor_bin: PathBuf,
     /// Extra `Host` names to accept besides loopback, e.g. a Tailscale or
     /// CloudFront hostname that forwards to this daemon.
     pub allowed_hosts: Vec<String>,

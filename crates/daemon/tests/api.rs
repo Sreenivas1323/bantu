@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 /// Stands in for Claude Code (see the script for what each prompt does).
 const FAKE_CLAUDE: &str = include_str!("../../../scripts/fake-claude.sh");
 const FAKE_CODEX: &str = include_str!("../../../scripts/fake-codex.sh");
+const FAKE_ACP: &str = include_str!("../../../scripts/fake-acp.sh");
 
 struct Harness {
     base: String,
@@ -60,6 +61,20 @@ impl Harness {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&codex_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
+        let acp_bin = home.path().join("fake-acp");
+        std::fs::write(
+            &acp_bin,
+            FAKE_ACP.replace(
+                "${BANTU_FAKE_ACP_LOG:-/dev/null}",
+                home.path().join("acp-calls.log").to_str().unwrap(),
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&acp_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         let config = bantud::Config {
             home: home.path().to_path_buf(),
             workspaces_dir: workspaces.path().to_path_buf(),
@@ -68,6 +83,9 @@ impl Harness {
             branch_prefix: "bantu/".into(),
             claude_bin,
             codex_bin,
+            opencode_bin: acp_bin.clone(),
+            gemini_bin: acp_bin.clone(),
+            cursor_bin: acp_bin,
             allowed_hosts: vec!["box.tail1234.ts.net".into()],
         };
         let started = bantud::start(config, false).await.unwrap();
@@ -118,6 +136,11 @@ impl Harness {
             .lines()
             .map(str::to_string)
             .collect()
+    }
+
+    fn acp_calls(&self) -> String {
+        std::fs::read_to_string(self.claude_calls.with_file_name("acp-calls.log"))
+            .unwrap_or_default()
     }
 
     async fn history(&self, workspace_id: &str) -> Vec<Event> {
@@ -1911,4 +1934,148 @@ async fn agent_accounts_and_login() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     panic!("login terminal never exited");
+}
+
+#[tokio::test]
+async fn acp_sessions() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+
+    let (status, res) = h
+        .command(
+            json!({"type":"session.create","workspace_id":ws.id,"agent":"gemini"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let session: Session = serde_json::from_value(res["result"].clone()).unwrap();
+    assert_eq!(session.agent.as_str(), "gemini");
+    let (status, _) = h
+        .command(
+            json!({"type":"session.send","session_id":session.id,"text":"hello"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(
+        items
+            .iter()
+            .any(|i| matches!(i, ChatItem::ToolUse { name, .. } if name == "Bash")),
+        "{items:?}"
+    );
+    assert!(items
+        .iter()
+        .any(|i| matches!(i, ChatItem::ToolResult { content, .. } if content == "README.md")));
+    let answer = items
+        .iter()
+        .find_map(|i| match i {
+            ChatItem::Assistant { text } => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(answer.starts_with("acp: "), "{answer}");
+    assert!(answer.ends_with("hello"), "{answer}");
+    assert!(items.iter().any(|i| matches!(
+        i,
+        ChatItem::TurnEnd {
+            is_error: false,
+            ..
+        }
+    )));
+
+    // Bantu's MCP server is offered, and the token never reaches argv.
+    let calls = h.acp_calls();
+    assert!(calls.contains(r#""method":"session/new""#), "{calls}");
+    assert!(calls.contains("/v1/mcp?session="), "{calls}");
+
+    // The second turn reopens the conversation and ignores replayed history.
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"again"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    assert!(h.acp_calls().contains(r#""method":"session/load""#));
+    assert!(h.acp_calls().contains(r#""sessionId":"acp_fake""#));
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(!items
+        .iter()
+        .any(|i| matches!(i, ChatItem::Assistant { text } if text.contains("old history"))));
+
+    // Permission prompts appear as normal requests, and the answer goes back.
+    h.command(
+        json!({"type":"session.update","session_id":session.id,"permission_mode":"ask"}),
+        None,
+    )
+    .await;
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"needs permission"}),
+        None,
+    )
+    .await;
+    let request = loop {
+        if let Some(p) = h.state().await.permissions.into_iter().next() {
+            break p;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(request.tool_name, "Bash");
+    assert_eq!(request.tool_input["command"], "rm -rf build");
+    h.command(
+        json!({"type":"permission.respond","request_id":request.id,"allow":true}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 3
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(
+        items
+            .iter()
+            .any(|i| matches!(i, ChatItem::Assistant { text } if text == "acp: decision allow")),
+        "{items:?}"
+    );
+
+    // Plan mode rejects risky tools without bothering the user.
+    h.command(
+        json!({"type":"session.update","session_id":session.id,"permission_mode":"plan"}),
+        None,
+    )
+    .await;
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"permission please"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 4
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(
+        items
+            .iter()
+            .any(|i| matches!(i, ChatItem::Assistant { text } if text == "acp: decision deny")),
+        "{items:?}"
+    );
 }

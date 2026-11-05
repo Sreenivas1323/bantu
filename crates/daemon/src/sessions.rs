@@ -19,9 +19,9 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, Notify};
 
-use crate::codex;
 use crate::ops::{new_id, CommandError, Daemon};
 use crate::store::now;
+use crate::{acp, codex};
 
 /// Tool output beyond this is cut; the agent already saw the full text.
 const MAX_TOOL_RESULT_CHARS: usize = 20_000;
@@ -35,7 +35,7 @@ const CHECK_OUTPUT_CHARS: usize = 6_000;
 pub struct Running {
     turns: Mutex<HashMap<String, RunningSession>>,
     /// Live text fragments; never persisted.
-    deltas: tokio::sync::broadcast::Sender<StreamDelta>,
+    pub(crate) deltas: tokio::sync::broadcast::Sender<StreamDelta>,
 }
 
 impl Default for Running {
@@ -476,15 +476,18 @@ impl Daemon {
         }
     }
 
-    /// One `claude -p` invocation. Returns the turn's cost in USD.
+    /// One agent process. Returns the turn's cost in USD.
     async fn run_turn(
-        &self,
+        self: &Arc<Self>,
         s: &Session,
         agent_id: &str,
         turn: u32,
         text: &str,
         stop: &Notify,
     ) -> anyhow::Result<f64> {
+        if acp::command(&self.config, s.agent).is_some() {
+            return self.run_acp_turn(s, agent_id, turn, text, stop).await;
+        }
         let ws = self.require_workspace(&s.workspace_id).await?;
         let resume = self.store.session_has_agent_output(&s.id).await?;
 
@@ -536,6 +539,9 @@ impl Daemon {
                     format!("{}\n\n{text}", workspace_context(&ws))
                 };
                 (&self.config.codex_bin, cmd, prompt)
+            }
+            AgentKind::Opencode | AgentKind::Gemini | AgentKind::Cursor => {
+                unreachable!("ACP agents return above")
             }
         };
         let mut child = cmd
@@ -602,6 +608,7 @@ impl Daemon {
                             }
                             items
                         }
+                        AgentKind::Opencode | AgentKind::Gemini | AgentKind::Cursor => vec![],
                     };
                     for item in items {
                         if let ChatItem::TurnEnd { cost_usd, .. } = &item {
@@ -667,7 +674,7 @@ fn claude_permission_mode(m: PermissionMode) -> &'static str {
     }
 }
 
-fn workspace_context(ws: &Workspace) -> String {
+pub(crate) fn workspace_context(ws: &Workspace) -> String {
     format!(
         "You are running inside Bantu, in an isolated git worktree created for this task.\n\
          - Workspace: {name}. Branch: {branch} (created from {base}). Commit work to this branch; \
@@ -825,7 +832,7 @@ fn tail_chars(s: &str, n: usize) -> String {
     format!("…{}", tail.trim_end())
 }
 
-fn truncate(s: String) -> String {
+pub(crate) fn truncate(s: String) -> String {
     if s.chars().count() <= MAX_TOOL_RESULT_CHARS {
         return s;
     }

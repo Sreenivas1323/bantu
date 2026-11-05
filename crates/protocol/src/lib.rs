@@ -87,6 +87,12 @@ pub enum AgentKind {
     Claude,
     /// OpenAI Codex CLI (`codex exec --json`), using the user's own login.
     Codex,
+    /// OpenCode (`opencode acp`), over the Agent Client Protocol.
+    Opencode,
+    /// Gemini CLI (`gemini --acp`), over the Agent Client Protocol.
+    Gemini,
+    /// Cursor's CLI (`agent acp`), over the Agent Client Protocol.
+    Cursor,
 }
 
 impl AgentKind {
@@ -94,6 +100,9 @@ impl AgentKind {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::Opencode => "opencode",
+            Self::Gemini => "gemini",
+            Self::Cursor => "cursor",
         }
     }
 
@@ -101,6 +110,9 @@ impl AgentKind {
         Some(match s {
             "claude" => Self::Claude,
             "codex" => Self::Codex,
+            "opencode" => Self::Opencode,
+            "gemini" => Self::Gemini,
+            "cursor" => Self::Cursor,
             _ => return None,
         })
     }

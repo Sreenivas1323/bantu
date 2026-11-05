@@ -7,14 +7,14 @@
     },
     "apps/desktop": {
       "name": "@bantu/desktop",
-      "version": "0.0.1",
+      "version": "0.1.0-alpha.3",
       "devDependencies": {
         "@tauri-apps/cli": "^2",
       },
     },
     "apps/web": {
       "name": "@bantu/web",
-      "version": "0.1.0-alpha.2",
+      "version": "0.1.0-alpha.3",
       "dependencies": {
         "@bantu/protocol": "workspace:*",
         "@xterm/addon-fit": "^0.11.0",

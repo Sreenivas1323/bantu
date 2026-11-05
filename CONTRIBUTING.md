@@ -15,7 +15,8 @@ BANTU_CLAUDE_BIN=$PWD/scripts/fake-claude.sh cargo run -p bantud   # daemon on 1
 bun run dev:web                                                     # web UI with hot reload
 ```
 
-`scripts/fake-claude.sh` stands in for Claude Code so UI work costs nothing; drop
+`scripts/fake-claude.sh` stands in for Claude Code so UI work costs nothing
+(`fake-codex.sh` and `fake-acp.sh` do the same for the other agents); drop
 `BANTU_CLAUDE_BIN` to use your real `claude` CLI. `bantud --print-token` prints the local
 auth token the web UI asks for. The integration tests in `crates/daemon/tests/api.rs`
 use the same fake.

@@ -107,11 +107,12 @@ impl Daemon {
                     return Err("`task` is required: describe what the new agent should do".into());
                 }
                 let agent = match args["agent"].as_str() {
-                    None | Some("claude") => AgentKind::Claude,
-                    Some("codex") => AgentKind::Codex,
-                    Some(other) => {
-                        return Err(format!("unknown agent {other:?}; use claude or codex"))
-                    }
+                    None => AgentKind::Claude,
+                    Some(name) => AgentKind::parse(name).ok_or_else(|| {
+                        format!(
+                            "unknown agent {name:?}; use claude, codex, opencode, gemini or cursor"
+                        )
+                    })?,
                 };
                 let name = args["name"].as_str().map(str::to_string);
                 if self.repo_workspaces(&me.repo_id).await?.len() >= MAX_ACTIVE_WORKSPACES {
@@ -127,7 +128,7 @@ impl Daemon {
                 let ws = self.wait_ready(&ws.id, Duration::from_secs(300)).await?;
                 let session = match agent {
                     AgentKind::Claude => self.first_session(&ws.id).await,
-                    AgentKind::Codex => None,
+                    _ => None,
                 };
                 // Children work like their parent: same model (for the same
                 // agent) and the same permission mode.
@@ -395,7 +396,7 @@ fn tool_list() -> Value {
                 "type": "object",
                 "properties": {
                     "task": {"type": "string", "description": "Everything the new agent needs to know to do the work"},
-                    "agent": {"type": "string", "enum": ["claude", "codex"], "description": "Defaults to claude"},
+                    "agent": {"type": "string", "enum": ["claude", "codex", "opencode", "gemini", "cursor"], "description": "Defaults to claude"},
                     "name": {"type": "string", "description": "Optional workspace name (lowercase, dashes)"}
                 },
                 "required": ["task"]

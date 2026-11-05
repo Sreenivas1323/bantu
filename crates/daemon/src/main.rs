@@ -34,6 +34,15 @@ struct Args {
     /// OpenAI Codex CLI used for agent sessions.
     #[arg(long, env = "BANTU_CODEX_BIN", default_value = "codex")]
     codex_bin: PathBuf,
+    /// OpenCode CLI, driven over the Agent Client Protocol.
+    #[arg(long, env = "BANTU_OPENCODE_BIN", default_value = "opencode")]
+    opencode_bin: PathBuf,
+    /// Gemini CLI, driven over the Agent Client Protocol.
+    #[arg(long, env = "BANTU_GEMINI_BIN", default_value = "gemini")]
+    gemini_bin: PathBuf,
+    /// Cursor's CLI, driven over the Agent Client Protocol.
+    #[arg(long, env = "BANTU_CURSOR_BIN", default_value = "agent")]
+    cursor_bin: PathBuf,
     /// Accept non-loopback binds and any Host header. Prefer --allowed-host.
     #[arg(long)]
     allow_remote: bool,
@@ -168,6 +177,9 @@ async fn main() -> Result<()> {
         branch_prefix: args.branch_prefix,
         claude_bin: args.claude_bin,
         codex_bin: args.codex_bin,
+        opencode_bin: args.opencode_bin,
+        gemini_bin: args.gemini_bin,
+        cursor_bin: args.cursor_bin,
         allowed_hosts,
     };
     let web_dir = config.web_dir.clone();

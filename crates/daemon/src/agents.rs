@@ -14,8 +14,30 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
 impl Daemon {
     pub async fn agent_statuses(&self) -> Vec<AgentStatus> {
-        let (claude, codex) = tokio::join!(self.claude_status(), self.codex_status());
-        vec![claude, codex]
+        let (claude, codex, opencode, gemini, cursor) = tokio::join!(
+            self.claude_status(),
+            self.codex_status(),
+            self.acp_status(AgentKind::Opencode),
+            self.acp_status(AgentKind::Gemini),
+            self.acp_status(AgentKind::Cursor),
+        );
+        vec![claude, codex, opencode, gemini, cursor]
+    }
+
+    /// ACP has no standard way to ask who's signed in without starting a
+    /// session, so an installed agent counts as ready until a turn says otherwise.
+    async fn acp_status(&self, agent: AgentKind) -> AgentStatus {
+        let mut status = empty(agent);
+        let Some((bin, _)) = crate::acp::command(&self.config, agent) else {
+            return status;
+        };
+        let Some(version) = run(&bin, &["--version"]).await.filter(|(ok, _)| *ok) else {
+            return status;
+        };
+        status.installed = true;
+        status.logged_in = true;
+        status.version = version.1.split_whitespace().last().map(str::to_string);
+        status
     }
 
     async fn claude_status(&self) -> AgentStatus {
@@ -56,7 +78,7 @@ impl Daemon {
         method: Option<LoginMethod>,
     ) -> Result<Terminal, CommandError> {
         let method = method.unwrap_or(LoginMethod::Subscription);
-        let (bin, args, title) = match (agent, method) {
+        let (bin, args, title): (&std::path::Path, &str, &str) = match (agent, method) {
             (AgentKind::Claude, LoginMethod::Subscription) => (
                 &self.config.claude_bin,
                 "auth login --claudeai",
@@ -78,8 +100,18 @@ impl Daemon {
                 "Codex API key",
             ),
             (AgentKind::Codex, _) => (&self.config.codex_bin, "login", "Sign in to Codex"),
+            (AgentKind::Opencode, _) => (
+                &self.config.opencode_bin,
+                "auth login",
+                "Sign in to OpenCode",
+            ),
+            // Gemini CLI signs in from its own first-run screen.
+            (AgentKind::Gemini, _) => (&self.config.gemini_bin, "", "Sign in to Gemini"),
+            (AgentKind::Cursor, _) => (&self.config.cursor_bin, "login", "Sign in to Cursor"),
         };
-        let command = format!("{} {args}", shell_quote(&bin.to_string_lossy()));
+        let command = format!("{} {args}", shell_quote(&bin.to_string_lossy()))
+            .trim_end()
+            .to_string();
         self.spawn_terminal(
             None,
             TerminalKind::Login,
