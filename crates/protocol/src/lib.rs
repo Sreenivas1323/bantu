@@ -179,6 +179,16 @@ pub struct Session {
     /// `None` uses the agent's default model.
     pub model: Option<String>,
     pub permission_mode: PermissionMode,
+    /// How hard the model thinks: `low`, `medium`, `high`, `xhigh` or `max`.
+    /// `None` uses the agent's default. Claude and Codex only.
+    #[serde(default)]
+    pub effort: Option<String>,
+    /// Claude's fast mode: faster output at a higher cost.
+    #[serde(default)]
+    pub fast: bool,
+    /// The chat this one was forked from.
+    #[serde(default)]
+    pub forked_from: Option<String>,
     pub status: SessionStatus,
     /// Messages waiting for the current turn to finish.
     pub queued: u32,
@@ -538,7 +548,15 @@ pub enum Command {
         agent: Option<AgentKind>,
         model: Option<String>,
         permission_mode: Option<PermissionMode>,
+        #[serde(default)]
+        effort: Option<String>,
+        #[serde(default)]
+        fast: Option<bool>,
     },
+    /// Start a new chat that continues from where this one is now. The
+    /// original is left as it was.
+    #[serde(rename = "session.fork")]
+    SessionFork { session_id: String },
     /// Send a user message. Queued if the agent is mid-turn.
     #[serde(rename = "session.send")]
     SessionSend { session_id: String, text: String },
@@ -552,6 +570,11 @@ pub enum Command {
         title: Option<String>,
         model: Option<String>,
         permission_mode: Option<PermissionMode>,
+        /// An empty string goes back to the agent's default.
+        #[serde(default)]
+        effort: Option<String>,
+        #[serde(default)]
+        fast: Option<bool>,
     },
     /// Restore the workspace files to the checkpoint taken just before `turn`
     /// started. The conversation is kept; the agent is told on its next turn.
@@ -664,7 +687,23 @@ pub enum Command {
     PreferencesUpdate {
         #[serde(default)]
         claude_user_setup: Option<bool>,
+        /// Replaces the whole list.
+        #[serde(default)]
+        loadouts: Option<Vec<Loadout>>,
     },
+}
+
+/// A named combination of agent and settings for starting a chat.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Loadout {
+    pub name: String,
+    pub agent: AgentKind,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    #[serde(default)]
+    pub fast: bool,
+    pub permission_mode: PermissionMode,
 }
 
 /// Daemon-wide preferences, changed with `preferences.update`.
@@ -677,6 +716,8 @@ pub struct Preferences {
     /// The repo's own `CLAUDE.md` and `.claude/settings.json` always load.
     #[serde(default)]
     pub claude_user_setup: bool,
+    #[serde(default)]
+    pub loadouts: Vec<Loadout>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -902,6 +943,7 @@ mod tests {
             "InboxItem",
             "InboxKind",
             "LogStream",
+            "Loadout",
             "LoginMethod",
             "PermissionMode",
             "PermissionRequest",

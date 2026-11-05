@@ -2468,3 +2468,167 @@ async fn mcp_terminals_comments_and_inbox() {
     assert_eq!(asking.await.unwrap(), "The user stopped this agent.");
     assert!(h.state().await.inbox.is_empty());
 }
+
+#[tokio::test]
+async fn effort_fast_mode_and_forks() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let calls = || std::fs::read_to_string(&h.claude_calls).unwrap_or_default();
+
+    let (status, _) = h
+        .command(
+            json!({"type":"session.update","session_id":session.id,"effort":"ludicrous"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400);
+    let (status, res) = h
+        .command(
+            json!({"type":"session.update","session_id":session.id,"effort":"high","fast":true}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["effort"], "high");
+    assert_eq!(res["result"]["fast"], true);
+
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"edit something"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let first = calls();
+    assert!(first.contains("--effort high"), "{first}");
+    assert!(first.contains(r#""fastMode":true"#), "{first}");
+
+    // Clearing goes back to the default.
+    h.command(
+        json!({"type":"session.update","session_id":session.id,"effort":"","fast":false}),
+        None,
+    )
+    .await;
+
+    // The fork copies the transcript and forks the real conversation.
+    let (status, res) = h
+        .command(json!({"type":"session.fork","session_id":session.id}), None)
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let fork: Session = serde_json::from_value(res["result"].clone()).unwrap();
+    assert_eq!(fork.forked_from.as_deref(), Some(session.id.as_str()));
+    assert!(fork.title.starts_with("Fork of "), "{}", fork.title);
+    assert_eq!(fork.turns, 1);
+    assert_eq!(fork.total_cost_usd, 0.0);
+    let history = h.history(&ws.id).await;
+    assert_eq!(chat(&history, &fork.id), chat(&history, &session.id));
+
+    h.command(
+        json!({"type":"session.send","session_id":fork.id,"text":"try another way"}),
+        None,
+    )
+    .await;
+    h.wait_session(&fork.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let line = calls().lines().last().unwrap().to_string();
+    assert!(line.contains("--fork-session"), "{line}");
+    assert!(line.contains("--resume"), "{line}");
+    assert!(line.contains("--session-id"), "{line}");
+
+    // After that it resumes its own conversation like any other chat.
+    h.command(
+        json!({"type":"session.send","session_id":fork.id,"text":"and again"}),
+        None,
+    )
+    .await;
+    h.wait_session(&fork.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 3
+    })
+    .await;
+    let line = calls().lines().last().unwrap().to_string();
+    assert!(!line.contains("--fork-session"), "{line}");
+    assert!(line.contains("--resume"), "{line}");
+
+    // It can rewind to a turn from before the fork.
+    let (status, res) = h
+        .command(
+            json!({"type":"session.rewind","session_id":fork.id,"turn":1}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+
+    // Agents that can't fork get the transcript with the first message.
+    let (_, res) = h
+        .command(
+            json!({"type":"session.create","workspace_id":ws.id,"agent":"codex"}),
+            None,
+        )
+        .await;
+    let codex: Session = serde_json::from_value(res["result"].clone()).unwrap();
+    h.command(
+        json!({"type":"session.send","session_id":codex.id,"text":"remember the plan"}),
+        None,
+    )
+    .await;
+    h.wait_session(&codex.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let (_, res) = h
+        .command(json!({"type":"session.fork","session_id":codex.id}), None)
+        .await;
+    let fork: Session = serde_json::from_value(res["result"].clone()).unwrap();
+    h.command(
+        json!({"type":"session.send","session_id":fork.id,"text":"new direction"}),
+        None,
+    )
+    .await;
+    h.wait_session(&fork.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &fork.id);
+    let sent = items
+        .iter()
+        .rev()
+        .find_map(|i| match i {
+            ChatItem::User { text } => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(sent.contains("User: remember the plan"), "{sent}");
+    assert!(sent.ends_with("new direction"), "{sent}");
+    let last_call = h.codex_calls().last().unwrap().clone();
+    assert!(!last_call.contains("resume"), "{last_call}");
+
+    // Loadouts are saved with the preferences.
+    let (status, res) = h
+        .command(
+            json!({"type":"preferences.update","loadouts":[{"name":"Deep","agent":"claude",
+                "model":"opus","effort":"max","fast":false,"permission_mode":"plan"}]}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(h.state().await.preferences.loadouts[0].name, "Deep");
+}

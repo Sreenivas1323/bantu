@@ -7,7 +7,20 @@ export type Session = { id: string, workspace_id: string, agent: AgentKind, titl
 /**
  * `None` uses the agent's default model.
  */
-model: string | null, permission_mode: PermissionMode, status: SessionStatus, 
+model: string | null, permission_mode: PermissionMode, 
+/**
+ * How hard the model thinks: `low`, `medium`, `high`, `xhigh` or `max`.
+ * `None` uses the agent's default. Claude and Codex only.
+ */
+effort: string | null, 
+/**
+ * Claude's fast mode: faster output at a higher cost.
+ */
+fast: boolean, 
+/**
+ * The chat this one was forked from.
+ */
+forked_from: string | null, status: SessionStatus, 
 /**
  * Messages waiting for the current turn to finish.
  */

@@ -48,7 +48,12 @@ impl Daemon {
             ));
         }
         let ws = self.ready_workspace(&s.workspace_id).await?;
-        let resume = self.store.session_has_agent_output(&s.id).await?;
+        if self.store.fork_source(&s.id).await?.is_some() {
+            return Err(CommandError::Conflict(
+                "send this fork its first message before opening it in a terminal".into(),
+            ));
+        }
+        let resume = self.can_resume(&s.id).await?;
         let (command, transcript_offset) = match s.agent {
             AgentKind::Claude => {
                 let bin = shell_quote(&self.config.claude_bin.to_string_lossy());
@@ -63,6 +68,12 @@ impl Daemon {
                 ];
                 if let Some(m) = &s.model {
                     parts.extend(["--model".to_string(), shell_quote(m)]);
+                }
+                if let Some(effort) = &s.effort {
+                    parts.extend(["--effort".to_string(), shell_quote(effort)]);
+                }
+                if let Some(settings) = crate::sessions::with_fast_mode(None, s.fast) {
+                    parts.extend(["--settings".to_string(), shell_quote(&settings)]);
                 }
                 if !self.store.preferences().await?.claude_user_setup {
                     parts.extend([

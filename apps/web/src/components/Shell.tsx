@@ -128,6 +128,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             onOpenAccounts={() => setShowAccounts(true)}
             allWorkspaces={state.workspaces}
             onSelectWorkspace={setSelectedId}
+            loadouts={state.preferences.loadouts}
             terminals={Object.values(state.terminals)
               .filter((t) => t.workspace_id === selected.id)
               .sort((a, b) => a.created_at.localeCompare(b.created_at))}

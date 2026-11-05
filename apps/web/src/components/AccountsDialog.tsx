@@ -125,7 +125,7 @@ export function AccountsDialog({
           <input
             type="checkbox"
             checked={preferences.claude_user_setup}
-            onChange={(e) => void run({ type: "preferences.update", claude_user_setup: e.target.checked })}
+            onChange={(e) => void run({ type: "preferences.update", claude_user_setup: e.target.checked, loadouts: null })}
             className="mt-0.5 accent-accent"
           />
           <span className="flex flex-col gap-0.5">
@@ -137,6 +137,34 @@ export function AccountsDialog({
             </span>
           </span>
         </label>
+        {preferences.loadouts.length > 0 && (
+          <section className="rounded-md border border-line p-3">
+            <h3 className="font-medium">Loadouts</h3>
+            <p className="mb-2 text-[12.5px] text-muted">Saved from a chat's settings. They appear next to + New chat.</p>
+            <ul className="flex flex-col gap-1">
+              {preferences.loadouts.map((l) => (
+                <li key={l.name} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate">
+                    {l.name} <span className="text-[12px] text-faint">{agentLabel(l.agent)}{l.model ? ` · ${l.model}` : ""}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void run({
+                        type: "preferences.update",
+                        claude_user_setup: null,
+                        loadouts: preferences.loadouts.filter((other) => other.name !== l.name),
+                      })
+                    }
+                    className="text-[12px] text-faint hover:text-bad"
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {login && (
           <section className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between text-[12.5px]">

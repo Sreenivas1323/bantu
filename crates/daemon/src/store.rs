@@ -141,11 +141,13 @@ impl Store {
         let (guard, mut tx) = self.begin().await?;
         sqlx::query(
             "INSERT INTO sessions (id, workspace_id, agent, title, model, permission_mode, status,
-                                   queued, turns, total_cost_usd, agent_session_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   queued, turns, total_cost_usd, agent_session_id, created_at,
+                                   effort, fast, forked_from)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title, model = excluded.model,
                 permission_mode = excluded.permission_mode, status = excluded.status,
+                effort = excluded.effort, fast = excluded.fast,
                 queued = excluded.queued, turns = excluded.turns,
                 total_cost_usd = excluded.total_cost_usd",
         )
@@ -161,6 +163,9 @@ impl Store {
         .bind(s.total_cost_usd)
         .bind(agent_session_id)
         .bind(&s.created_at)
+        .bind(&s.effort)
+        .bind(s.fast)
+        .bind(&s.forked_from)
         .execute(&mut *tx)
         .await?;
         let data = EventData::SessionUpdated { session: s.clone() };
@@ -175,6 +180,26 @@ impl Store {
     ) -> Result<()> {
         sqlx::query("UPDATE sessions SET agent_session_id = ? WHERE id = ?")
             .bind(agent_session_id)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The parent's conversation id, while a fork hasn't had a successful turn.
+    pub async fn fork_source(&self, session_id: &str) -> Result<Option<String>> {
+        Ok(
+            sqlx::query_scalar("SELECT fork_source FROM sessions WHERE id = ?")
+                .bind(session_id)
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten(),
+        )
+    }
+
+    pub async fn set_fork_source(&self, session_id: &str, source: Option<&str>) -> Result<()> {
+        sqlx::query("UPDATE sessions SET fork_source = ? WHERE id = ?")
+            .bind(source)
             .bind(session_id)
             .execute(&self.pool)
             .await?;
@@ -388,6 +413,25 @@ impl Store {
         Ok(found.is_some())
     }
 
+    /// A session's whole transcript with its turn numbers, oldest first.
+    pub async fn session_items(&self, session_id: &str) -> Result<Vec<(u32, ChatItem)>> {
+        let rows: Vec<String> = sqlx::query_scalar(
+            "SELECT payload FROM events
+             WHERE kind = 'session.item' AND json_extract(payload, '$.session_id') = ?
+             ORDER BY seq",
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut items = Vec::with_capacity(rows.len());
+        for payload in rows {
+            if let EventData::SessionItem { turn, item, .. } = serde_json::from_str(&payload)? {
+                items.push((turn, item));
+            }
+        }
+        Ok(items)
+    }
+
     /// The newest transcript item of a session.
     pub async fn last_session_item(&self, session_id: &str) -> Result<Option<ChatItem>> {
         let payload: Option<String> = sqlx::query_scalar(
@@ -561,6 +605,9 @@ fn session_from_row(r: &SqliteRow) -> Result<Session> {
         model: r.get("model"),
         permission_mode: PermissionMode::parse(&mode)
             .with_context(|| format!("unknown permission mode {mode:?}"))?,
+        effort: r.get("effort"),
+        fast: r.get("fast"),
+        forked_from: r.get("forked_from"),
         status: match status.as_str() {
             "running" => SessionStatus::Running,
             _ => SessionStatus::Idle,

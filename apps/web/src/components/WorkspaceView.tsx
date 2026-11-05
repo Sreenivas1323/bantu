@@ -5,6 +5,7 @@ import type {
   CommandResponse,
   DiffComment,
   InboxItem,
+  Loadout,
   PermissionRequest,
   Repo,
   Session,
@@ -43,6 +44,7 @@ export function WorkspaceView({
   onOpenAccounts,
   allWorkspaces,
   onSelectWorkspace,
+  loadouts,
   client,
   run,
   onArchive,
@@ -65,6 +67,7 @@ export function WorkspaceView({
   onOpenAccounts: () => void;
   allWorkspaces: Record<string, Workspace>;
   onSelectWorkspace: (id: string) => void;
+  loadouts: Loadout[];
   client: DaemonClient;
   run: (command: Command) => Promise<CommandResponse | null>;
   onArchive: (id: string) => Promise<void>;
@@ -250,6 +253,7 @@ export function WorkspaceView({
           agents={agents}
           onOpenAccounts={onOpenAccounts}
           terminals={terminals}
+          loadouts={loadouts}
           onShowTerminal={(id) => {
             setTerminalId(id);
             setTab("terminal");

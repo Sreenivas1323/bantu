@@ -86,10 +86,17 @@ impl Daemon {
                 agent,
                 model,
                 permission_mode,
-            } => serde_json::to_value(
-                self.create_session(&workspace_id, agent, model, permission_mode)
-                    .await?,
-            ),
+                effort,
+                fast,
+            } => {
+                let session = self
+                    .create_session(&workspace_id, agent, model, permission_mode)
+                    .await?;
+                serde_json::to_value(self.tune_session(&session.id, effort, fast).await?)
+            }
+            Command::SessionFork { session_id } => {
+                serde_json::to_value(self.fork_session(&session_id).await?)
+            }
             Command::SessionSend { session_id, text } => {
                 serde_json::to_value(self.send_message(&session_id, text).await?)
             }
@@ -99,10 +106,16 @@ impl Daemon {
             Command::SessionRewind { session_id, turn } => {
                 serde_json::to_value(self.rewind_session(&session_id, turn).await?)
             }
-            Command::PreferencesUpdate { claude_user_setup } => {
+            Command::PreferencesUpdate {
+                claude_user_setup,
+                loadouts,
+            } => {
                 let mut p = self.store.preferences().await?;
                 if let Some(v) = claude_user_setup {
                     p.claude_user_setup = v;
+                }
+                if let Some(v) = loadouts {
+                    p.loadouts = v;
                 }
                 self.store.set_preferences(&p).await?;
                 serde_json::to_value(p)
@@ -190,10 +203,13 @@ impl Daemon {
                 title,
                 model,
                 permission_mode,
-            } => serde_json::to_value(
+                effort,
+                fast,
+            } => {
                 self.update_session(&session_id, title, model, permission_mode)
-                    .await?,
-            ),
+                    .await?;
+                serde_json::to_value(self.tune_session(&session_id, effort, fast).await?)
+            }
         };
         value.map_err(|e| CommandError::Internal(e.into()))
     }

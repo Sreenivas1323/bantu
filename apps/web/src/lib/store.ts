@@ -57,7 +57,7 @@ export const emptyState: DaemonState = {
   inbox: {},
   streaming: {},
   conflicts: {},
-  preferences: { claude_user_setup: false },
+  preferences: { claude_user_setup: false, loadouts: [] },
 };
 
 export type Action =

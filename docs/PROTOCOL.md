@@ -164,6 +164,9 @@ One chat with an agent in a workspace. Every workspace gets one automatically wh
 | `title` | string | `"New chat"` until the first message, which becomes the title |
 | `model` | string \| null | `null` uses the agent's default (e.g. `opus`, `sonnet`, `haiku`, or a full model id) |
 | `permission_mode` | `PermissionMode` | See below |
+| `effort` | string \| null | `low`, `medium`, `high`, `xhigh` or `max`; `null` uses the agent's default. Claude and Codex only (Codex treats `max` as `xhigh`) |
+| `fast` | boolean | Claude's fast mode |
+| `forked_from` | string \| null | The chat this one was forked from |
 | `status` | `"idle" \| "running"` | |
 | `queued` | number | Messages waiting for the current turn to finish |
 | `turns` | number | Turns started so far |
@@ -263,10 +266,11 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `workspace.resolve_conflicts` | `workspace_id`, `session_id` | `Session` | Asks the agent to resolve what the conflict radar found. 400 if there's nothing to resolve. |
 | `workspace.rename_branch` | `workspace_id`, `session_id` | `Session` | Asks the agent to rename the branch. The daemon picks up the new name when the turn ends. |
 | `workspace.review` | `workspace_id`, `agent?` | `Session` | Starts a read-only chat that reviews the workspace's changes. |
-| `session.create` | `workspace_id`, `model?`, `permission_mode?` | `Session` | Opens another chat in a ready workspace. |
+| `session.create` | `workspace_id`, `agent?`, `model?`, `permission_mode?`, `effort?`, `fast?` | `Session` | Opens another chat in a ready workspace. |
+| `session.fork` | `session_id` | `Session` | Starts a new chat that continues from where this one is now; see below. 409 while a turn is running. |
 | `session.send` | `session_id`, `text` | `Session` | Sends a message. If a turn is running it's queued (`queued` goes up) and runs afterwards, in order. |
 | `session.cancel` | `session_id` | `Session` | Stops the running turn (it ends with an `error` item `"Stopped"`), drops queued messages, and denies pending permission requests. |
-| `session.update` | `session_id`, `title?`, `model?`, `permission_mode?` | `Session` | Changes settings; they apply from the next turn. |
+| `session.update` | `session_id`, `title?`, `model?`, `permission_mode?`, `effort?`, `fast?` | `Session` | Changes settings; they apply from the next turn. An empty `effort` goes back to the default. |
 | `session.rewind` | `session_id`, `turn` | `Session` | Restores the workspace files to the checkpoint taken just before `turn` started; see below. 409 while the agent is running. |
 | `permission.respond` | `request_id`, `allow`, `message?` | — | Answers a `PermissionRequest`. `message` tells the agent why it was denied. 404 if already answered. |
 | `inbox.respond` | `item_id`, `answer` | — | Answers a question in the inbox. 404 if already handled. |
@@ -277,7 +281,7 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `terminal.open` | `workspace_id`, `cols?`, `rows?`, `command?` | `Terminal` | Opens an interactive login shell in the worktree, or runs `command` (any CLI) there. |
 | `session.open_terminal` | `session_id`, `cols?`, `rows?` | `Terminal` | Continues a Claude or Codex chat in the agent's own terminal UI; see below. Returns the existing terminal if it's already open. 409 while a turn is running. |
 | `terminal.close` | `terminal_id` | — | Hangs up the terminal's whole process group and forgets it. |
-| `preferences.update` | `claude_user_setup?` | `Preferences` | Changes daemon-wide preferences (also in `StateSnapshot.preferences`; changes arrive as `preferences.updated`). |
+| `preferences.update` | `claude_user_setup?`, `loadouts?` | `Preferences` | Changes daemon-wide preferences (also in `StateSnapshot.preferences`; changes arrive as `preferences.updated`). |
 
 ```json
 { "type": "session.send", "session_id": "s_123", "text": "Fix the flaky login test" }
@@ -327,6 +331,17 @@ claude -p --output-format stream-json --verbose --include-partial-messages \
 - **Branch naming.** On the first message, a placeholder branch (`bantu/<city>`) that has never been pushed is renamed to a slug of the message, e.g. "Please fix the login redirect bug" → `bantu/fix-login-redirect-bug`. Duplicates get `-2`, `-3`, and so on.
 - **Checkpoints.** Before each turn the daemon snapshots the worktree to `refs/bantu/cp/<session>/<turn>`: tracked and untracked (non-ignored) files, as a commit whose parent is `HEAD`. It uses a temporary index, so the user's index, branch and files are untouched. It's skipped while a merge or rebase is in progress.
 - **Rewind.** `session.rewind` resets the branch to the checkpoint's parent, restores the snapshot's files (ignored files such as `node_modules` are left alone), and adds a `rewound` item. Claude can't rewind part of a conversation, so the next message is prefixed with a note telling the agent which turn the files went back to.
+
+### Forking a chat
+
+`session.fork` creates a chat with a copy of the parent's transcript, settings and checkpoints, so rewinding to an earlier turn still works. The parent is untouched.
+
+- **Claude** forks the real conversation: the fork's first turn runs `claude --resume <parent> --fork-session --session-id <fork>`.
+- **Other agents** can't fork a conversation, so the fork starts a new one and its first message includes the last 20,000 characters of the transcript.
+
+### Loadouts
+
+`preferences.loadouts` is a saved list of `Loadout`: `{ name, agent, model, effort, fast, permission_mode }`. Clients offer these when starting a chat and pass the values to `session.create`. `preferences.update` replaces the whole list.
 
 ### Bantu's MCP tools
 

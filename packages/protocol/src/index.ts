@@ -40,3 +40,4 @@ export type { TodoSource } from "./generated/TodoSource";
 export type { WorkspaceChecks } from "./generated/WorkspaceChecks";
 export type { InboxItem } from "./generated/InboxItem";
 export type { InboxKind } from "./generated/InboxKind";
+export type { Loadout } from "./generated/Loadout";

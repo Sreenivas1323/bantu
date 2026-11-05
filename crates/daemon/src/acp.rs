@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
-use bantu_protocol::{AgentKind, ChatItem, EventData, PermissionMode, Session, StreamDelta};
+use bantu_protocol::{AgentKind, ChatItem, PermissionMode, Session, StreamDelta};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, Notify};
@@ -324,7 +324,7 @@ impl Daemon {
     ) -> anyhow::Result<f64> {
         let ws = self.require_workspace(&s.workspace_id).await?;
         let (bin, args) = command(&self.config, s.agent).context("not an ACP agent")?;
-        let resume = self.store.session_has_agent_output(&s.id).await?;
+        let resume = self.can_resume(&s.id).await?;
         let mut child = tokio::process::Command::new(&bin)
             .args(args)
             .current_dir(&ws.path)
@@ -619,7 +619,8 @@ impl Daemon {
         if !resuming {
             return format!("{briefing}\n\n{text}");
         }
-        let earlier = self.earlier_conversation(s).await;
+        // The newest message is the one being sent now.
+        let earlier = self.earlier_conversation(s, true).await;
         format!(
             "{briefing}\n\n[Bantu] This agent couldn't reopen the earlier conversation. Here's \
              what was said:\n\n{earlier}\n\n[Bantu] The new message:\n\n{text}"
@@ -627,30 +628,19 @@ impl Daemon {
     }
 
     /// The last part of a session's user and assistant messages.
-    async fn earlier_conversation(&self, s: &Session) -> String {
-        let events = self
-            .store
-            .workspace_history(&s.workspace_id, 2000)
-            .await
-            .unwrap_or_default();
-        let mut lines: Vec<String> = Vec::new();
-        for ev in events {
-            if let EventData::SessionItem {
-                session_id, item, ..
-            } = ev.data
-            {
-                if session_id != s.id {
-                    continue;
-                }
-                match item {
-                    ChatItem::User { text } => lines.push(format!("User: {text}")),
-                    ChatItem::Assistant { text } => lines.push(format!("Assistant: {text}")),
-                    _ => {}
-                }
-            }
+    pub(crate) async fn earlier_conversation(&self, s: &Session, skip_newest: bool) -> String {
+        let items = self.store.session_items(&s.id).await.unwrap_or_default();
+        let mut lines: Vec<String> = items
+            .into_iter()
+            .filter_map(|(_, item)| match item {
+                ChatItem::User { text } => Some(format!("User: {text}")),
+                ChatItem::Assistant { text } => Some(format!("Assistant: {text}")),
+                _ => None,
+            })
+            .collect();
+        if skip_newest {
+            lines.pop();
         }
-        // The newest message is the one being sent now.
-        lines.pop();
         let joined = lines.join("\n\n");
         let count = joined.chars().count();
         joined

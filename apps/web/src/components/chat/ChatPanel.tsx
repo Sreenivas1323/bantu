@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentKind, AgentStatus, Command, CommandResponse, InboxItem, PermissionRequest, Session, Terminal, Workspace } from "@bantu/protocol";
+import type { AgentKind, AgentStatus, Command, CommandResponse, InboxItem, Loadout, PermissionRequest, Session, Terminal, Workspace } from "@bantu/protocol";
 import { QuestionCard } from "../InboxDialog.tsx";
 import type { ChatEntry, DaemonState } from "../../lib/store.ts";
 import { agentLabel, AGENT_KINDS } from "../../lib/useAgents.ts";
@@ -22,6 +22,7 @@ export function ChatPanel({
   onOpenAccounts,
   terminals,
   onShowTerminal,
+  loadouts,
   run,
 }: {
   workspace: Workspace;
@@ -40,6 +41,7 @@ export function ChatPanel({
   /** This workspace's terminals, to find one continuing the active chat. */
   terminals: Terminal[];
   onShowTerminal: (terminalId: string) => void;
+  loadouts: Loadout[];
   run: Run;
 }) {
   // Jump to a chat the user just created once the daemon reports it.
@@ -53,9 +55,46 @@ export function ChatPanel({
 
   const ready = workspace.state === "ready";
   const newChat = async (agent: AgentKind) => {
-    const res = await run({ type: "session.create", workspace_id: workspace.id, agent, model: null, permission_mode: null });
+    const res = await run({ type: "session.create", workspace_id: workspace.id, agent, model: null, permission_mode: null, effort: null, fast: null });
     const created = res?.result as Session | undefined;
     if (created?.id) setPendingNew(created.id);
+  };
+  const newFromLoadout = async (l: Loadout) => {
+    const res = await run({
+      type: "session.create",
+      workspace_id: workspace.id,
+      agent: l.agent,
+      model: l.model,
+      permission_mode: l.permission_mode,
+      effort: l.effort,
+      fast: l.fast,
+    });
+    const created = res?.result as Session | undefined;
+    if (created?.id) setPendingNew(created.id);
+  };
+  const fork = async () => {
+    if (!active) return;
+    const res = await run({ type: "session.fork", session_id: active.id });
+    const created = res?.result as Session | undefined;
+    if (created?.id) setPendingNew(created.id);
+  };
+  const saveLoadout = async () => {
+    if (!active) return;
+    const name = window.prompt("Name this loadout", agentLabel(active.agent))?.trim();
+    if (!name) return;
+    const loadout: Loadout = {
+      name,
+      agent: active.agent,
+      model: active.model,
+      effort: active.effort,
+      fast: active.fast,
+      permission_mode: active.permission_mode,
+    };
+    await run({
+      type: "preferences.update",
+      claude_user_setup: null,
+      loadouts: [...loadouts.filter((l) => l.name !== name), loadout],
+    });
   };
 
   const liveTerminal = active && terminals.find((t) => t.session_id === active.id && !t.exited);
@@ -131,14 +170,36 @@ export function ChatPanel({
                   {agentLabel(agent)}
                 </button>
               ))}
+              {loadouts.map((l) => (
+                <button
+                  key={l.name}
+                  type="button"
+                  onClick={() => void newFromLoadout(l)}
+                  className="rounded border border-line px-2 py-0.5 hover:bg-raised hover:text-fg"
+                  title={`${agentLabel(l.agent)}${l.model ? ` · ${l.model}` : ""}${l.effort ? ` · ${l.effort} effort` : ""}${l.fast ? " · fast" : ""} · ${l.permission_mode}`}
+                >
+                  {l.name}
+                </button>
+              ))}
             </span>
+          )}
+          {ready && (
+            <button
+              type="button"
+              disabled={active.status === "running"}
+              onClick={() => void fork()}
+              className="ml-auto shrink-0 rounded px-2 py-1 text-muted hover:bg-raised hover:text-fg disabled:opacity-40"
+              title="Start a new chat that continues from here; this one stays as it is"
+            >
+              Fork
+            </button>
           )}
           {ready && canUseTerminal && (
             <button
               type="button"
               disabled={active.status === "running"}
               onClick={() => void openTerminal()}
-              className="ml-auto shrink-0 rounded px-2 py-1 text-muted hover:bg-raised hover:text-fg disabled:opacity-40"
+              className="shrink-0 rounded px-2 py-1 text-muted hover:bg-raised hover:text-fg disabled:opacity-40"
               title="Continue this conversation in the agent's own terminal UI"
             >
               Open in terminal
@@ -208,8 +269,11 @@ export function ChatPanel({
             title: null,
             model: change.model ?? null,
             permission_mode: change.permission_mode ?? null,
+            effort: change.effort ?? null,
+            fast: change.fast ?? null,
           });
         }}
+        onSaveLoadout={() => void saveLoadout()}
       />
     </div>
   );

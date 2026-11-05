@@ -138,6 +138,12 @@ impl Daemon {
                 let model = (agent == caller.agent)
                     .then(|| caller.model.clone())
                     .flatten();
+                // Children work like their parent, including how hard it thinks.
+                let (effort, fast) = if agent == caller.agent {
+                    (caller.effort.clone(), Some(caller.fast))
+                } else {
+                    (None, None)
+                };
                 let session = match session {
                     Some(s) => self
                         .update_session(&s.id, None, model, Some(caller.permission_mode))
@@ -148,6 +154,9 @@ impl Daemon {
                         .await
                         .map_err(err)?,
                 };
+                self.tune_session(&session.id, effort, fast)
+                    .await
+                    .map_err(err)?;
                 self.send_message(&session.id, task).await.map_err(err)?;
                 Ok(format!(
                     "Started workspace {} on branch {} with a {} agent working on the task. \
