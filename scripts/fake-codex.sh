@@ -12,6 +12,10 @@ esac
 prompt=$(cat)
 { printf '%s ' "$@"; printf '| %s\n' "$(printf '%s' "$prompt" | head -n 1)"; } >> "${BANTU_FAKE_CODEX_LOG:-/dev/null}"
 last=$(printf '%s' "$prompt" | tail -n 1)
+# Automatic review: review-fails.txt in the worktree means it finds a problem.
+case "$prompt" in *"VERDICT:"*)
+  if [ -f review-fails.txt ]; then last='a.rs:1 is broken.\nVERDICT: CHANGES_REQUESTED'; else last='Looks good.\nVERDICT: APPROVED'; fi ;;
+esac
 echo '{"type":"thread.started","thread_id":"th_fake"}'
 echo '{"type":"turn.started"}'
 echo '{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"ls","status":"in_progress"}}'

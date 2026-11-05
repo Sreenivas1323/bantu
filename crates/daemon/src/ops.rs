@@ -44,6 +44,7 @@ pub struct Daemon {
     pub(crate) inbox: crate::inbox::Inbox,
     pub(crate) push: crate::push::Push,
     pub(crate) preview: crate::preview::Preview,
+    pub(crate) auto_review: crate::auto_review::AutoReview,
     pub(crate) radar: crate::radar::Radar,
     pub(crate) activity: crate::activity::Tracker,
 }
@@ -60,6 +61,7 @@ impl Daemon {
             inbox: Default::default(),
             push: Default::default(),
             preview: Default::default(),
+            auto_review: Default::default(),
             radar: Default::default(),
             activity: Default::default(),
         }
@@ -102,7 +104,9 @@ impl Daemon {
                 serde_json::to_value(self.fork_session(&session_id).await?)
             }
             Command::SessionSend { session_id, text } => {
-                serde_json::to_value(self.send_message(&session_id, text).await?)
+                let session = self.send_message(&session_id, text).await?;
+                self.reset_review_rounds(&session.workspace_id).await;
+                serde_json::to_value(session)
             }
             Command::SessionCancel { session_id } => {
                 serde_json::to_value(self.cancel_session(&session_id).await?)

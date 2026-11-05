@@ -3,6 +3,7 @@
 pub mod acp;
 pub mod activity;
 pub mod agents;
+pub mod auto_review;
 pub mod checks;
 pub mod codex;
 pub mod discover;
@@ -85,6 +86,7 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     daemon.recover_interrupted().await?;
     daemon.recover_sessions().await?;
     daemon.recover_terminals().await?;
+    daemon.recover_reviews().await?;
     daemon.start_push()?;
     let state = AppState {
         daemon: daemon.clone(),

@@ -251,6 +251,12 @@ impl Daemon {
         );
         drop(running);
 
+        // New work means the last review no longer applies.
+        if ws.review_state.is_some() && !self.is_reviewer(&s.id).await {
+            self.set_review_state(&ws.id, None).await;
+        }
+        let ws = self.require_workspace(&s.workspace_id).await?;
+
         if s.title == DEFAULT_TITLE {
             s.title = title_from(&text);
             if let Err(e) = self.name_branch(&ws, &text).await {
@@ -610,6 +616,8 @@ impl Daemon {
                     if let Err(e) = self.store.upsert_session(&s, &agent_id).await {
                         tracing::error!("session {}: {e:#}", s.id);
                     }
+                    drop(running);
+                    tokio::spawn(self.clone().after_turns(s));
                     return;
                 }
             }

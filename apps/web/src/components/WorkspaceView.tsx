@@ -8,6 +8,7 @@ import type {
   Loadout,
   PermissionRequest,
   Repo,
+  ReviewState,
   Session,
   Spotlight,
   Terminal,
@@ -114,6 +115,9 @@ export function WorkspaceView({
               <StateDot state={workspace.state} decorative />
               {workspace.state}
             </span>
+            {workspace.review_state && (
+              <span className={`rounded-full border px-2 py-0.5 text-xs font-normal ${REVIEW[workspace.review_state].tone}`}>{REVIEW[workspace.review_state].label}</span>
+            )}
           </h2>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 max-md:justify-start">
@@ -417,6 +421,12 @@ export function WorkspaceView({
     </div>
   );
 }
+
+const REVIEW: Record<ReviewState, { label: string; tone: string }> = {
+  reviewing: { label: "In review", tone: "border-line text-muted" },
+  changes_requested: { label: "Changes requested", tone: "border-warn/50 text-warn" },
+  approved: { label: "Ready", tone: "border-ok/50 text-ok" },
+};
 
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
   return (

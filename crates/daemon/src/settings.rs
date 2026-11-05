@@ -20,6 +20,22 @@ pub struct Settings {
     pub scripts: Scripts,
     #[serde(default)]
     pub prompts: Prompts,
+    #[serde(default)]
+    pub review: ReviewSettings,
+}
+
+/// Automatic review by another agent. Off by default, because it spends quota.
+///
+/// ```toml
+/// [review]
+/// auto = true
+/// agent = "codex"  # Defaults to Codex for Claude's work, and Claude for others'.
+/// ```
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct ReviewSettings {
+    #[serde(default)]
+    pub auto: bool,
+    pub agent: Option<String>,
 }
 
 /// Repo-specific instructions added to Bantu's built-in prompts:

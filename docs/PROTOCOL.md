@@ -385,6 +385,18 @@ claude -p --output-format stream-json --verbose --include-partial-messages \
 - **Checkpoints.** Before each turn the daemon snapshots the worktree to `refs/bantu/cp/<session>/<turn>`: tracked and untracked (non-ignored) files, as a commit whose parent is `HEAD`. It uses a temporary index, so the user's index, branch and files are untouched. It's skipped while a merge or rebase is in progress.
 - **Rewind.** `session.rewind` resets the branch to the checkpoint's parent, restores the snapshot's files (ignored files such as `node_modules` are left alone), and adds a `rewound` item. Claude can't rewind part of a conversation, so the next message is prefixed with a note telling the agent which turn the files went back to.
 
+### Automatic review
+
+With `[review] auto = true`, a chat that finishes work gets reviewed by a different agent, in a read-only chat titled "Automatic review". `Workspace.review_state` follows along.
+
+1. **It starts** when a chat has no queued work left, isn't in plan mode, its last turn succeeded, the repo's `check` passed (if it has one), and the files differ from where the branch started. Identical work isn't reviewed twice.
+2. **The reviewer** ends its reply with `VERDICT: APPROVED` or `VERDICT: CHANGES_REQUESTED`. Only the last line counts.
+3. **Approved** sets `approved`, which means the work is ready.
+4. **Changes requested** sets `changes_requested` and sends the findings to the author's chat. After 2 rounds it stops and sends an inbox notice instead, so two agents can't spend your quota arguing. A message from you starts the count again.
+5. **No verdict**, for example because the reviewer's CLI isn't installed, clears the state and notes it in the workspace log.
+
+Any new message to a chat clears `review_state`, because the review no longer describes the work.
+
 ### Forking a chat
 
 `session.fork` creates a chat with a copy of the parent's transcript, settings and checkpoints, so rewinding to an earlier turn still works. The parent is untouched.
@@ -478,6 +490,14 @@ fix_checks = "CI runs on Node 22; run `bun test` locally first."
 address_comments = "Reply on the PR when you disagree."
 resolve_conflicts = "Prefer rebasing over merge commits."
 rename_branch = "Branches look like team/short-description."
+```
+
+Automatic review by another agent is off by default, because it spends quota. It's described under [Automatic review](#automatic-review).
+
+```toml
+[review]
+auto = true
+agent = "codex"   # defaults to Codex for Claude's work, and Claude for everyone else's
 ```
 
 Bantu looks for settings first in the worktree (the branch's committed config), then in the main checkout. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.

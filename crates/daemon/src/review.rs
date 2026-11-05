@@ -494,7 +494,7 @@ fn fix_checks_message(branch: &str, checks: &[FailingCheck], more: usize) -> Str
     msg
 }
 
-fn review_prompt(branch: &str, base: &str, merge_base: &str) -> String {
+pub(crate) fn review_prompt(branch: &str, base: &str, merge_base: &str) -> String {
     format!(
         "Review the changes on `{branch}` against `{base}`: everything since `{merge_base}`, \
          including uncommitted work (`git diff {merge_base}` plus untracked files from \

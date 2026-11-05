@@ -79,7 +79,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Conflict radar: snapshots every ready workspace (uncommitted work included) and test-merges each pair and each against its base with `git merge-tree`; reruns after turns; ⚠ in the sidebar + banner
 - [x] Definition of done: `[scripts] check` runs after every agent turn that changed files (not in plan mode, not when the user queued a message); failures go back to the agent up to 2 times in a row
 - [x] Review: a fresh read-only (plan mode) chat reviews the workspace diff; Shift-click to review with Codex
-- [ ] Automatic cross-agent review before "Ready", findings sent back to the author chat
+- [x] Automatic cross-agent review (`[review] auto = true`): a different agent reviews finished work, findings go back to the author for up to 2 rounds, and approval marks the workspace ready
 - [ ] Loops / routines: cron, GitHub triggers
 - [ ] Vercel Sandbox burst runners
 - [ ] Import sessions from Conductor and Pane

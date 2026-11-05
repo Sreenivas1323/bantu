@@ -3299,3 +3299,133 @@ async fn orchestrator_board_and_integration() {
     let text = tool("integrate_workspaces", json!({})).await;
     assert!(text.contains("gamma conflicts"), "{text}");
 }
+
+#[tokio::test]
+async fn automatic_cross_agent_review() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let path = Path::new(&ws.path).to_path_buf();
+    let author = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let review_state = || async {
+        h.state().await.workspaces[0]
+            .review_state
+            .map(|r| r.as_str().to_string())
+    };
+    let (hr, rs) = (&h, &review_state);
+    let settle = move |want: Option<&'static str>| async move {
+        for _ in 0..200 {
+            let busy = hr
+                .state()
+                .await
+                .sessions
+                .iter()
+                .any(|s| s.status == SessionStatus::Running);
+            if !busy && rs().await.as_deref() == want {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("review state stayed {:?}, wanted {want:?}", rs().await);
+    };
+    let reviews = || async {
+        h.state()
+            .await
+            .sessions
+            .iter()
+            .filter(|s| s.title == "Automatic review")
+            .count()
+    };
+
+    // Off by default: finished work isn't reviewed.
+    h.command(
+        json!({"type":"session.send","session_id":author.id,"text":"edit the first file"}),
+        None,
+    )
+    .await;
+    h.wait_session(&author.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(reviews().await, 0);
+    assert_eq!(review_state().await, None);
+
+    // Turned on, a different agent reviews in read-only mode and approves.
+    std::fs::write(path.join(".bantu/settings.toml"), "[review]\nauto = true\n").unwrap();
+    h.command(
+        json!({"type":"session.send","session_id":author.id,"text":"edit it again"}),
+        None,
+    )
+    .await;
+    settle(Some("approved")).await;
+    assert_eq!(reviews().await, 1);
+    let state = h.state().await;
+    let reviewer = state
+        .sessions
+        .iter()
+        .find(|s| s.title == "Automatic review")
+        .unwrap();
+    assert_eq!(reviewer.agent.as_str(), "codex");
+    assert_eq!(reviewer.permission_mode.as_str(), "plan");
+
+    // A question that changes nothing keeps the verdict, with no new review.
+    h.command(
+        json!({"type":"session.send","session_id":author.id,"text":"what did you do?"}),
+        None,
+    )
+    .await;
+    settle(Some("approved")).await;
+    assert_eq!(reviews().await, 1);
+
+    // Findings go back to the author, whose fix gets reviewed and approved.
+    std::fs::write(path.join("review-fails.txt"), "x").unwrap();
+    h.command(
+        json!({"type":"session.send","session_id":author.id,"text":"edit once more"}),
+        None,
+    )
+    .await;
+    settle(Some("approved")).await;
+    assert_eq!(reviews().await, 3);
+    let items = chat(&h.history(&ws.id).await, &author.id);
+    assert!(
+        items.iter().any(|i| matches!(i, ChatItem::User { text } if text.contains("automatic review") && text.contains("a.rs:1 is broken"))),
+        "{items:?}"
+    );
+    assert!(!path.join("review-fails.txt").exists());
+
+    // Two agents can't argue forever: after two rounds a person decides.
+    std::fs::write(path.join("review-fails.txt"), "x").unwrap();
+    std::fs::write(path.join("review-stubborn.txt"), "").unwrap();
+    h.command(
+        json!({"type":"session.send","session_id":author.id,"text":"edit yet again"}),
+        None,
+    )
+    .await;
+    let mut notices = Vec::new();
+    for _ in 0..300 {
+        notices = h.state().await.inbox;
+        if !notices.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(notices[0].title, "Automatic review still has concerns");
+    settle(Some("changes_requested")).await;
+    assert_eq!(reviews().await, 6, "the first review plus two rounds");
+    let fixes = std::fs::read_to_string(path.join("review-stubborn.txt")).unwrap();
+    assert_eq!(fixes.lines().count(), 2, "findings went back exactly twice");
+}

@@ -170,6 +170,11 @@ function RepoGroup({
               <span className="min-w-0 flex-1">
                 <span className={`flex items-center gap-1 truncate ${w.state === "archived" ? "text-faint" : ""}`}>
                   {w.name}
+                  {w.review_state === "approved" && (
+                    <span role="img" aria-label="reviewed and ready" title="Automatic review approved this work" className="text-[11px] text-ok">
+                      ✓
+                    </span>
+                  )}
                   {conflictedWorkspaces.has(w.id) && (
                     <span role="img" aria-label="will conflict" title="Will conflict with another workspace or its base" className="text-[11px] text-warn">
                       ⚠
