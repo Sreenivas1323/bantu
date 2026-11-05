@@ -12,8 +12,8 @@ use std::sync::Arc;
 use bantu_protocol::{AgentKind, ChatItem, SessionStatus, Terminal, TerminalKind};
 use serde_json::Value;
 
-use crate::agents::shell_quote;
 use crate::ops::{CommandError, Daemon};
+use crate::platform::{self, shell_quote};
 use crate::sessions::{parse_stream_line, workspace_context};
 use crate::terminals::TerminalSpec;
 
@@ -56,7 +56,7 @@ impl Daemon {
         let resume = self.can_resume(&s.id).await?;
         let (command, transcript_offset) = match s.agent {
             AgentKind::Claude => {
-                let bin = shell_quote(&self.config.claude_bin.to_string_lossy());
+                let bin = platform::call(&shell_quote(&self.config.claude_bin.to_string_lossy()));
                 let mut parts = vec![
                     bin,
                     (if resume { "--resume" } else { "--session-id" }).to_string(),
@@ -91,7 +91,7 @@ impl Daemon {
                 (parts.join(" "), offset)
             }
             AgentKind::Codex => {
-                let bin = shell_quote(&self.config.codex_bin.to_string_lossy());
+                let bin = platform::call(&shell_quote(&self.config.codex_bin.to_string_lossy()));
                 let command = if resume {
                     format!("{bin} resume {}", shell_quote(&agent_id))
                 } else {

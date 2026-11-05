@@ -9,6 +9,7 @@ use bantu_protocol::{AgentKind, AgentStatus, LoginMethod, Terminal, TerminalKind
 use serde_json::Value;
 
 use crate::ops::{CommandError, Daemon};
+use crate::platform::{self, shell_quote};
 use crate::terminals::TerminalSpec;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
@@ -110,9 +111,12 @@ impl Daemon {
             (AgentKind::Gemini, _) => (&self.config.gemini_bin, "", "Sign in to Gemini"),
             (AgentKind::Cursor, _) => (&self.config.cursor_bin, "login", "Sign in to Cursor"),
         };
-        let command = format!("{} {args}", shell_quote(&bin.to_string_lossy()))
-            .trim_end()
-            .to_string();
+        let command = format!(
+            "{} {args}",
+            platform::call(&shell_quote(&bin.to_string_lossy()))
+        )
+        .trim_end()
+        .to_string();
         self.spawn_terminal(
             None,
             TerminalSpec {
@@ -165,7 +169,7 @@ pub fn apply_codex_login(status: &mut AgentStatus, ok: bool, out: &str) {
 
 /// Runs a probe with a timeout; `(success, stdout)`, or `None` if it can't start.
 async fn run(bin: &std::path::Path, args: &[&str]) -> Option<(bool, String)> {
-    let out = tokio::process::Command::new(bin)
+    let out = tokio::process::Command::new(crate::platform::program(bin))
         .args(args)
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true)
@@ -177,16 +181,6 @@ async fn run(bin: &std::path::Path, args: &[&str]) -> Option<(bool, String)> {
         text = String::from_utf8_lossy(&out.stderr).to_string();
     }
     Some((out.status.success(), text))
-}
-
-pub(crate) fn shell_quote(s: &str) -> String {
-    if s.chars()
-        .all(|c| c.is_ascii_alphanumeric() || "/._-".contains(c))
-    {
-        s.to_string()
-    } else {
-        format!("'{}'", s.replace('\'', r"'\''"))
-    }
 }
 
 #[cfg(test)]
@@ -213,6 +207,7 @@ mod tests {
         let mut c = empty(AgentKind::Codex);
         apply_codex_login(&mut c, false, "Not logged in");
         assert!(!c.logged_in);
+        #[cfg(unix)]
         assert_eq!(
             shell_quote("/Users/me/My Apps/claude"),
             "'/Users/me/My Apps/claude'"

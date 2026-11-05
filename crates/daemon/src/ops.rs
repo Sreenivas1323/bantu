@@ -899,10 +899,9 @@ impl Daemon {
     /// Runs `script` in the user's login shell inside the workspace, streaming
     /// output into the workspace log.
     async fn run_script(&self, ws: &Workspace, repo: &Repo, script: &str) -> anyhow::Result<()> {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+        let (shell, shell_args) = crate::platform::shell_command(script);
         let mut child = tokio::process::Command::new(&shell)
-            .arg("-lc")
-            .arg(script)
+            .args(&shell_args)
             .current_dir(&ws.path)
             .env("BANTU_PORT", ws.port_base.to_string())
             .env("BANTU_WORKSPACE_ID", &ws.id)
@@ -987,6 +986,8 @@ fn copy_recursive(from: &Path, to: &Path) -> std::io::Result<()> {
         let target = std::fs::read_link(from)?;
         #[cfg(unix)]
         std::os::unix::fs::symlink(target, to)?;
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(target, to)?;
     } else {
         if let Some(parent) = to.parent() {
             std::fs::create_dir_all(parent)?;
@@ -1037,11 +1038,10 @@ fn repo_name_from_url(url: &str) -> Option<String> {
 }
 
 fn expand_home(path: &str) -> PathBuf {
-    match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
-        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
-        _ if path == "~" => std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default(),
+    let home = crate::platform::home_dir();
+    match (path.strip_prefix("~/"), home) {
+        (Some(rest), Some(home)) => home.join(rest),
+        (None, Some(home)) if path == "~" => home,
         _ => PathBuf::from(path),
     }
 }

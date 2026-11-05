@@ -41,6 +41,41 @@ jobs:
             exit 1;
           }
 
+  # Windows is a preview, so this reports without blocking anyone yet. The API
+  # tests drive shell-script fake agents, so only unit tests run here.
+  windows:
+    name: Rust (windows-latest, preview)
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Configure git for tests
+        run: |
+          git config --global user.name "Bantu CI"
+          git config --global user.email "ci@bantu.invalid"
+          git config --global init.defaultBranch main
+      - run: cargo build -p bantud
+      - run: cargo test --workspace --lib --bins
+
+  burst-runner:
+    name: Burst runner
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/vercel-sandbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Configure git for tests
+        run: |
+          git config --global user.name "Bantu CI"
+          git config --global user.email "ci@bantu.invalid"
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+
   web:
     name: Web
     runs-on: ubuntu-latest

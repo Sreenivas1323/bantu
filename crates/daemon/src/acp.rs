@@ -325,7 +325,7 @@ impl Daemon {
         let ws = self.require_workspace(&s.workspace_id).await?;
         let (bin, args) = command(&self.config, s.agent).context("not an ACP agent")?;
         let resume = self.can_resume(&s.id).await?;
-        let mut child = tokio::process::Command::new(&bin)
+        let mut child = tokio::process::Command::new(crate::platform::program(&bin))
             .args(args)
             .current_dir(&ws.path)
             .env("BANTU_PORT", ws.port_base.to_string())

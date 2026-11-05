@@ -114,12 +114,11 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    if std::env::var_os("BANTU_SKIP_SHELL_ENV").is_none() {
+    // Windows apps get the full PATH from the system.
+    if cfg!(unix) && std::env::var_os("BANTU_SKIP_SHELL_ENV").is_none() {
         adopt_login_shell_path().await;
     }
-    let home_dir = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .context("HOME is not set")?;
+    let home_dir = bantud::platform::home_dir().context("HOME is not set")?;
     let home = args.home.unwrap_or_else(|| home_dir.join(".bantu"));
 
     match &args.command {
@@ -151,12 +150,7 @@ async fn main() -> Result<()> {
                 }
             }
             if *open {
-                let opener = if cfg!(target_os = "macos") {
-                    "open"
-                } else {
-                    "xdg-open"
-                };
-                let _ = std::process::Command::new(opener).arg(&url).status();
+                bantud::platform::open_url(&url);
             }
             return Ok(());
         }

@@ -549,6 +549,8 @@ Scripts run in the user's login shell (`$SHELL -lc`) in the workspace directory,
 | `BANTU_ROOT_PATH` | Main checkout path (setup and archive scripts) |
 | `BANTU_BASE_REF` | e.g. `origin/main` (setup and archive scripts) |
 
+On Windows, scripts run in `$SHELL` if it's set (Git Bash and MSYS set it), and otherwise in PowerShell, where variables are written `$env:BANTU_PORT`.
+
 When `bantud` starts, it adopts the `PATH` of the user's login shell. A daemon started from the Dock therefore finds `claude`, `bun`, `node` and friends just like a terminal would. Set `BANTU_SKIP_SHELL_ENV=1` to skip this.
 
 ## Example session

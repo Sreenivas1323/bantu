@@ -21,7 +21,7 @@ use tokio::sync::{Mutex, Notify};
 
 use crate::ops::{new_id, CommandError, Daemon};
 use crate::store::now;
-use crate::{acp, codex};
+use crate::{acp, codex, platform};
 
 /// Tool output beyond this is cut; the agent already saw the full text.
 const MAX_TOOL_RESULT_CHARS: usize = 20_000;
@@ -415,10 +415,9 @@ impl Daemon {
         }
 
         let started = std::time::Instant::now();
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+        let (shell, shell_args) = platform::shell_command(&platform::with_merged_output(&command));
         let run = tokio::process::Command::new(&shell)
-            .arg("-lc")
-            .arg(format!("{{ {command}\n}} 2>&1"))
+            .args(&shell_args)
             .current_dir(&ws.path)
             .env("BANTU_PORT", ws.port_base.to_string())
             .env("BANTU_WORKSPACE_PATH", &ws.path)
@@ -642,7 +641,8 @@ impl Daemon {
 
         let (bin, mut cmd, prompt) = match s.agent {
             AgentKind::Claude => {
-                let mut cmd = tokio::process::Command::new(&self.config.claude_bin);
+                let mut cmd =
+                    tokio::process::Command::new(platform::program(&self.config.claude_bin));
                 cmd.args(["-p", "--output-format", "stream-json", "--verbose"])
                     .arg("--include-partial-messages")
                     .args(["--permission-prompts", "none"])
@@ -692,7 +692,8 @@ impl Daemon {
                 (&self.config.claude_bin, cmd, text.to_string())
             }
             AgentKind::Codex => {
-                let mut cmd = tokio::process::Command::new(&self.config.codex_bin);
+                let mut cmd =
+                    tokio::process::Command::new(platform::program(&self.config.codex_bin));
                 cmd.args(codex::args(
                     s.permission_mode,
                     s.model.as_deref(),

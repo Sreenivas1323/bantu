@@ -48,7 +48,7 @@ struct SourceChat {
 }
 
 fn default_path(source: ImportSource) -> Option<PathBuf> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
+    let home = crate::platform::home_dir()?;
     Some(match source {
         ImportSource::Conductor => {
             home.join("Library/Application Support/com.conductor.app/conductor.db")
@@ -374,14 +374,18 @@ impl Daemon {
         if !path.is_dir() || !Path::new(&src.repo_root).is_dir() {
             return Ok(false);
         }
-        let path_string = path.canonicalize()?.to_string_lossy().to_string();
+        let path_string = crate::platform::canonical(path)?
+            .to_string_lossy()
+            .to_string();
         let existing = self.store.workspaces().await?;
         if existing.iter().any(|w| w.path == path_string) {
             return Ok(false);
         }
         // Only adopt a real worktree of the repo the source says it belongs to.
         let actual_root = git::repo_root(path).await?;
-        if actual_root.canonicalize()? != Path::new(&src.repo_root).canonicalize()? {
+        if crate::platform::canonical(&actual_root)?
+            != crate::platform::canonical(Path::new(&src.repo_root))?
+        {
             return Ok(false);
         }
         let Some(branch) = git::git_opt(path, &["symbolic-ref", "--short", "HEAD"]).await? else {

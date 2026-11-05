@@ -16,6 +16,7 @@ pub mod names;
 pub mod ops;
 pub mod orchestrate;
 pub mod permissions;
+pub mod platform;
 pub mod preview;
 pub mod push;
 pub mod radar;
@@ -82,7 +83,7 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     let mut config = config;
     std::fs::create_dir_all(&config.workspaces_dir)
         .with_context(|| format!("creating {}", config.workspaces_dir.display()))?;
-    config.workspaces_dir = config.workspaces_dir.canonicalize()?;
+    config.workspaces_dir = platform::canonical(&config.workspaces_dir)?;
     let store = store::Store::open(&config.home.join("bantu.db")).await?;
     let daemon = Arc::new(Daemon::new(store, config));
     daemon.recover_interrupted().await?;

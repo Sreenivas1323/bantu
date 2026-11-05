@@ -196,9 +196,7 @@ fn xml_escape(s: &str) -> String {
 }
 
 fn user_home() -> Result<PathBuf> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .context("HOME is not set")
+    crate::platform::home_dir().context("HOME is not set")
 }
 
 fn launchd_domain() -> Result<String> {

@@ -83,4 +83,4 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Loops: cron schedules and GitHub triggers (issues and PRs by label, polled with `gh`), each run in a fresh workspace, archived automatically if it changes nothing — GitHub polling is unit-tested, not yet run against a real repo
 - [x] Vercel Sandbox burst runner ([VERCEL.md](VERCEL.md)): one microVM per task, with the API key held at the firewall and work returned as local branches — tested with a local stand-in for the VM, not yet run against Vercel
 - [x] Import from Conductor and Pane: active workspaces adopted in place (archiving only forgets them), chats with their recent history, read-only on the source
-- [ ] Windows support
+- [ ] Windows support: the daemon compiles for Windows, uses PowerShell or `$SHELL`, finds npm-installed agents, and CI builds it on `windows-latest` without blocking. Still needed: running it on a real Windows machine, a background service, releases and the desktop app

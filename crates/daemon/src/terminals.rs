@@ -15,8 +15,8 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use tokio::sync::{broadcast, Mutex};
 
 use crate::ops::{new_id, CommandError, Daemon};
-use crate::settings;
 use crate::store::now;
+use crate::{platform, settings};
 
 const SCROLLBACK_BYTES: usize = 512 * 1024;
 const DEFAULT_SIZE: PtySize = PtySize {
@@ -280,12 +280,12 @@ impl Daemon {
             ..DEFAULT_SIZE
         };
         let pair = native_pty_system().openpty(size).context("opening a pty")?;
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+        let (shell, shell_args) = match &command {
+            Some(c) => platform::shell_command(c),
+            None => platform::interactive_shell(),
+        };
         let mut cmd = CommandBuilder::new(&shell);
-        match &command {
-            Some(c) => cmd.args(["-lc", c]),
-            None => cmd.arg("-l"),
-        }
+        cmd.args(&shell_args);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         for (key, value) in env {
@@ -305,7 +305,7 @@ impl Daemon {
                 cmd.env("BANTU_WORKSPACE_PATH", &ws.path);
             }
             None => {
-                if let Some(home) = std::env::var_os("HOME") {
+                if let Some(home) = platform::home_dir() {
                     cmd.cwd(home);
                 }
             }

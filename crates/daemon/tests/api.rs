@@ -1,5 +1,7 @@
 //! End-to-end: a real daemon on a random port, a real git repo with an
-//! `origin`, driven purely through the HTTP API.
+//! `origin`, driven purely through the HTTP API. The fake agents are shell
+//! scripts, so this doesn't run on Windows.
+#![cfg(unix)]
 
 use std::path::Path;
 use std::process::Command as Proc;
