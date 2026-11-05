@@ -58,6 +58,14 @@ struct Args {
     /// Its host is allowed automatically and `bantud url` prints it.
     #[arg(long, env = "BANTU_PUBLIC_URL")]
     public_url: Option<String>,
+    /// Port for previewing workspaces' dev servers. Defaults to the next port up.
+    /// It's separate so a previewed page can't reach the daemon's token.
+    #[arg(long, env = "BANTUD_PREVIEW_PORT")]
+    preview_port: Option<u16>,
+    /// URL other devices use to reach the preview port, e.g.
+    /// https://box.tail1234.ts.net:8443. Its host is allowed automatically.
+    #[arg(long, env = "BANTU_PREVIEW_URL")]
+    preview_url: Option<String>,
     /// Print the local access token and exit.
     #[arg(long)]
     print_token: bool,
@@ -169,7 +177,13 @@ async fn main() -> Result<()> {
             allowed_hosts.push(host);
         }
     }
+    if let Some(url) = &args.preview_url {
+        if let Some(host) = url_host(url) {
+            allowed_hosts.push(host);
+        }
+    }
     let config = Config {
+        preview_url: args.preview_url.clone(),
         home,
         workspaces_dir: args
             .workspaces_dir
@@ -208,6 +222,26 @@ async fn main() -> Result<()> {
             started.token
         ),
         None => tracing::info!("no web app found; build apps/web or pass --web-dir"),
+    }
+
+    // Previews are a convenience: if the port is taken, the daemon still runs.
+    let preview_addr = SocketAddr::new(
+        args.host,
+        args.preview_port.unwrap_or(args.port.saturating_add(1)),
+    );
+    match tokio::net::TcpListener::bind(preview_addr).await {
+        Ok(preview_listener) => {
+            started
+                .daemon
+                .set_preview_addr(preview_listener.local_addr()?);
+            let preview_router = started.preview_router;
+            tokio::spawn(async move {
+                if let Err(e) = axum::serve(preview_listener, preview_router).await {
+                    tracing::warn!("the preview listener stopped: {e}");
+                }
+            });
+        }
+        Err(e) => tracing::warn!("no port previews: couldn't bind {preview_addr}: {e}"),
     }
 
     axum::serve(listener, started.router)

@@ -497,6 +497,16 @@ pub struct Spotlight {
     pub synced_at: String,
 }
 
+/// A server listening on one of a workspace's reserved ports.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct ForwardedPort {
+    pub port: u16,
+    /// Opens it through the daemon, for a few minutes. `None` when this client
+    /// is remote and the daemon has no preview address (`BANTU_PREVIEW_URL`).
+    pub url: Option<String>,
+}
+
 /// A notice or question an agent sent to the user.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
@@ -978,6 +988,7 @@ mod tests {
             "EventData",
             "FileDiff",
             "FileStatus",
+            "ForwardedPort",
             "Health",
             "InboxItem",
             "InboxKind",

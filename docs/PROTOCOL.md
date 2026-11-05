@@ -36,6 +36,7 @@ All bodies are JSON (`content-type: application/json`). Errors are JSON too: `{ 
 | `GET /v1/workspaces/{id}/diff` | token | `WorkspaceDiff` |
 | `GET /v1/workspaces/{id}/pr` | token | `PullRequest` or `null` |
 | `GET /v1/workspaces/{id}/checks` | token | `WorkspaceChecks` |
+| `GET /v1/workspaces/{id}/ports` | token | `ForwardedPort[]`, the servers listening on the workspace's ports |
 | `GET /v1/push/key` | token | `{ public_key }`, the VAPID key browsers subscribe with |
 | `GET /v1/terminals/{id}/ws` | token | WebSocket of raw PTY bytes |
 | `POST /v1/hooks/permission?session=<id>` | hook token | Claude Code hook response (internal) |
@@ -325,6 +326,15 @@ The main checkout belongs to the user, so nothing here overwrites it. Tracked ch
 5. Keeps the branch.
 6. Ends in state `archived`.
 
+## Port previews
+
+Open a workspace's dev server from any device, through the daemon.
+
+- **`GET /v1/workspaces/{id}/ports`** checks the workspace's 10 reserved ports and returns `{ port, url }` for each one that's listening. `url` carries a grant for that port, valid for 5 minutes. It's `null` when the client is remote and `BANTU_PREVIEW_URL` isn't set.
+- **Its own listener.** Previews are served on a separate port (`--preview-port`, by default the API port + 1), and only previews. A different port is a different browser origin, so a previewed page can't read the daemon's token from `localStorage`. The daemon's token isn't accepted there.
+- **`/p/{workspace}/{port}/{path}`** forwards HTTP (streaming both ways) and WebSockets to `127.0.0.1:{port}`. Opening a grant link sets an `HttpOnly` cookie scoped to that path and removes the grant from the URL. Only the workspace's own ports can be reached (403 otherwise). Grants and cookies stop working when the daemon restarts.
+- **What's rewritten.** Redirects to `/path` or `http://localhost:{port}/path` stay inside the preview. A root-absolute request such as `/assets/app.js` is redirected back into its preview using the `Referer`. Bantu's cookie and `Authorization` header aren't forwarded, and `Host` is set to `localhost:{port}`, since dev servers often reject other names. A WebSocket opened at a root path can't be redirected, so hot reload clients may need their dev server's base path set to `$BANTU_PREVIEW_BASE` (set in workspace terminals to `/p/{workspace}/{BANTU_PORT}/`). URLs an app builds from its own host, and third-party sign-in callbacks, may still need the app configured for its preview address.
+
 ## Web Push
 
 The daemon sends alerts itself, with no server of ours in the path. It sends one when an agent asks for approval, sends a notice or question, or finishes.
@@ -464,6 +474,7 @@ Scripts run in the user's login shell (`$SHELL -lc`) in the workspace directory,
 | `BANTU_WORKSPACE_ID` | Workspace id |
 | `BANTU_WORKSPACE_NAME` | Workspace name |
 | `BANTU_WORKSPACE_PATH` | Worktree path |
+| `BANTU_PREVIEW_BASE` | `/p/{workspace}/{BANTU_PORT}/`, the preview's base path (terminals and the run script) |
 | `BANTU_ROOT_PATH` | Main checkout path (setup and archive scripts) |
 | `BANTU_BASE_REF` | e.g. `origin/main` (setup and archive scripts) |
 

@@ -295,6 +295,11 @@ impl Daemon {
             Some(ws) => {
                 cmd.cwd(&ws.path);
                 cmd.env("BANTU_PORT", ws.port_base.to_string());
+                // For dev servers that take a base path, so previews fully work.
+                cmd.env(
+                    "BANTU_PREVIEW_BASE",
+                    format!("/p/{}/{}/", ws.id, ws.port_base),
+                );
                 cmd.env("BANTU_WORKSPACE_ID", &ws.id);
                 cmd.env("BANTU_WORKSPACE_NAME", &ws.name);
                 cmd.env("BANTU_WORKSPACE_PATH", &ws.path);

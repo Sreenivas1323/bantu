@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod names;
 pub mod ops;
 pub mod permissions;
+pub mod preview;
 pub mod push;
 pub mod radar;
 pub mod review;
@@ -56,10 +57,14 @@ pub struct Config {
     /// Extra `Host` names to accept besides loopback, e.g. a Tailscale or
     /// CloudFront hostname that forwards to this daemon.
     pub allowed_hosts: Vec<String>,
+    /// The address remote clients use for port previews, if any.
+    pub preview_url: Option<String>,
 }
 
 pub struct Started {
     pub router: axum::Router,
+    /// Serves port previews. It belongs on a port of its own: see [`preview`].
+    pub preview_router: axum::Router,
     pub daemon: Arc<Daemon>,
     pub token: String,
 }
@@ -80,13 +85,16 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     daemon.recover_sessions().await?;
     daemon.recover_terminals().await?;
     daemon.start_push()?;
-    let router = http::router(AppState {
+    let state = AppState {
         daemon: daemon.clone(),
         token_hash: http::hash_token(&token).into(),
         allow_remote,
-    });
+    };
+    let preview_router = preview::router(state.clone());
+    let router = http::router(state);
     Ok(Started {
         router,
+        preview_router,
         daemon,
         token,
     })

@@ -88,11 +88,18 @@ impl Harness {
             gemini_bin: acp_bin.clone(),
             cursor_bin: acp_bin,
             allowed_hosts: vec!["box.tail1234.ts.net".into()],
+            preview_url: None,
         };
         let started = bantud::start(config, false).await.unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         started.daemon.set_listen_addr(addr);
+        let preview_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        started
+            .daemon
+            .set_preview_addr(preview_listener.local_addr().unwrap());
+        let preview_router = started.preview_router;
+        tokio::spawn(async move { axum::serve(preview_listener, preview_router).await.unwrap() });
         let hook_token = started.daemon.hook_token().to_string();
         tokio::spawn(async move { axum::serve(listener, started.router).await.unwrap() });
         Self {
@@ -2920,4 +2927,207 @@ async fn web_push_alerts() {
         rx.try_recv().is_err(),
         "the dead subscription should be gone"
     );
+}
+
+#[tokio::test]
+async fn port_forwarding() {
+    use axum::extract::ws::{Message, WebSocketUpgrade};
+    use axum::routing::{any, get};
+    use futures::SinkExt;
+
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+
+    // Parallel tests' workspaces share a port range, so use a high offset.
+    let port = ws.port_base + 7;
+    let app = axum::Router::new()
+        .route(
+            "/hello",
+            any(|method: axum::http::Method, headers: axum::http::HeaderMap, body: String| async move {
+                let header = |name: &str| {
+                    headers.get(name).and_then(|h| h.to_str().ok()).unwrap_or("").to_string()
+                };
+                axum::Json(json!({
+                    "method": method.as_str(),
+                    "body": body,
+                    "host": header("host"),
+                    "cookie": header("cookie"),
+                    "authorization": header("authorization"),
+                }))
+            }),
+        )
+        .route(
+            "/go",
+            get(|| async { axum::response::Redirect::temporary("/hello") }),
+        )
+        .route(
+            "/ws",
+            get(|up: WebSocketUpgrade| async move {
+                up.on_upgrade(|mut socket| async move {
+                    while let Some(Ok(Message::Text(text))) = socket.recv().await {
+                        let reply = format!("echo {}", text.as_str());
+                        if socket.send(Message::text(reply)).await.is_err() {
+                            break;
+                        }
+                    }
+                })
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+        .await
+        .unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let ports: Vec<Value> = h
+        .http
+        .get(format!("{}/v1/workspaces/{}/ports", h.base, ws.id))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let forwarded = ports
+        .iter()
+        .find(|p| p["port"] == port)
+        .expect("the port is listed");
+    let link = forwarded["url"].as_str().unwrap().to_string();
+    assert!(link.contains("bantu_grant="), "{link}");
+    assert!(
+        !link.contains(&h.token),
+        "the daemon token stays off this origin"
+    );
+    let origin = link.split("/p/").next().unwrap().to_string();
+    assert_ne!(origin, h.base, "previews get their own origin");
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let prefix = format!("{origin}/p/{}/{port}", ws.id);
+
+    // Nothing without a grant or cookie, and the daemon's own token doesn't help.
+    let res = client.get(format!("{prefix}/hello")).send().await.unwrap();
+    assert_eq!(res.status(), 401);
+    let res = client
+        .get(format!("{prefix}/hello"))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+    let res = client
+        .get(format!("{prefix}/?bantu_grant=9999999999.forged"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+    // The preview listener doesn't serve the daemon's API.
+    let res = client
+        .get(format!("{origin}/v1/state"))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 404);
+
+    // The grant becomes a cookie scoped to this port, and leaves the URL.
+    let res = client.get(&link).send().await.unwrap();
+    assert_eq!(res.status(), 302);
+    let set_cookie = res.headers()["set-cookie"].to_str().unwrap().to_string();
+    assert!(set_cookie.contains("HttpOnly"), "{set_cookie}");
+    assert!(
+        set_cookie.contains(&format!("Path=/p/{}/{port}", ws.id)),
+        "{set_cookie}"
+    );
+    assert!(!res.headers()["location"]
+        .to_str()
+        .unwrap()
+        .contains("bantu_grant"));
+    let cookie = set_cookie.split(';').next().unwrap().to_string();
+
+    // Requests go through, without our credentials, and bodies survive.
+    let res: Value = client
+        .post(format!("{prefix}/hello"))
+        .header("cookie", format!("{cookie}; theme=dark"))
+        .bearer_auth("must-not-reach-the-app")
+        .body("payload")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(res["method"], "POST");
+    assert_eq!(res["body"], "payload");
+    assert_eq!(res["host"], format!("localhost:{port}"));
+    assert_eq!(res["cookie"], "theme=dark");
+    assert_eq!(res["authorization"], "");
+
+    // Redirects stay inside the preview.
+    let res = client
+        .get(format!("{prefix}/go"))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 307);
+    assert_eq!(
+        res.headers()["location"],
+        format!("/p/{}/{port}/hello", ws.id)
+    );
+
+    // Root-absolute URLs in a page find their way back through the Referer.
+    let res = client
+        .get(format!("{origin}/assets/app.js?v=1"))
+        .header("referer", format!("{prefix}/index.html"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 307);
+    assert_eq!(
+        res.headers()["location"],
+        format!("/p/{}/{port}/assets/app.js?v=1", ws.id)
+    );
+    let res = client
+        .get(format!("{origin}/assets/app.js"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 404);
+
+    // A port outside the workspace's range is refused, even with a valid cookie.
+    let other = ws.port_base + 10;
+    let res = client
+        .get(format!("{origin}/p/{}/{other}/", ws.id))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+
+    // WebSockets go through too, for hot reload.
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let ws_url = format!("{}/ws", prefix.replacen("http://", "ws://", 1));
+    let mut request = ws_url.into_client_request().unwrap();
+    request
+        .headers_mut()
+        .insert("cookie", cookie.parse().unwrap());
+    let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+    socket
+        .send(tokio_tungstenite::tungstenite::Message::text("hi"))
+        .await
+        .unwrap();
+    let reply = socket.next().await.unwrap().unwrap();
+    assert_eq!(reply.to_text().unwrap(), "echo hi");
 }

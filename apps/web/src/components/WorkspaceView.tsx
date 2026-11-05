@@ -25,9 +25,10 @@ import { GitStatus } from "./GitStatus.tsx";
 import { TerminalPanel } from "./terminal/TerminalPanel.tsx";
 import { CopyButton } from "./CopyButton.tsx";
 import { LogView } from "./LogView.tsx";
+import { PortsPanel } from "./PortsPanel.tsx";
 import { StateDot } from "./StateDot.tsx";
 
-type Tab = "chat" | "changes" | "checks" | "terminal" | "log";
+type Tab = "chat" | "changes" | "checks" | "terminal" | "ports" | "log";
 
 export function WorkspaceView({
   workspace,
@@ -279,6 +280,9 @@ export function WorkspaceView({
           Terminal
           {terminals.some((t) => !t.exited) && <span className="ml-1.5 text-faint tabular-nums">{terminals.filter((t) => !t.exited).length}</span>}
         </TabButton>
+        <TabButton active={tab === "ports"} onClick={() => setTab("ports")}>
+          Preview
+        </TabButton>
         <TabButton active={tab === "log"} onClick={() => setTab("log")}>
           Setup log
         </TabButton>
@@ -313,6 +317,8 @@ export function WorkspaceView({
           client={client}
           run={run}
         />
+      ) : tab === "ports" ? (
+        <PortsPanel workspace={workspace} client={client} />
       ) : tab === "checks" ? (
         <ChecksPanel
           workspaceId={workspace.id}

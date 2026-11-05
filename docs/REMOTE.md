@@ -62,6 +62,29 @@ Screen**; on desktop Chrome or Edge, use the install icon in the address bar. It
 its own window, and the workspace list becomes a drawer on small screens. Installing needs
 HTTPS, which Tailscale Serve and Cloudflare Tunnel both provide.
 
+## Port forwarding
+
+The **Preview** tab lists servers listening on the workspace's reserved ports, with a link to
+open each one. Start dev servers on `$BANTU_PORT` so they show up.
+
+Pages, assets and WebSockets under the preview's path are all forwarded, and root-absolute
+assets like `/assets/app.js` find their way back. The exception is a WebSocket opened at a root
+path, which can't be redirected, and that's where many hot reload clients connect. Terminals in
+the workspace have `$BANTU_PREVIEW_BASE` set for this, so point your dev server's base path at
+it when you need hot reload through a preview, e.g. `vite --port $BANTU_PORT --base $BANTU_PREVIEW_BASE`.
+
+Previews use a second port (`47801` by default), so that a previewed page can't reach your
+daemon's token. On the daemon's own machine there's nothing to set up. For other devices,
+expose that port as well and tell the daemon its address:
+
+```sh
+tailscale serve --bg --https=8443 47801
+BANTU_PREVIEW_URL=https://<machine>.<tailnet>.ts.net:8443 bantud service install
+```
+
+With Cloudflare Tunnel, give it its own hostname, e.g. `preview.example.com`. Links last 5
+minutes, and each one opens a single port of a single workspace.
+
 ## Alerts on your phone
 
 Choose **Turn on alerts** in the status bar. The daemon then alerts that device when an agent

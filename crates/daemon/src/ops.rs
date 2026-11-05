@@ -43,6 +43,7 @@ pub struct Daemon {
     pub(crate) permissions: crate::permissions::Permissions,
     pub(crate) inbox: crate::inbox::Inbox,
     pub(crate) push: crate::push::Push,
+    pub(crate) preview: crate::preview::Preview,
     pub(crate) radar: crate::radar::Radar,
     pub(crate) activity: crate::activity::Tracker,
 }
@@ -58,6 +59,7 @@ impl Daemon {
             permissions: Default::default(),
             inbox: Default::default(),
             push: Default::default(),
+            preview: Default::default(),
             radar: Default::default(),
             activity: Default::default(),
         }

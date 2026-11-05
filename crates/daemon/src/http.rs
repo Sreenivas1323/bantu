@@ -48,6 +48,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/workspaces/{id}/diff", get(get_diff))
         .route("/v1/workspaces/{id}/pr", get(get_pr))
         .route("/v1/workspaces/{id}/checks", get(get_checks))
+        .route("/v1/workspaces/{id}/ports", get(get_ports))
         .route("/v1/repos/{id}/conflicts", post(scan_conflicts))
         .route("/v1/terminals/{id}/ws", get(terminal_ws))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
@@ -85,7 +86,11 @@ pub fn hash_token(token: &str) -> Vec<u8> {
 
 /// Rejects requests whose Host isn't loopback or explicitly allowed, blocking
 /// DNS-rebinding attacks from web pages. `--allow-remote` accepts any host.
-async fn check_host(State(state): State<AppState>, req: Request, next: Next) -> Response {
+pub(crate) async fn check_host(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Response {
     if !state.allow_remote {
         let host = req
             .headers()
@@ -340,6 +345,25 @@ async fn get_pr(State(state): State<AppState>, Path(id): Path<String>) -> Respon
 async fn get_checks(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.daemon.workspace_checks(&id).await {
         Ok(checks) => Json(checks).into_response(),
+        Err(e) => command_error(e),
+    }
+}
+
+/// Servers listening on a workspace's ports, with links to preview them.
+async fn get_ports(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let host = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or_default();
+    let via_loopback = ["127.0.0.1", "localhost", "[::1]"]
+        .iter()
+        .any(|local| host == *local || host.starts_with(&format!("{local}:")));
+    match state.daemon.forwarded_ports(&id, via_loopback).await {
+        Ok(ports) => Json(ports).into_response(),
         Err(e) => command_error(e),
     }
 }

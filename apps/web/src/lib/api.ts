@@ -3,6 +3,7 @@ import type {
   Command,
   CommandResponse,
   Event,
+  ForwardedPort,
   Health,
   PullRequest,
   StateSnapshot,
@@ -70,6 +71,11 @@ export class DaemonClient {
   /** CI runs, deployments, PR comments and todos for the Checks tab. */
   checks(workspaceId: string) {
     return this.request<WorkspaceChecks>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/checks`);
+  }
+
+  /** Servers listening on a workspace's reserved ports, with links to open them. */
+  ports(workspaceId: string) {
+    return this.request<ForwardedPort[]>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/ports`);
   }
 
   /** The key a browser needs to subscribe to this daemon's Web Push alerts. */

@@ -42,3 +42,4 @@ export type { InboxItem } from "./generated/InboxItem";
 export type { InboxKind } from "./generated/InboxKind";
 export type { Loadout } from "./generated/Loadout";
 export type { Spotlight } from "./generated/Spotlight";
+export type { ForwardedPort } from "./generated/ForwardedPort";

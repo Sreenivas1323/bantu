@@ -70,7 +70,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [ ] CloudFront variant (needs your own domain + certificate on the instance)
 - [ ] Launch Stack button (needs a public S3 copy of the template)
 - [x] Guides: Tailscale Serve, Cloudflare Tunnel, SSH ([REMOTE.md](REMOTE.md)); `--allowed-host` instead of all-or-nothing
-- [ ] Port forwarding for dev-server previews on remote daemons
+- [x] Port forwarding for dev-server previews: HTTP and WebSockets through a separate origin, with short-lived per-port grants
 
 ## M4 — Beyond (weeks 8–10)
 
