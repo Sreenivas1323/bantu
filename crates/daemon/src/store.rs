@@ -12,7 +12,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use bantu_protocol::{
     AgentKind, ChatItem, DiffComment, Event, EventData, LogStream, PermissionMode, Preferences,
-    Repo, Session, SessionStatus, Spotlight, Workspace, WorkspaceState,
+    Repo, ReviewState, Session, SessionStatus, Spotlight, Workspace, WorkspaceState,
 };
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
@@ -93,9 +93,11 @@ impl Store {
         let (guard, mut tx) = self.begin().await?;
         sqlx::query(
             "INSERT INTO workspaces (id, repo_id, name, branch, base_ref, path, port_base,
-                                     state, error, archive_commit, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     state, error, archive_commit, created_at,
+                                     parent_id, loop_id, external, review_state)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
+                review_state = excluded.review_state,
                 name = excluded.name, branch = excluded.branch,
                 base_ref = excluded.base_ref, path = excluded.path,
                 port_base = excluded.port_base, state = excluded.state,
@@ -112,6 +114,10 @@ impl Store {
         .bind(&ws.error)
         .bind(&ws.archive_commit)
         .bind(&ws.created_at)
+        .bind(&ws.parent_id)
+        .bind(&ws.loop_id)
+        .bind(ws.external)
+        .bind(ws.review_state.map(|r| r.as_str()))
         .execute(&mut *tx)
         .await?;
         let data = EventData::WorkspaceUpdated {
@@ -676,6 +682,12 @@ fn workspace_from_row(r: &SqliteRow) -> Result<Workspace> {
         error: r.get("error"),
         archive_commit: r.get("archive_commit"),
         created_at: r.get("created_at"),
+        parent_id: r.get("parent_id"),
+        loop_id: r.get("loop_id"),
+        external: r.get("external"),
+        review_state: r
+            .get::<Option<String>, _>("review_state")
+            .and_then(|s| ReviewState::parse(&s)),
     })
 }
 

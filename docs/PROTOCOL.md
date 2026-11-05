@@ -37,6 +37,7 @@ All bodies are JSON (`content-type: application/json`). Errors are JSON too: `{ 
 | `GET /v1/workspaces/{id}/pr` | token | `PullRequest` or `null` |
 | `GET /v1/workspaces/{id}/checks` | token | `WorkspaceChecks` |
 | `GET /v1/workspaces/{id}/ports` | token | `ForwardedPort[]`, the servers listening on the workspace's ports |
+| `GET /v1/workspaces/{id}/children` | token | `ChildWorkspace[]`, the workspaces its agent started |
 | `GET /v1/push/key` | token | `{ public_key }`, the VAPID key browsers subscribe with |
 | `GET /v1/terminals/{id}/ws` | token | WebSocket of raw PTY bytes |
 | `POST /v1/hooks/permission?session=<id>` | hook token | Claude Code hook response (internal) |
@@ -154,6 +155,10 @@ This is Claude Code's `PermissionRequest` HTTP hook (see [Agent sessions](#agent
 | `error` | string \| null | Set when `state` is `failed` |
 | `archive_commit` | string \| null | Commit holding uncommitted tracked changes at archive time |
 | `created_at` | string | RFC 3339 |
+| `parent_id` | string \| null | The workspace whose agent started this one |
+| `loop_id` | string \| null | The loop this workspace is a run of |
+| `external` | boolean | Another tool owns the worktree (it was imported), so archiving leaves the files alone |
+| `review_state` | `"reviewing" \| "changes_requested" \| "approved"` \| null | Where automatic review has got to |
 
 ### `Session`
 One chat with an agent in a workspace. Every workspace gets one automatically when it becomes ready.
@@ -265,6 +270,7 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `workspace.create` | `repo_id`, `name?`, `base_ref?` | `Workspace` (`creating`) | Creates a worktree and branch; see below. |
 | `workspace.archive` | `workspace_id` | `Workspace` (`archiving`) | Stops its agents and terminals, then archives; see below. |
 | `workspace.run` | `workspace_id` | `Terminal` | Starts the repo's run script in a `run` terminal, or returns the one already running. 400 if there's no run script. |
+| `workspace.integrate` | `workspace_id`, `session_id?` | `IntegrationResult` | Merges finished child workspaces into this one's branch; see below. 409 if the lead is busy or has uncommitted changes. |
 | `workspace.spotlight` | `workspace_id` | `Spotlight` | Shows the workspace's work in the repo's main checkout; see below. 409 if the main checkout has uncommitted changes. |
 | `repo.spotlight_stop` | `repo_id` | — | Returns the main checkout to its branch. 409 if it has uncommitted changes. |
 | `workspace.create_pr` | `workspace_id`, `session_id` | `Session` | Asks the agent to commit, push and `gh pr create` against `base_ref`. 400 without an `origin` remote. |
@@ -306,6 +312,15 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
    - `.env*` files, by default.
 6. Runs the repo's setup script, if any. Its output streams as `workspace.log` events.
 7. Ends in state `ready` with one idle `Session`, or in `failed` with `error` set.
+
+### `workspace.integrate`
+A workspace created through the `create_workspace` MCP tool records its lead in `parent_id`. This command merges the lead's children with `git merge --no-edit`, in the lead's worktree, one at a time.
+
+- A child is skipped, with a reason, if its agent is working, it has uncommitted files, it isn't ready, or it has nothing new.
+- On the first conflict that merge is aborted, so the branch is never left half merged. With a `session_id`, that chat's agent is asked to merge the conflicting branch and the rest, and `sent_to_agent` is true.
+- Merges are local. Nothing is pushed.
+
+`IntegrationResult` is `{ merged, skipped: [{ workspace, reason }], conflict, sent_to_agent }`.
 
 ### `workspace.spotlight`
 Tests a workspace in the repo's main checkout, where the user's own dev servers, `.env` files and tools already live.
@@ -389,6 +404,7 @@ Every turn gets Bantu's MCP server (`POST /v1/mcp?session=<id>`, authenticated w
 |---|---|
 | `list_workspaces`, `workspace_status`, `wait_for_workspace` | See and wait for this repo's workspaces |
 | `create_workspace`, `send_message`, `get_diff` | Start, message and review other workspaces' agents |
+| `integrate_workspaces` | Merge the workspaces this one started into its branch |
 | `list_terminals`, `get_terminal_output` | Read a workspace's terminals, such as dev server logs (ANSI codes stripped, last 2,000 lines at most) |
 | `list_diff_comments`, `add_diff_comment` | Read review comments, and add draft ones for the user to send |
 | `notify_user` | Send a notice to the inbox without waiting |

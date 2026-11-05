@@ -1678,6 +1678,7 @@ async fn mcp_orchestration_tools() {
             "workspace_status",
             "wait_for_workspace",
             "send_message",
+            "integrate_workspaces",
             "list_terminals",
             "get_terminal_output",
             "list_diff_comments",
@@ -3130,4 +3131,171 @@ async fn port_forwarding() {
         .unwrap();
     let reply = socket.next().await.unwrap().unwrap();
     assert_eq!(reply.to_text().unwrap(), "echo hi");
+}
+
+#[tokio::test]
+async fn orchestrator_board_and_integration() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(
+            json!({"type":"workspace.create","repo_id":repo.id,"name":"lead"}),
+            None,
+        )
+        .await;
+    let lead: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let lead = h.wait_for(&lead.id, WorkspaceState::Ready).await;
+    let lead_session = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == lead.id)
+        {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let tool = |name: &'static str, args: Value| {
+        let (http, url, token) = (
+            h.http.clone(),
+            format!("{}/v1/mcp?session={}", h.base, lead_session.id),
+            h.hook_token.clone(),
+        );
+        async move {
+            let res: Value = http
+                .post(url)
+                .bearer_auth(token)
+                .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+                    "params":{"name":name,"arguments":args}}))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            res["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+    let children = || async {
+        h.http
+            .get(format!("{}/v1/workspaces/{}/children", h.base, lead.id))
+            .bearer_auth(&h.token)
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()
+    };
+    assert_eq!(children().await, json!([]));
+
+    // Agents' children are recorded, and appear on the board.
+    tool("create_workspace", json!({"task":"say hi","name":"alpha"})).await;
+    tool("create_workspace", json!({"task":"say hi","name":"beta"})).await;
+    tool("create_workspace", json!({"task":"say hi","name":"gamma"})).await;
+    let state = h.state().await;
+    let find = |name: &str| {
+        state
+            .workspaces
+            .iter()
+            .find(|w| w.name == name)
+            .unwrap()
+            .clone()
+    };
+    let (alpha, beta, gamma) = (find("alpha"), find("beta"), find("gamma"));
+    assert_eq!(alpha.parent_id.as_deref(), Some(lead.id.as_str()));
+    assert_eq!(lead.parent_id, None);
+    for s in &state.sessions {
+        h.wait_session(&s.id, |s| s.status == SessionStatus::Idle)
+            .await;
+    }
+    let board = children().await;
+    assert_eq!(board.as_array().unwrap().len(), 3);
+    assert_eq!(board[0]["status"], "idle");
+    assert_eq!(board[0]["title"], "say hi");
+    assert!(board[0]["last_reply"].as_str().unwrap().contains("say hi"));
+
+    let commit = |ws: &Workspace, file: &str, text: &str| {
+        std::fs::write(Path::new(&ws.path).join(file), text).unwrap();
+        sh(Path::new(&ws.path), &["add", "-A"]);
+        sh(Path::new(&ws.path), &["commit", "-qm", file]);
+    };
+    commit(&alpha, "alpha.txt", "from alpha");
+    commit(&beta, "beta.txt", "from beta");
+    // Gamma has work it hasn't committed, so it can't merge yet.
+    std::fs::write(Path::new(&gamma.path).join("gamma.txt"), "draft").unwrap();
+
+    let integrate = json!({"type":"workspace.integrate","workspace_id":lead.id});
+    let (status, res) = h.command(integrate.clone(), None).await;
+    assert_eq!(status, 200, "{res}");
+    let result = &res["result"];
+    assert_eq!(result["merged"], json!(["alpha", "beta"]));
+    assert_eq!(result["conflict"], Value::Null);
+    assert_eq!(result["skipped"][0]["workspace"], "gamma");
+    assert!(result["skipped"][0]["reason"]
+        .as_str()
+        .unwrap()
+        .contains("uncommitted"));
+    assert!(Path::new(&lead.path).join("alpha.txt").exists());
+    assert!(Path::new(&lead.path).join("beta.txt").exists());
+
+    // Running it again finds nothing new.
+    let (_, res) = h.command(integrate.clone(), None).await;
+    assert_eq!(res["result"]["merged"], json!([]));
+
+    // A conflict is aborted cleanly, and later children aren't attempted.
+    commit(&gamma, "shared.txt", "gamma's version");
+    let conflict_with = |ws: &Workspace| commit(ws, "shared.txt", "lead's version");
+    conflict_with(&lead);
+    let (status, res) = h
+        .command(
+            json!({"type":"workspace.integrate","workspace_id":lead.id,"session_id":lead_session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["conflict"], "gamma");
+    assert_eq!(res["result"]["sent_to_agent"], true);
+    assert_eq!(
+        std::fs::read_to_string(Path::new(&lead.path).join("shared.txt")).unwrap(),
+        "lead's version",
+        "the merge was aborted"
+    );
+    let git_dir = Proc::new("git")
+        .arg("-C")
+        .arg(&lead.path)
+        .args(["rev-parse", "--git-dir"])
+        .output()
+        .unwrap();
+    let git_dir = String::from_utf8_lossy(&git_dir.stdout).trim().to_string();
+    assert!(!Path::new(&git_dir).join("MERGE_HEAD").exists());
+    // The lead's agent was asked to finish it.
+    h.wait_session(&lead_session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let items = chat(&h.history(&lead.id).await, &lead_session.id);
+    assert!(
+        items.iter().any(|i| matches!(i, ChatItem::User { text } if text.contains("git merge") && text.contains("shared.txt"))),
+        "{items:?}"
+    );
+
+    // A dirty lead is refused rather than risked.
+    std::fs::write(Path::new(&lead.path).join("README.md"), "dirty").unwrap();
+    let (status, _) = h.command(integrate, None).await;
+    assert_eq!(status, 409);
+    sh(Path::new(&lead.path), &["checkout", "--", "README.md"]);
+
+    // Agents can do it too.
+    let text = tool("integrate_workspaces", json!({})).await;
+    assert!(text.contains("gamma conflicts"), "{text}");
 }

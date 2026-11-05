@@ -77,6 +77,98 @@ pub struct Workspace {
     /// Commit holding uncommitted tracked changes at archive time (`refs/bantu/archive/<id>`).
     pub archive_commit: Option<String>,
     pub created_at: String,
+    /// The workspace whose agent started this one.
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    /// The loop this workspace is a run of.
+    #[serde(default)]
+    pub loop_id: Option<String>,
+    /// Another tool owns the worktree (it was imported), so archiving forgets
+    /// the workspace and leaves the files alone.
+    #[serde(default)]
+    pub external: bool,
+    /// Where automatic review has got to. `None` when it hasn't run on this work.
+    #[serde(default)]
+    pub review_state: Option<ReviewState>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ReviewState {
+    /// Another agent is reviewing the changes.
+    Reviewing,
+    /// The reviewer found problems.
+    ChangesRequested,
+    /// The reviewer found nothing significant, so this work is ready.
+    Approved,
+}
+
+impl ReviewState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reviewing => "reviewing",
+            Self::ChangesRequested => "changes_requested",
+            Self::Approved => "approved",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "reviewing" => Self::Reviewing,
+            "changes_requested" => Self::ChangesRequested,
+            "approved" => Self::Approved,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ChildStatus {
+    Starting,
+    Working,
+    /// Its agent is waiting for the user to approve or answer something.
+    Waiting,
+    Idle,
+    Failed,
+}
+
+/// One child on a lead workspace's board.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct ChildWorkspace {
+    pub workspace: Workspace,
+    pub status: ChildStatus,
+    pub title: Option<String>,
+    pub last_reply: Option<String>,
+    pub files: u32,
+    pub additions: u32,
+    pub deletions: u32,
+    pub ahead: u32,
+    pub uncommitted: u32,
+    pub conflicted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct IntegrationSkip {
+    pub workspace: String,
+    pub reason: String,
+}
+
+/// The result of merging child workspaces into their lead.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct IntegrationResult {
+    /// Names of the workspaces merged.
+    pub merged: Vec<String>,
+    pub skipped: Vec<IntegrationSkip>,
+    /// The workspace that conflicted. That merge was aborted.
+    pub conflict: Option<String>,
+    /// The lead's agent was asked to finish the job.
+    pub sent_to_agent: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -708,6 +800,14 @@ pub enum Command {
         #[serde(default)]
         agent: Option<AgentKind>,
     },
+    /// Merge this workspace's finished children into its branch, locally. On a
+    /// conflict the merge is aborted, and `session_id`'s agent takes over if set.
+    #[serde(rename = "workspace.integrate")]
+    WorkspaceIntegrate {
+        workspace_id: String,
+        #[serde(default)]
+        session_id: Option<String>,
+    },
     /// Show a workspace's work in the repo's main checkout, following it after
     /// each agent turn. Refused if the main checkout has uncommitted changes.
     #[serde(rename = "workspace.spotlight")]
@@ -980,6 +1080,8 @@ mod tests {
             "AgentStatus",
             "ChatItem",
             "CheckRun",
+            "ChildStatus",
+            "ChildWorkspace",
             "Command",
             "CommandResponse",
             "Deployment",
@@ -992,6 +1094,8 @@ mod tests {
             "Health",
             "InboxItem",
             "InboxKind",
+            "IntegrationResult",
+            "IntegrationSkip",
             "LogStream",
             "Loadout",
             "LoginMethod",
@@ -1000,6 +1104,7 @@ mod tests {
             "PrComment",
             "PullRequest",
             "Repo",
+            "ReviewState",
             "Session",
             "SessionStatus",
             "Spotlight",

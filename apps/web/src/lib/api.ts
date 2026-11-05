@@ -1,5 +1,6 @@
 import type {
   AgentStatus,
+  ChildWorkspace,
   Command,
   CommandResponse,
   Event,
@@ -71,6 +72,11 @@ export class DaemonClient {
   /** CI runs, deployments, PR comments and todos for the Checks tab. */
   checks(workspaceId: string) {
     return this.request<WorkspaceChecks>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/checks`);
+  }
+
+  /** The workspaces this one's agent started, for its board. */
+  children(workspaceId: string) {
+    return this.request<ChildWorkspace[]>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/children`);
   }
 
   /** Servers listening on a workspace's reserved ports, with links to open them. */

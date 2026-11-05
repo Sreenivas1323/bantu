@@ -153,7 +153,7 @@ function RepoGroup({
             <button
               type="button"
               onClick={() => onSelect(w.id)}
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${
+              className={`flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left ${w.parent_id ? "pl-5" : "pl-2"} ${
                 w.id === selectedId ? "bg-raised" : "hover:bg-raised/60"
               }`}
             >

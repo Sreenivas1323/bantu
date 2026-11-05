@@ -20,6 +20,7 @@ import { ConflictBanner } from "./ConflictBanner.tsx";
 import { useWorkspaceGit } from "../lib/useWorkspaceGit.ts";
 import { ChangesPanel } from "./changes/ChangesPanel.tsx";
 import { ChatPanel } from "./chat/ChatPanel.tsx";
+import { BoardPanel } from "./BoardPanel.tsx";
 import { ChecksPanel } from "./checks/ChecksPanel.tsx";
 import { GitStatus } from "./GitStatus.tsx";
 import { TerminalPanel } from "./terminal/TerminalPanel.tsx";
@@ -28,7 +29,7 @@ import { LogView } from "./LogView.tsx";
 import { PortsPanel } from "./PortsPanel.tsx";
 import { StateDot } from "./StateDot.tsx";
 
-type Tab = "chat" | "changes" | "checks" | "terminal" | "ports" | "log";
+type Tab = "chat" | "board" | "changes" | "checks" | "terminal" | "ports" | "log";
 
 export function WorkspaceView({
   workspace,
@@ -90,6 +91,7 @@ export function WorkspaceView({
   const ready = workspace.state === "ready";
 
   const canArchive = workspace.state === "ready" || workspace.state === "failed";
+  const childCount = Object.values(allWorkspaces).filter((w) => w.parent_id === workspace.id && w.state !== "archived").length;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
@@ -97,6 +99,14 @@ export function WorkspaceView({
         <div className="min-w-0 max-md:hidden">
           <p className="truncate text-xs text-muted">
             {repo?.name ?? "Unknown repository"} · <span className="font-mono">{workspace.branch}</span>
+            {workspace.parent_id && allWorkspaces[workspace.parent_id] && (
+              <>
+                {" · started by "}
+                <button type="button" onClick={() => onSelectWorkspace(workspace.parent_id!)} className="underline-offset-2 hover:text-fg hover:underline">
+                  {allWorkspaces[workspace.parent_id].name}
+                </button>
+              </>
+            )}
           </p>
           <h2 className="mt-0.5 flex items-center gap-2 text-lg font-semibold tracking-tight">
             {workspace.name}
@@ -267,6 +277,12 @@ export function WorkspaceView({
         <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
           Chat
         </TabButton>
+        {childCount > 0 && (
+          <TabButton active={tab === "board"} onClick={() => setTab("board")}>
+            Board
+            <span className="ml-1.5 text-faint tabular-nums">{childCount}</span>
+          </TabButton>
+        )}
         <TabButton active={tab === "changes"} onClick={() => setTab("changes")}>
           Changes
           {git.diff && git.diff.files.length > 0 && <span className="ml-1.5 text-faint tabular-nums">{git.diff.files.length}</span>}
@@ -316,6 +332,15 @@ export function WorkspaceView({
           onSelect={setTerminalId}
           client={client}
           run={run}
+        />
+      ) : tab === "board" ? (
+        <BoardPanel
+          workspace={workspace}
+          client={client}
+          run={run}
+          activeSessionId={active?.id}
+          onOpen={onSelectWorkspace}
+          onAgentTookOver={() => setTab("chat")}
         />
       ) : tab === "ports" ? (
         <PortsPanel workspace={workspace} client={client} />

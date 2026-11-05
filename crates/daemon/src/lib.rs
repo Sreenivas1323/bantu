@@ -11,6 +11,7 @@ pub mod inbox;
 pub mod mcp;
 pub mod names;
 pub mod ops;
+pub mod orchestrate;
 pub mod permissions;
 pub mod preview;
 pub mod push;

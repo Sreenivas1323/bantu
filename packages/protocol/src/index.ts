@@ -43,3 +43,8 @@ export type { InboxKind } from "./generated/InboxKind";
 export type { Loadout } from "./generated/Loadout";
 export type { Spotlight } from "./generated/Spotlight";
 export type { ForwardedPort } from "./generated/ForwardedPort";
+export type { ChildStatus } from "./generated/ChildStatus";
+export type { ChildWorkspace } from "./generated/ChildWorkspace";
+export type { IntegrationResult } from "./generated/IntegrationResult";
+export type { IntegrationSkip } from "./generated/IntegrationSkip";
+export type { ReviewState } from "./generated/ReviewState";

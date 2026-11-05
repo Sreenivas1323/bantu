@@ -79,7 +79,7 @@ impl Daemon {
                 base_ref,
                 from,
             } => serde_json::to_value(
-                self.create_workspace(&repo_id, name, base_ref, from)
+                self.create_workspace(&repo_id, name, base_ref, from, WorkspaceOrigin::default())
                     .await?,
             ),
             Command::WorkspaceArchive { workspace_id } => {
@@ -210,6 +210,13 @@ impl Daemon {
                 workspace_id,
                 agent,
             } => serde_json::to_value(self.review_workspace(&workspace_id, agent).await?),
+            Command::WorkspaceIntegrate {
+                workspace_id,
+                session_id,
+            } => serde_json::to_value(
+                self.integrate_children(&workspace_id, session_id.as_deref(), None)
+                    .await?,
+            ),
             Command::WorkspaceSpotlight { workspace_id } => {
                 serde_json::to_value(self.start_spotlight(&workspace_id).await?)
             }
@@ -348,12 +355,13 @@ impl Daemon {
 
     // ---- workspaces -------------------------------------------------------
 
-    async fn create_workspace(
+    pub(crate) async fn create_workspace(
         self: &Arc<Self>,
         repo_id: &str,
         name: Option<String>,
         base_ref: Option<String>,
         from: Option<WorkspaceSource>,
+        origin: WorkspaceOrigin,
     ) -> CmdResult<Workspace> {
         let repo = self.require_repo(repo_id).await?;
         let root = PathBuf::from(&repo.root_path);
@@ -433,6 +441,10 @@ impl Daemon {
             error: None,
             archive_commit: None,
             created_at: now(),
+            parent_id: origin.parent_id,
+            loop_id: origin.loop_id,
+            external: false,
+            review_state: None,
         };
         self.store.upsert_workspace(&ws).await?;
         drop(_alloc);
@@ -940,6 +952,13 @@ fn expand_home(path: &str) -> PathBuf {
 
 pub fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
+}
+
+/// What started a workspace, when it wasn't the user directly.
+#[derive(Debug, Clone, Default)]
+pub struct WorkspaceOrigin {
+    pub parent_id: Option<String>,
+    pub loop_id: Option<String>,
 }
 
 /// How a new workspace gets its branch.

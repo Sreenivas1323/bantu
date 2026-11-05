@@ -75,7 +75,7 @@ Feature-by-feature status against Conductor and Pane lives in
 ## M4 — Beyond (weeks 8–10)
 
 - [x] Orchestration: any chat can split work into new workspaces with their own agents, wait for them and review their diffs (verified with real Claude); children inherit model and permission mode; max 10 active workspaces per repo
-- [ ] Orchestrator UI: a lead chat with a live board of its child workspaces; integrate results into one branch
+- [x] Orchestrator UI: a live board of a lead's child workspaces, nested in the sidebar, and one-click local merging into its branch (the agent takes over on a conflict); also an `integrate_workspaces` MCP tool
 - [x] Conflict radar: snapshots every ready workspace (uncommitted work included) and test-merges each pair and each against its base with `git merge-tree`; reruns after turns; ⚠ in the sidebar + banner
 - [x] Definition of done: `[scripts] check` runs after every agent turn that changed files (not in plan mode, not when the user queued a message); failures go back to the agent up to 2 times in a row
 - [x] Review: a fresh read-only (plan mode) chat reviews the workspace diff; Shift-click to review with Codex

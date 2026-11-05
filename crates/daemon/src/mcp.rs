@@ -15,14 +15,14 @@ use bantu_protocol::{
 use serde_json::{json, Value};
 
 use crate::inbox::Answer;
-use crate::ops::{CommandError, Daemon};
+use crate::ops::{CommandError, Daemon, WorkspaceOrigin};
 use crate::review::{strip_ansi, tail_lines};
 
 const SERVER_NAME: &str = "bantu";
 const MAX_DIFF_CHARS: usize = 30_000;
 /// Agents can start workspaces, so cap how many a repo may have at once to
 /// keep a runaway orchestrator from spending the user's quota.
-const MAX_ACTIVE_WORKSPACES: usize = 10;
+pub(crate) const MAX_ACTIVE_WORKSPACES: usize = 10;
 
 impl Daemon {
     /// `--mcp-config` JSON for one session, or `None` before the listener is bound.
@@ -394,6 +394,18 @@ impl Daemon {
                     ),
                 })
             }
+            "integrate_workspaces" => {
+                // The caller is mid-turn and reads the result, so it handles
+                // any conflict itself.
+                let result = self
+                    .integrate_children(&me.id, None, Some(&caller.id))
+                    .await;
+                match result {
+                    Ok(result) => Ok(crate::orchestrate::describe(&result)),
+                    Err(CommandError::Conflict(reason)) => Err(reason),
+                    Err(e) => Err(err(e)),
+                }
+            }
             other => Err(format!("unknown tool {other}")),
         }
     }
@@ -412,15 +424,17 @@ impl Daemon {
         me: &Workspace,
         name: Option<String>,
     ) -> Result<Workspace, CommandError> {
-        let value = self
-            .execute(bantu_protocol::Command::WorkspaceCreate {
-                repo_id: me.repo_id.clone(),
-                name,
-                base_ref: None,
-                from: None,
-            })
-            .await?;
-        serde_json::from_value(value).map_err(|e| CommandError::Internal(e.into()))
+        self.create_workspace(
+            &me.repo_id,
+            name,
+            None,
+            None,
+            WorkspaceOrigin {
+                parent_id: Some(me.id.clone()),
+                loop_id: None,
+            },
+        )
+        .await
     }
 
     async fn wait_ready(&self, id: &str, timeout: Duration) -> Result<Workspace, String> {
@@ -540,7 +554,7 @@ impl Daemon {
         Ok(out)
     }
 
-    async fn last_answer(&self, ws: &Workspace) -> Option<String> {
+    pub(crate) async fn last_answer(&self, ws: &Workspace) -> Option<String> {
         let events = self.store.workspace_history(&ws.id, 500).await.ok()?;
         events.iter().rev().find_map(|e| match &e.data {
             EventData::SessionItem {
@@ -609,6 +623,11 @@ fn tool_list() -> Value {
                 "properties": {"workspace": workspace, "text": {"type": "string"}},
                 "required": ["workspace", "text"]
             }
+        },
+        {
+            "name": "integrate_workspaces",
+            "description": "Merge the workspaces you started into this workspace's branch, locally. Children must have committed their work and finished. On a conflict that merge is aborted and you're told which one, so you can merge it yourself. Commit your own work first.",
+            "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "list_terminals",

@@ -49,6 +49,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/workspaces/{id}/pr", get(get_pr))
         .route("/v1/workspaces/{id}/checks", get(get_checks))
         .route("/v1/workspaces/{id}/ports", get(get_ports))
+        .route("/v1/workspaces/{id}/children", get(get_children))
         .route("/v1/repos/{id}/conflicts", post(scan_conflicts))
         .route("/v1/terminals/{id}/ws", get(terminal_ws))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
@@ -364,6 +365,14 @@ async fn get_ports(
         .any(|local| host == *local || host.starts_with(&format!("{local}:")));
     match state.daemon.forwarded_ports(&id, via_loopback).await {
         Ok(ports) => Json(ports).into_response(),
+        Err(e) => command_error(e),
+    }
+}
+
+/// The workspaces this one's agent started, for its board.
+async fn get_children(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.daemon.workspace_children(&id).await {
+        Ok(children) => Json(children).into_response(),
         Err(e) => command_error(e),
     }
 }

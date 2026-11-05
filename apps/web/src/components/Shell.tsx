@@ -32,7 +32,18 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const workspacesByRepo = useMemo(() => {
     const groups: Record<string, Workspace[]> = {};
     for (const w of Object.values(state.workspaces)) (groups[w.repo_id] ??= []).push(w);
-    for (const list of Object.values(groups)) list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    for (const [repoId, list] of Object.entries(groups)) {
+      list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      // Children sit right under the workspace that started them.
+      const ids = new Set(list.map((w) => w.id));
+      const nested: Workspace[] = [];
+      const place = (w: Workspace) => {
+        nested.push(w);
+        for (const child of list) if (child.parent_id === w.id) place(child);
+      };
+      for (const w of list) if (!w.parent_id || !ids.has(w.parent_id)) place(w);
+      groups[repoId] = nested;
+    }
     return groups;
   }, [state.workspaces]);
 
