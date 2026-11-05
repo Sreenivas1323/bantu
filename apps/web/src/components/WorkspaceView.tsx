@@ -17,13 +17,14 @@ import { ConflictBanner } from "./ConflictBanner.tsx";
 import { useWorkspaceGit } from "../lib/useWorkspaceGit.ts";
 import { ChangesPanel } from "./changes/ChangesPanel.tsx";
 import { ChatPanel } from "./chat/ChatPanel.tsx";
+import { ChecksPanel } from "./checks/ChecksPanel.tsx";
 import { GitStatus } from "./GitStatus.tsx";
 import { TerminalPanel } from "./terminal/TerminalPanel.tsx";
 import { CopyButton } from "./CopyButton.tsx";
 import { LogView } from "./LogView.tsx";
 import { StateDot } from "./StateDot.tsx";
 
-type Tab = "chat" | "changes" | "terminal" | "log";
+type Tab = "chat" | "changes" | "checks" | "terminal" | "log";
 
 export function WorkspaceView({
   workspace,
@@ -111,6 +112,18 @@ export function WorkspaceView({
             ▶ Run
           </button>
         )}
+        {ready && !!active && (git.diff?.files.length ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={async () => {
+              if (await run({ type: "workspace.rename_branch", workspace_id: workspace.id, session_id: active.id })) setTab("chat");
+            }}
+            title="Ask the agent to rename the branch to describe the work"
+            className="rounded-md border border-line px-2.5 py-1 text-[12px] text-muted hover:bg-raised hover:text-fg"
+          >
+            Rename branch
+          </button>
+        )}
         {ready && (git.diff?.files.length ?? 0) > 0 && (
           <button
             type="button"
@@ -186,7 +199,18 @@ export function WorkspaceView({
         <div className="mx-5 mb-2 rounded-md border border-bad/40 bg-bad/10 px-3 py-2 text-bad">{workspace.error}</div>
       )}
 
-      <ConflictBanner conflicts={conflicts} workspaces={allWorkspaces} onSelect={onSelectWorkspace} />
+      <ConflictBanner
+        conflicts={conflicts}
+        workspaces={allWorkspaces}
+        onSelect={onSelectWorkspace}
+        onResolve={
+          ready && active
+            ? async () => {
+                if (await run({ type: "workspace.resolve_conflicts", workspace_id: workspace.id, session_id: active.id })) setTab("chat");
+              }
+            : undefined
+        }
+      />
       <div className="flex gap-1 border-b border-line px-5" role="tablist" aria-label="Workspace">
         <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
           Chat
@@ -195,6 +219,10 @@ export function WorkspaceView({
           Changes
           {git.diff && git.diff.files.length > 0 && <span className="ml-1.5 text-faint tabular-nums">{git.diff.files.length}</span>}
           {drafts > 0 && <span className="ml-1.5 rounded bg-warn/15 px-1 text-[11px] text-warn">{drafts}</span>}
+        </TabButton>
+        <TabButton active={tab === "checks"} onClick={() => setTab("checks")}>
+          Checks
+          {(git.pr?.checks_failing ?? 0) > 0 && <span className="ml-1.5 rounded bg-bad/15 px-1 text-[11px] text-bad">{git.pr?.checks_failing}</span>}
         </TabButton>
         <TabButton active={tab === "terminal"} onClick={() => setTab("terminal")}>
           Terminal
@@ -231,6 +259,20 @@ export function WorkspaceView({
           onSelect={setTerminalId}
           client={client}
           run={run}
+        />
+      ) : tab === "checks" ? (
+        <ChecksPanel
+          workspaceId={workspace.id}
+          client={client}
+          canSend={!!active && ready}
+          onFixChecks={async () => {
+            if (!active) return;
+            if (await run({ type: "workspace.fix_checks", workspace_id: workspace.id, session_id: active.id })) setTab("chat");
+          }}
+          onAddressComments={async () => {
+            if (!active) return;
+            if (await run({ type: "workspace.address_comments", workspace_id: workspace.id, session_id: active.id })) setTab("chat");
+          }}
         />
       ) : tab === "changes" ? (
         <ChangesPanel

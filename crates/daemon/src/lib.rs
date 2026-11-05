@@ -3,6 +3,7 @@
 pub mod acp;
 pub mod activity;
 pub mod agents;
+pub mod checks;
 pub mod codex;
 pub mod discover;
 pub mod http;

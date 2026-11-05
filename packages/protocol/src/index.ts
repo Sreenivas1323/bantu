@@ -32,3 +32,9 @@ export type { WorkspaceSource } from "./generated/WorkspaceSource";
 export type { WorkspaceState } from "./generated/WorkspaceState";
 
 export const PROTOCOL_VERSION = 1;
+export type { CheckRun } from "./generated/CheckRun";
+export type { Deployment } from "./generated/Deployment";
+export type { PrComment } from "./generated/PrComment";
+export type { TodoItem } from "./generated/TodoItem";
+export type { TodoSource } from "./generated/TodoSource";
+export type { WorkspaceChecks } from "./generated/WorkspaceChecks";

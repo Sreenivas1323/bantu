@@ -2228,3 +2228,98 @@ async fn chat_continues_in_a_terminal() {
     assert_eq!(res["result"]["kind"], "agent");
     assert_eq!(res["result"]["session_id"], Value::Null);
 }
+
+#[tokio::test]
+async fn repo_prompts_and_branch_renames() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    // The branch's own settings win over the main checkout's.
+    std::fs::write(
+        Path::new(&ws.path).join(".bantu/settings.toml"),
+        "[prompts]\nrename_branch = \"Use the team/ prefix.\"\ncreate_pr = \"Fill in our template.\"\n",
+    )
+    .unwrap();
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+
+    let (status, _) = h
+        .command(
+            json!({"type":"workspace.rename_branch","workspace_id":ws.id,"session_id":session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    let prompt = items
+        .iter()
+        .find_map(|i| match i {
+            ChatItem::User { text } => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(prompt.contains("git branch -m"), "{prompt}");
+    assert!(
+        prompt.ends_with("Instructions for this repository:\nUse the team/ prefix."),
+        "{prompt}"
+    );
+
+    // A branch renamed outside Bantu's own naming is noticed after the next turn.
+    sh(Path::new(&ws.path), &["branch", "-m", "team/renamed"]);
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"continue"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let mut branch = String::new();
+    for _ in 0..50 {
+        branch = h.state().await.workspaces[0].branch.clone();
+        if branch == "team/renamed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(branch, "team/renamed");
+
+    // No conflicts means there's nothing to resolve.
+    let (status, _) = h
+        .command(
+            json!({"type":"workspace.resolve_conflicts","workspace_id":ws.id,"session_id":session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400);
+
+    // No remote PR: the Checks tab still answers, with empty sections.
+    let res = h
+        .http
+        .get(format!("{}/v1/workspaces/{}/checks", h.base, ws.id))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let checks: Value = res.json().await.unwrap();
+    assert_eq!(checks["pull_request"], Value::Null);
+    assert_eq!(checks["checks"], json!([]));
+}

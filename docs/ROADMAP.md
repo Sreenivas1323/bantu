@@ -52,8 +52,8 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Generic ACP driver (OpenCode via `opencode acp`, Gemini via `gemini --acp`, Cursor via `agent acp`): streaming, tool cards, permission prompts, resume with `session/load` — tested with a fake agent; the handshake is verified against real Gemini CLI, but no full turn has run against a signed-in agent yet
 - [x] Terminal driver: any CLI in a PTY, and a Claude or Codex chat continued in its own terminal UI. Claude's transcript is read back into the chat when the terminal ends (Codex resumes correctly, but its terminal history isn't imported)
 - [x] Fix failing checks: `gh pr checks` + failed-step logs from GitHub Actions (cleaned, last 120 lines) sent to the agent in one click
-- [ ] Full checks tab (deployments, PR comments, todos)
-- [ ] Per-repo prompts: review, create PR, fix errors, resolve conflicts, rename branch
+- [x] Full checks tab: CI runs, deployments, PR comments (sent to the agent in one click) and todos from the agent and the PR description
+- [x] Per-repo prompts: `[prompts]` in `.bantu/settings.toml` adds instructions to review, create PR, fix checks, address comments, resolve conflicts and rename branch
 - [x] Bantu MCP server injected into every Claude session (`list_workspaces`, `create_workspace`, `workspace_status`, `wait_for_workspace`, `send_message`, `get_diff`)
 - [ ] More MCP tools: terminal output, diff comments, notify/ask the user
 - [ ] Model picker (done) and loadouts; effort/fast mode; several chats per workspace (done); fork a chat

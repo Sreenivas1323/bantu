@@ -251,6 +251,22 @@ impl Daemon {
         Ok(())
     }
 
+    /// Agents can rename the branch or check out another one, and PRs, diffs
+    /// and the radar all need the current name. A detached HEAD keeps the old one.
+    async fn sync_branch_name(&self, ws: &Workspace) {
+        let path = std::path::Path::new(&ws.path);
+        let current = git::git_opt(path, &["symbolic-ref", "--short", "HEAD"]).await;
+        if let Ok(Some(branch)) = current {
+            if branch != ws.branch {
+                let mut ws = ws.clone();
+                ws.branch = branch;
+                if let Err(e) = self.store.upsert_workspace(&ws).await {
+                    tracing::warn!("couldn't record the branch of {}: {e:#}", ws.id);
+                }
+            }
+        }
+    }
+
     /// Runs the repo's `check` script if this turn changed files. Returns a
     /// message for the agent when it fails.
     async fn run_done_check(&self, s: &Session, turn: u32) -> Option<String> {
@@ -469,6 +485,7 @@ impl Daemon {
                     running.remove(&s.id);
                     // The agent may have changed files other workspaces touch.
                     if let Ok(ws) = self.require_workspace(&s.workspace_id).await {
+                        self.sync_branch_name(&ws).await;
                         self.rescan_conflicts(&ws.repo_id);
                     }
                     s.status = SessionStatus::Idle;

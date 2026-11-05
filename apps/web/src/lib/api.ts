@@ -7,6 +7,7 @@ import type {
   PullRequest,
   StateSnapshot,
   StreamDelta,
+  WorkspaceChecks,
   WorkspaceDiff,
 } from "@bantu/protocol";
 import type { Connection } from "./connection.ts";
@@ -64,6 +65,11 @@ export class DaemonClient {
   /** The workspace branch's pull request, or null when there isn't one (or `gh` can't tell). */
   pullRequest(workspaceId: string) {
     return this.request<PullRequest | null>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/pr`);
+  }
+
+  /** CI runs, deployments, PR comments and todos for the Checks tab. */
+  checks(workspaceId: string) {
+    return this.request<WorkspaceChecks>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/checks`);
   }
 
   /** Agent CLIs on the daemon's machine and the accounts they're signed in to. */

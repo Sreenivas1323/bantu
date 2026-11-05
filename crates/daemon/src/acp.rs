@@ -185,6 +185,7 @@ struct Updates {
     /// Tool calls already shown, so a repeated start isn't drawn twice.
     tools: HashMap<String, bool>,
     cost_usd: Option<f64>,
+    plans: u32,
 }
 
 impl Updates {
@@ -233,6 +234,23 @@ impl Updates {
                     out.push(tool_use(update));
                 }
                 out.extend(self.finish_tool(update));
+                (out, None)
+            }
+            // Same shape as Claude's todo list, so the Checks tab can read it.
+            "plan" => {
+                let mut out = self.flush();
+                self.plans += 1;
+                let id = format!("plan-{}", self.plans);
+                out.push(ChatItem::ToolUse {
+                    id: id.clone(),
+                    name: "TodoWrite".into(),
+                    input: json!({"todos": update["entries"]}),
+                });
+                out.push(ChatItem::ToolResult {
+                    tool_use_id: id,
+                    content: String::new(),
+                    is_error: false,
+                });
                 (out, None)
             }
             "usage_update" => {

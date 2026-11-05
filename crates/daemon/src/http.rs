@@ -46,6 +46,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/workspaces/{id}/history", get(get_history))
         .route("/v1/workspaces/{id}/diff", get(get_diff))
         .route("/v1/workspaces/{id}/pr", get(get_pr))
+        .route("/v1/workspaces/{id}/checks", get(get_checks))
         .route("/v1/repos/{id}/conflicts", post(scan_conflicts))
         .route("/v1/terminals/{id}/ws", get(terminal_ws))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
@@ -323,6 +324,14 @@ async fn scan_conflicts(
 async fn get_pr(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.daemon.pull_request(&id).await {
         Ok(pr) => Json(pr).into_response(),
+        Err(e) => command_error(e),
+    }
+}
+
+/// CI runs, deployments, PR comments and todos.
+async fn get_checks(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.daemon.workspace_checks(&id).await {
+        Ok(checks) => Json(checks).into_response(),
         Err(e) => command_error(e),
     }
 }

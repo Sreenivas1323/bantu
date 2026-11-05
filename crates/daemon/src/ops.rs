@@ -155,6 +155,18 @@ impl Daemon {
                 workspace_id,
                 session_id,
             } => serde_json::to_value(self.fix_checks(&workspace_id, &session_id).await?),
+            Command::WorkspaceResolveConflicts {
+                workspace_id,
+                session_id,
+            } => serde_json::to_value(self.resolve_conflicts(&workspace_id, &session_id).await?),
+            Command::WorkspaceRenameBranch {
+                workspace_id,
+                session_id,
+            } => serde_json::to_value(self.rename_branch(&workspace_id, &session_id).await?),
+            Command::WorkspaceAddressComments {
+                workspace_id,
+                session_id,
+            } => serde_json::to_value(self.address_pr_comments(&workspace_id, &session_id).await?),
             Command::WorkspaceReview {
                 workspace_id,
                 agent,

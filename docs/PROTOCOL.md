@@ -35,6 +35,7 @@ All bodies are JSON (`content-type: application/json`). Errors are JSON too: `{ 
 | `GET /v1/workspaces/{id}/history?limit=<n>` | token | `Event[]`, oldest first |
 | `GET /v1/workspaces/{id}/diff` | token | `WorkspaceDiff` |
 | `GET /v1/workspaces/{id}/pr` | token | `PullRequest` or `null` |
+| `GET /v1/workspaces/{id}/checks` | token | `WorkspaceChecks` |
 | `GET /v1/terminals/{id}/ws` | token | WebSocket of raw PTY bytes |
 | `POST /v1/hooks/permission?session=<id>` | hook token | Claude Code hook response (internal) |
 
@@ -105,6 +106,14 @@ Everything the branch changed relative to its merge-base with `base_ref`: commit
 
 ### `GET /v1/workspaces/{id}/pr` → `PullRequest | null`
 The branch's pull request and a summary of its checks, from `gh pr view`. It is `null` when there's no PR, no `origin` remote, or `gh` isn't installed.
+
+### `GET /v1/workspaces/{id}/checks` → `WorkspaceChecks`
+`{ workspace_id, pull_request, checks: CheckRun[], deployments: Deployment[], comments: PrComment[], todos: TodoItem[] }`, for the Checks tab. GitHub data comes from `gh` and is empty when `gh` is missing or the branch has no PR. `todos` always includes the agent's latest todo list.
+
+- `CheckRun`: `{ name, workflow, bucket, link, description }`, where `bucket` is `pass`, `fail`, `pending`, `skipping` or `cancel`.
+- `Deployment`: `{ environment, state, url, created_at }`, the newest deployment per environment (up to 5).
+- `PrComment`: `{ author, body, path, line, url, created_at }`, for conversation comments, review summaries and line comments.
+- `TodoItem`: `{ text, done, source }`, where `source` is `agent` or `pull_request` (task list items in the PR description).
 
 ### `GET /v1/terminals/{id}/ws`
 A WebSocket attached to a PTY.
@@ -243,6 +252,11 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `workspace.archive` | `workspace_id` | `Workspace` (`archiving`) | Stops its agents and terminals, then archives; see below. |
 | `workspace.run` | `workspace_id` | `Terminal` | Starts the repo's run script in a `run` terminal, or returns the one already running. 400 if there's no run script. |
 | `workspace.create_pr` | `workspace_id`, `session_id` | `Session` | Asks the agent to commit, push and `gh pr create` against `base_ref`. 400 without an `origin` remote. |
+| `workspace.fix_checks` | `workspace_id`, `session_id` | `Session` | Sends failing checks and their logs to the agent. |
+| `workspace.address_comments` | `workspace_id`, `session_id` | `Session` | Sends the PR's comments to the agent. 400 without a PR or comments. |
+| `workspace.resolve_conflicts` | `workspace_id`, `session_id` | `Session` | Asks the agent to resolve what the conflict radar found. 400 if there's nothing to resolve. |
+| `workspace.rename_branch` | `workspace_id`, `session_id` | `Session` | Asks the agent to rename the branch. The daemon picks up the new name when the turn ends. |
+| `workspace.review` | `workspace_id`, `agent?` | `Session` | Starts a read-only chat that reviews the workspace's changes. |
 | `session.create` | `workspace_id`, `model?`, `permission_mode?` | `Session` | Opens another chat in a ready workspace. |
 | `session.send` | `session_id`, `text` | `Session` | Sends a message. If a turn is running it's queued (`queued` goes up) and runs afterwards, in order. |
 | `session.cancel` | `session_id` | `Session` | Stops the running turn (it ends with an `error` item `"Stopped"`), drops queued messages, and denies pending permission requests. |
@@ -359,6 +373,18 @@ run = "bun dev --port $BANTU_PORT"
 # or Conductor-style named run actions (the first one is used for now):
 # [scripts.run.dev]
 # command = "bun dev --port $BANTU_PORT"
+```
+
+Repo-specific instructions can be added to Bantu's built-in prompts. Each one is appended to the prompt for that action, after the context Bantu fills in:
+
+```toml
+[prompts]
+review = "We care most about migrations. Ignore generated files."
+create_pr = "Use our template in .github/pull_request_template.md."
+fix_checks = "CI runs on Node 22; run `bun test` locally first."
+address_comments = "Reply on the PR when you disagree."
+resolve_conflicts = "Prefer rebasing over merge commits."
+rename_branch = "Branches look like team/short-description."
 ```
 
 Bantu looks for settings first in the worktree (the branch's committed config), then in the main checkout. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.

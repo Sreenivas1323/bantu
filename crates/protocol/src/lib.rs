@@ -338,6 +338,72 @@ pub struct PullRequest {
     pub checks_pending: u32,
 }
 
+/// One CI check on the workspace's pull request.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct CheckRun {
+    pub name: String,
+    pub workflow: Option<String>,
+    /// `pass`, `fail`, `pending`, `skipping` or `cancel`.
+    pub bucket: String,
+    pub link: Option<String>,
+    pub description: Option<String>,
+}
+
+/// The newest deployment of the workspace's branch to one environment.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Deployment {
+    pub environment: String,
+    /// GitHub's deployment state, e.g. `success`, `failure`, `in_progress`.
+    pub state: String,
+    pub url: Option<String>,
+    pub created_at: String,
+}
+
+/// A conversation comment, review summary or line comment on the pull request.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct PrComment {
+    pub author: String,
+    pub body: String,
+    /// Set for line comments.
+    pub path: Option<String>,
+    pub line: Option<u32>,
+    pub url: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum TodoSource {
+    /// The agent's own todo list.
+    Agent,
+    /// A task list item in the pull request description.
+    PullRequest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct TodoItem {
+    pub text: String,
+    pub done: bool,
+    pub source: TodoSource,
+}
+
+/// Everything the Checks tab shows for a workspace.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct WorkspaceChecks {
+    pub workspace_id: String,
+    pub pull_request: Option<PullRequest>,
+    pub checks: Vec<CheckRun>,
+    pub deployments: Vec<Deployment>,
+    pub comments: Vec<PrComment>,
+    pub todos: Vec<TodoItem>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
@@ -526,6 +592,24 @@ pub enum Command {
     /// Actions) and ask the session's agent to fix them.
     #[serde(rename = "workspace.fix_checks")]
     WorkspaceFixChecks {
+        workspace_id: String,
+        session_id: String,
+    },
+    /// Ask the session's agent to resolve the conflicts the radar found.
+    #[serde(rename = "workspace.resolve_conflicts")]
+    WorkspaceResolveConflicts {
+        workspace_id: String,
+        session_id: String,
+    },
+    /// Ask the session's agent to rename the branch to describe the work.
+    #[serde(rename = "workspace.rename_branch")]
+    WorkspaceRenameBranch {
+        workspace_id: String,
+        session_id: String,
+    },
+    /// Send the pull request's comments to the session's agent to work through.
+    #[serde(rename = "workspace.address_comments")]
+    WorkspaceAddressComments {
         workspace_id: String,
         session_id: String,
     },
@@ -761,8 +845,10 @@ mod tests {
             "AgentKind",
             "AgentStatus",
             "ChatItem",
+            "CheckRun",
             "Command",
             "CommandResponse",
+            "Deployment",
             "DiffComment",
             "Event",
             "EventData",
@@ -773,6 +859,7 @@ mod tests {
             "LoginMethod",
             "PermissionMode",
             "PermissionRequest",
+            "PrComment",
             "PullRequest",
             "Repo",
             "Session",
@@ -781,7 +868,10 @@ mod tests {
             "StreamDelta",
             "Terminal",
             "TerminalKind",
+            "TodoItem",
+            "TodoSource",
             "Workspace",
+            "WorkspaceChecks",
             "WorkspaceConflict",
             "WorkspaceDiff",
             "WorkspaceSource",
