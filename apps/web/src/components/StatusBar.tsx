@@ -27,6 +27,8 @@ export function StatusBar({
   onDisconnect,
   agents,
   onOpenAccounts,
+  inboxCount,
+  onOpenInbox,
 }: {
   status: ConnStatus;
   lastSeq: number;
@@ -36,6 +38,9 @@ export function StatusBar({
   onDisconnect: () => void;
   agents: AgentStatus[] | null;
   onOpenAccounts: () => void;
+  /** Questions, notices and approvals waiting for the user. */
+  inboxCount: number;
+  onOpenInbox: () => void;
 }) {
   const [askable, setAskable] = useState(notificationsAvailable);
   return (
@@ -66,6 +71,13 @@ export function StatusBar({
         </button>
       )}
       <span className="flex-1" />
+      <button
+        type="button"
+        onClick={onOpenInbox}
+        className={`rounded px-1.5 py-0.5 hover:bg-raised hover:text-fg ${inboxCount > 0 ? "font-medium text-warn" : ""}`}
+      >
+        Inbox{inboxCount > 0 ? ` (${inboxCount})` : ""}
+      </button>
       {askable && (
         <button
           type="button"

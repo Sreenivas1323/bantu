@@ -464,6 +464,32 @@ pub struct PermissionRequest {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum InboxKind {
+    /// Something the agent wants the user to know. It doesn't wait.
+    Notice,
+    /// The agent is waiting for an answer.
+    Question,
+}
+
+/// A notice or question an agent sent to the user.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct InboxItem {
+    pub id: String,
+    pub workspace_id: String,
+    pub session_id: String,
+    pub kind: InboxKind,
+    /// The notice's headline, or the question itself.
+    pub title: String,
+    pub body: Option<String>,
+    /// Suggested answers. The user can also type their own.
+    pub options: Vec<String>,
+    pub created_at: String,
+}
+
 /// Where a new workspace's branch comes from. Without one, a fresh branch is
 /// created from the base.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -546,6 +572,12 @@ pub enum Command {
         /// Shown to the agent when denying, e.g. what to do instead.
         message: Option<String>,
     },
+    /// Answer a question in the inbox.
+    #[serde(rename = "inbox.respond")]
+    InboxRespond { item_id: String, answer: String },
+    /// Clear a notice, or decline to answer a question.
+    #[serde(rename = "inbox.dismiss")]
+    InboxDismiss { item_id: String },
     /// Add a draft review comment on a line of the workspace diff.
     #[serde(rename = "comment.add")]
     CommentAdd {
@@ -701,6 +733,13 @@ pub enum EventData {
         workspace_id: String,
         allowed: bool,
     },
+    #[serde(rename = "inbox.added")]
+    InboxAdded { item: InboxItem },
+    #[serde(rename = "inbox.removed")]
+    InboxRemoved {
+        item_id: String,
+        workspace_id: String,
+    },
     #[serde(rename = "terminal.updated")]
     TerminalUpdated { terminal: Terminal },
     #[serde(rename = "terminal.closed")]
@@ -736,6 +775,8 @@ impl EventData {
             Self::TerminalUpdated { terminal } => terminal.workspace_id.as_deref(),
             Self::PermissionRequested { request } => Some(&request.workspace_id),
             Self::PermissionResolved { workspace_id, .. } => Some(workspace_id),
+            Self::InboxAdded { item } => Some(&item.workspace_id),
+            Self::InboxRemoved { workspace_id, .. } => Some(workspace_id),
             Self::TerminalClosed { workspace_id, .. } => workspace_id.as_deref(),
         }
     }
@@ -775,6 +816,9 @@ pub struct StateSnapshot {
     pub terminals: Vec<Terminal>,
     /// Requests still waiting for an answer.
     pub permissions: Vec<PermissionRequest>,
+    /// Notices and questions from agents.
+    #[serde(default)]
+    pub inbox: Vec<InboxItem>,
     /// Latest conflict-radar results across all repos.
     pub conflicts: Vec<WorkspaceConflict>,
     pub preferences: Preferences,
@@ -855,6 +899,8 @@ mod tests {
             "FileDiff",
             "FileStatus",
             "Health",
+            "InboxItem",
+            "InboxKind",
             "LogStream",
             "LoginMethod",
             "PermissionMode",

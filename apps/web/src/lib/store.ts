@@ -2,6 +2,7 @@ import type {
   ChatItem,
   DiffComment,
   Event,
+  InboxItem,
   LogStream,
   PermissionRequest,
   Preferences,
@@ -33,6 +34,8 @@ export type DaemonState = {
   terminals: Record<string, Terminal>;
   /** Tool calls waiting for the user to allow or deny, by request id. */
   permissions: Record<string, PermissionRequest>;
+  /** Notices and questions from agents, by id. */
+  inbox: Record<string, InboxItem>;
   /** Assistant text still being written, per session. Cleared when the full item lands. */
   streaming: Record<string, { turn: number; text: string }>;
   /** Conflict-radar results per repo id. */
@@ -51,6 +54,7 @@ export const emptyState: DaemonState = {
   comments: {},
   terminals: {},
   permissions: {},
+  inbox: {},
   streaming: {},
   conflicts: {},
   preferences: { claude_user_setup: false },
@@ -79,6 +83,7 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         comments: Object.fromEntries(snapshot.comments.map((c) => [c.id, c])),
         terminals: Object.fromEntries(snapshot.terminals.map((t) => [t.id, t])),
         permissions: Object.fromEntries(snapshot.permissions.map((p) => [p.id, p])),
+        inbox: Object.fromEntries(snapshot.inbox.map((i) => [i.id, i])),
         conflicts: groupConflicts(snapshot.conflicts),
         preferences: snapshot.preferences,
         // History isn't in the snapshot; it's backfilled per workspace.
@@ -179,6 +184,12 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
     case "permission.resolved": {
       const { [data.request_id]: _done, ...permissions } = state.permissions;
       return { ...next, permissions };
+    }
+    case "inbox.added":
+      return { ...next, inbox: { ...state.inbox, [data.item.id]: data.item } };
+    case "inbox.removed": {
+      const { [data.item_id]: _handled, ...inbox } = state.inbox;
+      return { ...next, inbox };
     }
     case "terminal.updated":
       return { ...next, terminals: { ...state.terminals, [data.terminal.id]: data.terminal } };

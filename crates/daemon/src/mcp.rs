@@ -10,11 +10,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bantu_protocol::{
-    AgentKind, ChatItem, EventData, Session, SessionStatus, Workspace, WorkspaceState,
+    AgentKind, ChatItem, EventData, Session, SessionStatus, TerminalKind, Workspace, WorkspaceState,
 };
 use serde_json::{json, Value};
 
+use crate::inbox::Answer;
 use crate::ops::{CommandError, Daemon};
+use crate::review::{strip_ansi, tail_lines};
 
 const SERVER_NAME: &str = "bantu";
 const MAX_DIFF_CHARS: usize = 30_000;
@@ -51,7 +53,8 @@ impl Daemon {
                 "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
                 "instructions": "Bantu runs coding agents in parallel git worktrees. Use these tools \
                     to split work across workspaces (each gets its own branch and agent), check on \
-                    them, wait for them, review their diffs and send follow-ups."
+                    them, wait for them, review their diffs and send follow-ups; to read terminal \
+                    output and review comments; and to notify or ask the user."
             })),
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({"tools": tool_list()})),
@@ -227,7 +230,171 @@ impl Daemon {
                 }
                 Ok(out)
             }
+            "list_terminals" => {
+                let ws = self.tool_workspace(&me, args).await?;
+                let lines: Vec<String> = self
+                    .terminals()
+                    .await
+                    .into_iter()
+                    .filter(|t| t.workspace_id.as_deref() == Some(ws.id.as_str()))
+                    .map(|t| {
+                        format!(
+                            "- {} ({}, {})",
+                            t.title,
+                            terminal_kind(t.kind),
+                            if t.exited { "exited" } else { "running" }
+                        )
+                    })
+                    .collect();
+                Ok(if lines.is_empty() {
+                    format!("{} has no terminals open.", ws.name)
+                } else {
+                    lines.join("\n")
+                })
+            }
+            "get_terminal_output" => {
+                let ws = self.tool_workspace(&me, args).await?;
+                let terminals: Vec<_> = self
+                    .terminals()
+                    .await
+                    .into_iter()
+                    .filter(|t| t.workspace_id.as_deref() == Some(ws.id.as_str()))
+                    .collect();
+                let wanted = args["terminal"].as_str().unwrap_or_default();
+                // By default, the dev server if there is one, else the newest.
+                let chosen = if wanted.is_empty() {
+                    terminals
+                        .iter()
+                        .rev()
+                        .find(|t| t.kind == TerminalKind::Run && !t.exited)
+                        .or(terminals.last())
+                } else {
+                    terminals
+                        .iter()
+                        .find(|t| t.title == wanted || t.id == wanted)
+                };
+                let info = chosen.ok_or_else(|| {
+                    format!("no terminal {wanted:?} in {}; see list_terminals", ws.name)
+                })?;
+                let term = self
+                    .terminal(&info.id)
+                    .await
+                    .ok_or("that terminal just closed")?;
+                let (backlog, _) = term.attach();
+                let text = strip_ansi(&String::from_utf8_lossy(&backlog));
+                let lines = args["lines"].as_u64().unwrap_or(200).clamp(1, 2000) as usize;
+                let tail = tail_lines(&text, lines);
+                let chars = tail.chars().count();
+                let tail: String = tail
+                    .chars()
+                    .skip(chars.saturating_sub(MAX_DIFF_CHARS))
+                    .collect();
+                Ok(if tail.trim().is_empty() {
+                    format!("{} has printed nothing yet.", info.title)
+                } else {
+                    format!("{}:\n{tail}", info.title)
+                })
+            }
+            "list_diff_comments" => {
+                let ws = self.tool_workspace(&me, args).await?;
+                let include_sent = args["include_sent"].as_bool().unwrap_or(false);
+                let lines: Vec<String> = self
+                    .store
+                    .comments()
+                    .await
+                    .map_err(err)?
+                    .into_iter()
+                    .filter(|c| c.workspace_id == ws.id && (include_sent || c.sent_at.is_none()))
+                    .map(|c| {
+                        format!(
+                            "- `{}:{}`{}: {}",
+                            c.path,
+                            c.line,
+                            if c.sent_at.is_some() { " (sent)" } else { "" },
+                            c.body
+                        )
+                    })
+                    .collect();
+                Ok(if lines.is_empty() {
+                    format!("{} has no review comments.", ws.name)
+                } else {
+                    lines.join("\n")
+                })
+            }
+            "add_diff_comment" => {
+                let ws = self.tool_workspace(&me, args).await?;
+                let path = args["path"].as_str().unwrap_or_default().to_string();
+                let line = args["line"]
+                    .as_u64()
+                    .ok_or("`line` is required: a line number in the current file")?;
+                let body = args["body"].as_str().unwrap_or_default().to_string();
+                self.add_comment(&ws.id, path, line as u32, body)
+                    .await
+                    .map_err(err)?;
+                Ok(format!(
+                    "Added a draft comment to {}. The user decides when to send it.",
+                    ws.name
+                ))
+            }
+            "notify_user" => {
+                let title = args["title"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                if title.is_empty() {
+                    return Err("`title` is required".into());
+                }
+                let body = args["body"].as_str().map(str::to_string);
+                self.notify_user(caller, title, body).await;
+                Ok("The user was notified.".into())
+            }
+            "ask_user" => {
+                let question = args["question"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                if question.is_empty() {
+                    return Err("`question` is required".into());
+                }
+                let options = args["options"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|o| o.as_str().map(str::to_string))
+                    .collect();
+                let secs = args["timeout_seconds"]
+                    .as_u64()
+                    .unwrap_or(600)
+                    .clamp(10, 1800);
+                let answer = self
+                    .ask_user(caller, question, options, Duration::from_secs(secs))
+                    .await;
+                Ok(match answer {
+                    Some(Answer::Text(text)) => format!("The user answered: {text}"),
+                    Some(Answer::Dismissed) => {
+                        "The user dismissed the question without answering. Use your judgment, \
+                         or stop if it's not safe to continue."
+                            .into()
+                    }
+                    Some(Answer::Stopped) => "The user stopped this agent.".into(),
+                    None => format!(
+                        "Nobody answered within {secs} seconds. Use your judgment, or stop if \
+                         it's not safe to continue."
+                    ),
+                })
+            }
             other => Err(format!("unknown tool {other}")),
+        }
+    }
+
+    /// The workspace named in `args`, or the caller's own.
+    async fn tool_workspace(&self, me: &Workspace, args: &Value) -> Result<Workspace, String> {
+        if args["workspace"].as_str().unwrap_or_default().is_empty() {
+            Ok(me.clone())
+        } else {
+            self.find_workspace(me, args).await
         }
     }
 
@@ -376,6 +543,15 @@ impl Daemon {
     }
 }
 
+fn terminal_kind(kind: TerminalKind) -> &'static str {
+    match kind {
+        TerminalKind::Shell => "shell",
+        TerminalKind::Run => "run script",
+        TerminalKind::Login => "sign-in",
+        TerminalKind::Agent => "CLI",
+    }
+}
+
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -423,6 +599,67 @@ fn tool_list() -> Value {
                 "type": "object",
                 "properties": {"workspace": workspace, "text": {"type": "string"}},
                 "required": ["workspace", "text"]
+            }
+        },
+        {
+            "name": "list_terminals",
+            "description": "List the terminals open in a workspace (this one by default), such as its dev server.",
+            "inputSchema": {"type": "object", "properties": {"workspace": workspace}}
+        },
+        {
+            "name": "get_terminal_output",
+            "description": "Read recent output from a terminal, such as dev server logs. Defaults to this workspace's run script, or its newest terminal.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace": workspace,
+                    "terminal": {"type": "string", "description": "A terminal title from list_terminals"},
+                    "lines": {"type": "integer", "description": "How many lines from the end, 1-2000, default 200"}
+                }
+            }
+        },
+        {
+            "name": "list_diff_comments",
+            "description": "List the user's review comments on a workspace's changes (this one by default). Drafts only unless include_sent is true.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"workspace": workspace, "include_sent": {"type": "boolean"}}
+            }
+        },
+        {
+            "name": "add_diff_comment",
+            "description": "Add a draft review comment on a line of a workspace's changes. The user sees it in the Changes tab and decides whether to send it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace": workspace,
+                    "path": {"type": "string", "description": "File path relative to the repo root"},
+                    "line": {"type": "integer", "description": "Line number in the current file"},
+                    "body": {"type": "string"}
+                },
+                "required": ["path", "line", "body"]
+            }
+        },
+        {
+            "name": "notify_user",
+            "description": "Send the user a notice without waiting, e.g. a long task finished or something needs a look later.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"title": {"type": "string"}, "body": {"type": "string"}},
+                "required": ["title"]
+            }
+        },
+        {
+            "name": "ask_user",
+            "description": "Ask the user a question and wait for the answer. Use it for decisions you can't make yourself; it also reaches them when they're away.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "options": {"type": "array", "items": {"type": "string"}, "description": "Suggested answers; they can also type their own"},
+                    "timeout_seconds": {"type": "integer", "description": "10-1800, default 600"}
+                },
+                "required": ["question"]
             }
         },
         {

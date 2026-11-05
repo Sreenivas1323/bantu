@@ -509,6 +509,8 @@ fn event_kind(data: &EventData) -> &'static str {
         EventData::PermissionRequested { .. } => "permission.requested",
         EventData::PermissionResolved { .. } => "permission.resolved",
         EventData::TerminalClosed { .. } => "terminal.closed",
+        EventData::InboxAdded { .. } => "inbox.added",
+        EventData::InboxRemoved { .. } => "inbox.removed",
     }
 }
 

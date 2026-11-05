@@ -175,6 +175,7 @@ async fn get_state(State(state): State<AppState>) -> Result<Json<StateSnapshot>,
         comments: store.comments().await?,
         terminals: state.daemon.terminals().await,
         permissions: state.daemon.pending_permissions().await,
+        inbox: state.daemon.inbox_items().await,
         conflicts: state.daemon.all_conflicts().await,
         preferences: store.preferences().await?,
     }))

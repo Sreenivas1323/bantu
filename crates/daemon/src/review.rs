@@ -433,7 +433,7 @@ fn clean_actions_log(raw: &str) -> String {
         .join("\n")
 }
 
-fn strip_ansi(s: &str) -> String {
+pub(crate) fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
@@ -445,14 +445,25 @@ fn strip_ansi(s: &str) -> String {
                     break;
                 }
             }
-        } else {
+        } else if c == '\u{1b}' && chars.peek() == Some(&']') {
+            // Window titles and similar end with BEL or ESC \.
+            while let Some(c) = chars.next() {
+                if c == '\u{7}' {
+                    break;
+                }
+                if c == '\u{1b}' {
+                    chars.next();
+                    break;
+                }
+            }
+        } else if c != '\r' {
             out.push(c);
         }
     }
     out
 }
 
-fn tail_lines(text: &str, n: usize) -> String {
+pub(crate) fn tail_lines(text: &str, n: usize) -> String {
     let lines: Vec<&str> = text.lines().collect();
     lines[lines.len().saturating_sub(n)..].join("\n")
 }
@@ -703,6 +714,10 @@ Binary files /dev/null and b/logo.png differ
         assert!(msg.contains("```\nerror: test failed\n```"));
         assert!(msg.contains("and 2 more failing check(s)"));
         assert_eq!(tail_lines("a\nb\nc", 2), "b\nc");
+        assert_eq!(
+            strip_ansi("\u{1b}]0;title\u{7}ok\r\n\u{1b}[32mgo\u{1b}[0m"),
+            "ok\ngo"
+        );
         let raw = "Rust (macos)\tRun cargo test\t2026-11-02T06:00:34.6346140Z \u{1b}[1m\u{1b}[91merror\u{1b}[0m: test failed\n\
                    Rust (macos)\tRun cargo test\t2026-11-02T06:00:34.6455480Z ##[error]Process completed";
         assert_eq!(

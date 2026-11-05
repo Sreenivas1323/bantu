@@ -41,6 +41,7 @@ pub struct Daemon {
     pub(crate) running: crate::sessions::Running,
     pub(crate) terminals: crate::terminals::Terminals,
     pub(crate) permissions: crate::permissions::Permissions,
+    pub(crate) inbox: crate::inbox::Inbox,
     pub(crate) radar: crate::radar::Radar,
     pub(crate) activity: crate::activity::Tracker,
 }
@@ -54,6 +55,7 @@ impl Daemon {
             running: Default::default(),
             terminals: Default::default(),
             permissions: Default::default(),
+            inbox: Default::default(),
             radar: Default::default(),
             activity: Default::default(),
         }
@@ -114,6 +116,14 @@ impl Daemon {
                 message,
             } => {
                 self.respond_permission(&request_id, allow, message).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::InboxRespond { item_id, answer } => {
+                self.respond_inbox(&item_id, answer).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::InboxDismiss { item_id } => {
+                self.dismiss_inbox(&item_id).await?;
                 Ok(serde_json::Value::Null)
             }
             Command::CommentAdd {

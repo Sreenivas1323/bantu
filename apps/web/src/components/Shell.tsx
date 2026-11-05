@@ -9,6 +9,7 @@ import { StatusBar } from "./StatusBar.tsx";
 import { RepoSuggestions } from "./RepoSuggestions.tsx";
 import type { DaemonClient } from "../lib/api.ts";
 import { AccountsDialog } from "./AccountsDialog.tsx";
+import { InboxDialog } from "./InboxDialog.tsx";
 import { useAgents } from "../lib/useAgents.ts";
 import { WorkspaceView } from "./WorkspaceView.tsx";
 
@@ -19,6 +20,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const [error, setError] = useState<string | null>(null);
   const { agents, refresh: refreshAgents } = useAgents(client);
   const [showAccounts, setShowAccounts] = useState(false);
+  const [showInbox, setShowInbox] = useState(false);
 
   useEffect(() => {
     if (status === "unauthorized") onDisconnect("The daemon rejected this token. Paste a fresh one.");
@@ -62,8 +64,14 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
 
   // Workspaces where an agent is blocked on the user.
   const waitingWorkspaces = useMemo(
-    () => new Set(Object.values(state.permissions).map((p) => p.workspace_id)),
-    [state.permissions],
+    () =>
+      new Set([
+        ...Object.values(state.permissions).map((p) => p.workspace_id),
+        ...Object.values(state.inbox)
+          .filter((i) => i.kind === "question")
+          .map((i) => i.workspace_id),
+      ]),
+    [state.permissions, state.inbox],
   );
   const conflictedWorkspaces = useMemo(() => {
     const ids = new Set<string>();
@@ -114,6 +122,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             streaming={state.streaming}
             comments={Object.values(state.comments).filter((c) => c.workspace_id === selected.id)}
             permissions={Object.values(state.permissions).filter((p) => p.workspace_id === selected.id)}
+            questions={Object.values(state.inbox).filter((i) => i.workspace_id === selected.id && i.kind === "question")}
             conflicts={conflictsFor(state, selected.id)}
             agents={agents}
             onOpenAccounts={() => setShowAccounts(true)}
@@ -149,7 +158,22 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
           onClose={() => setShowAccounts(false)}
         />
       )}
+      {showInbox && (
+        <InboxDialog
+          inbox={Object.values(state.inbox)}
+          permissions={Object.values(state.permissions)}
+          workspaces={state.workspaces}
+          run={run}
+          onSelectWorkspace={(id) => {
+            setSelectedId(id);
+            setShowInbox(false);
+          }}
+          onClose={() => setShowInbox(false)}
+        />
+      )}
       <StatusBar
+        inboxCount={Object.keys(state.inbox).length + Object.keys(state.permissions).length}
+        onOpenInbox={() => setShowInbox(true)}
         agents={agents}
         onOpenAccounts={() => setShowAccounts(true)}
         status={status}

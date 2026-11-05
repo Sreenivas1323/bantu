@@ -7,6 +7,7 @@ pub mod checks;
 pub mod codex;
 pub mod discover;
 pub mod http;
+pub mod inbox;
 pub mod mcp;
 pub mod names;
 pub mod ops;

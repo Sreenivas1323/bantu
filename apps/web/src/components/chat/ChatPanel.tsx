@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { AgentKind, AgentStatus, Command, CommandResponse, PermissionRequest, Session, Terminal, Workspace } from "@bantu/protocol";
+import type { AgentKind, AgentStatus, Command, CommandResponse, InboxItem, PermissionRequest, Session, Terminal, Workspace } from "@bantu/protocol";
+import { QuestionCard } from "../InboxDialog.tsx";
 import type { ChatEntry, DaemonState } from "../../lib/store.ts";
 import { agentLabel, AGENT_KINDS } from "../../lib/useAgents.ts";
 import { Composer } from "./Composer.tsx";
@@ -16,6 +17,7 @@ export function ChatPanel({
   chat,
   streaming,
   permissions,
+  questions,
   agents,
   onOpenAccounts,
   terminals,
@@ -34,6 +36,7 @@ export function ChatPanel({
   onOpenAccounts: () => void;
   /** Pending permission requests for this workspace. */
   permissions: PermissionRequest[];
+  questions: InboxItem[];
   /** This workspace's terminals, to find one continuing the active chat. */
   terminals: Terminal[];
   onShowTerminal: (terminalId: string) => void;
@@ -177,6 +180,15 @@ export function ChatPanel({
                   await run({ type: "permission.respond", request_id: p.id, allow, message });
                 }}
               />
+            ))}
+        </div>
+      )}
+      {questions.some((q) => q.session_id === active.id) && (
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-5 pb-2">
+          {questions
+            .filter((q) => q.session_id === active.id)
+            .map((q) => (
+              <QuestionCard key={q.id} item={q} run={run} />
             ))}
         </div>
       )}

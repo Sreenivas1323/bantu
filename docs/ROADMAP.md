@@ -55,7 +55,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Full checks tab: CI runs, deployments, PR comments (sent to the agent in one click) and todos from the agent and the PR description
 - [x] Per-repo prompts: `[prompts]` in `.bantu/settings.toml` adds instructions to review, create PR, fix checks, address comments, resolve conflicts and rename branch
 - [x] Bantu MCP server injected into every Claude session (`list_workspaces`, `create_workspace`, `workspace_status`, `wait_for_workspace`, `send_message`, `get_diff`)
-- [ ] More MCP tools: terminal output, diff comments, notify/ask the user
+- [x] More MCP tools: `list_terminals`, `get_terminal_output`, `list_diff_comments`, `add_diff_comment`, `notify_user`, `ask_user`, plus an inbox in the UI
 - [ ] Model picker (done) and loadouts; effort/fast mode; several chats per workspace (done); fork a chat
 - [ ] Spotlight: sync a workspace into the main checkout for testing
 - [x] Create a workspace from a branch (local or origin), a PR (incl. forks via pull/N/head) or a GitHub issue (the agent starts on it)

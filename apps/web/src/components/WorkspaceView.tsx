@@ -4,6 +4,7 @@ import type {
   Command,
   CommandResponse,
   DiffComment,
+  InboxItem,
   PermissionRequest,
   Repo,
   Session,
@@ -36,6 +37,7 @@ export function WorkspaceView({
   comments,
   terminals,
   permissions,
+  questions,
   conflicts,
   agents,
   onOpenAccounts,
@@ -56,6 +58,8 @@ export function WorkspaceView({
   /** This workspace's terminals, oldest first. */
   terminals: Terminal[];
   permissions: PermissionRequest[];
+  /** Questions from this workspace's agents. */
+  questions: InboxItem[];
   conflicts: ReturnType<typeof conflictsFor>;
   agents: AgentStatus[] | null;
   onOpenAccounts: () => void;
@@ -242,6 +246,7 @@ export function WorkspaceView({
           chat={chat}
           streaming={streaming}
           permissions={permissions}
+          questions={questions}
           agents={agents}
           onOpenAccounts={onOpenAccounts}
           terminals={terminals}

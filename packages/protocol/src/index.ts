@@ -38,3 +38,5 @@ export type { PrComment } from "./generated/PrComment";
 export type { TodoItem } from "./generated/TodoItem";
 export type { TodoSource } from "./generated/TodoSource";
 export type { WorkspaceChecks } from "./generated/WorkspaceChecks";
+export type { InboxItem } from "./generated/InboxItem";
+export type { InboxKind } from "./generated/InboxKind";

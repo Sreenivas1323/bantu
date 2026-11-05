@@ -1671,6 +1671,12 @@ async fn mcp_orchestration_tools() {
             "workspace_status",
             "wait_for_workspace",
             "send_message",
+            "list_terminals",
+            "get_terminal_output",
+            "list_diff_comments",
+            "add_diff_comment",
+            "notify_user",
+            "ask_user",
             "get_diff"
         ]
     );
@@ -2322,4 +2328,143 @@ async fn repo_prompts_and_branch_renames() {
     let checks: Value = res.json().await.unwrap();
     assert_eq!(checks["pull_request"], Value::Null);
     assert_eq!(checks["checks"], json!([]));
+}
+
+#[tokio::test]
+async fn mcp_terminals_comments_and_inbox() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let call = |name: &'static str, args: Value| {
+        let (http, url, token) = (
+            h.http.clone(),
+            format!("{}/v1/mcp?session={}", h.base, session.id),
+            h.hook_token.clone(),
+        );
+        async move {
+            let res: Value = http
+                .post(url)
+                .bearer_auth(token)
+                .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+                    "params":{"name":name,"arguments":args}}))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            res["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+
+    // Terminal output, with escape codes removed.
+    assert!(call("list_terminals", json!({}))
+        .await
+        .contains("no terminals"));
+    let (status, _) = h
+        .command(
+            json!({"type":"terminal.open","workspace_id":ws.id,
+                   "command":"printf '\\033[32mserver ready\\033[0m\\n'; sleep 30"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    let mut output = String::new();
+    for _ in 0..100 {
+        output = call("get_terminal_output", json!({})).await;
+        if output.contains("server ready") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(output.contains("server ready"), "{output}");
+    assert!(!output.contains('\u{1b}'), "{output:?}");
+    assert!(call("list_terminals", json!({})).await.contains("running"));
+    assert!(call("get_terminal_output", json!({"terminal":"nope"}))
+        .await
+        .contains("no terminal"));
+
+    // Comments are drafts for the user to send.
+    call(
+        "add_diff_comment",
+        json!({"path":"a.rs","line":3,"body":"check this"}),
+    )
+    .await;
+    let listed = call("list_diff_comments", json!({})).await;
+    assert!(listed.contains("`a.rs:3`: check this"), "{listed}");
+    assert!(h.state().await.comments[0].sent_at.is_none());
+
+    // Notices wait for nobody.
+    call(
+        "notify_user",
+        json!({"title":"Build finished","body":"All green"}),
+    )
+    .await;
+    let inbox = h.state().await.inbox;
+    assert_eq!(inbox.len(), 1);
+    assert_eq!(inbox[0].title, "Build finished");
+    let (status, _) = h
+        .command(json!({"type":"inbox.dismiss","item_id":inbox[0].id}), None)
+        .await;
+    assert_eq!(status, 200);
+    assert!(h.state().await.inbox.is_empty());
+
+    // A question blocks until it's answered.
+    let asking = tokio::spawn(call(
+        "ask_user",
+        json!({"question":"Which database?","options":["sqlite","postgres"]}),
+    ));
+    let item = loop {
+        if let Some(i) = h.state().await.inbox.into_iter().next() {
+            break i;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    assert_eq!(item.options, ["sqlite", "postgres"]);
+    assert!(!asking.is_finished());
+    let (status, _) = h
+        .command(
+            json!({"type":"inbox.respond","item_id":item.id,"answer":"postgres"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(asking.await.unwrap(), "The user answered: postgres");
+    let (status, _) = h
+        .command(
+            json!({"type":"inbox.respond","item_id":item.id,"answer":"again"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 404);
+
+    // Stopping the agent releases its question.
+    let asking = tokio::spawn(call("ask_user", json!({"question":"Still there?"})));
+    while h.state().await.inbox.is_empty() {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    h.command(
+        json!({"type":"session.cancel","session_id":session.id}),
+        None,
+    )
+    .await;
+    assert_eq!(asking.await.unwrap(), "The user stopped this agent.");
+    assert!(h.state().await.inbox.is_empty());
 }

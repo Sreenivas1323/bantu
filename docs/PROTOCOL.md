@@ -55,10 +55,11 @@ All bodies are JSON (`content-type: application/json`). Errors are JSON too: `{ 
   "sessions": [Session, ...],
   "comments": [DiffComment, ...],
   "terminals": [Terminal, ...],
-  "permissions": [PermissionRequest, ...]
+  "permissions": [PermissionRequest, ...],
+  "inbox": [InboxItem, ...]
 }
 ```
-Render this, then open `/v1/events?since=42`. The snapshot carries no logs or transcripts; fetch those per workspace from `/history`. `terminals` and `permissions` live in the daemon's memory and are empty after a restart.
+Render this, then open `/v1/events?since=42`. The snapshot carries no logs or transcripts; fetch those per workspace from `/history`. `terminals`, `permissions` and `inbox` live in the daemon's memory and are empty after a restart.
 
 ### `POST /v1/commands` → `CommandResponse`
 The body is one `Command`. An optional `Idempotency-Key` header makes retries safe. The daemon stores the response for 24 hours and replays it for the same key without running the command again. Server errors (5xx) aren't stored, so they can be retried. Clients on flaky networks (phones, CloudFront) should always send one, e.g. a UUID per user action.
@@ -237,6 +238,11 @@ One transcript entry, normalized across agents and tagged by `kind`:
 - `kind` is `"shell"` (an interactive login shell), `"run"` (the repo's run script, with its `command`), `"login"` (an agent's sign-in flow) or `"agent"` (any other CLI, or a chat continued in a terminal).
 - `session_id` is the chat this terminal continues, if any.
 
+### `InboxItem`
+`{ id, workspace_id, session_id, kind, title, body, options, created_at }`: a notice or question an agent sent with the `notify_user` or `ask_user` MCP tool.
+- `kind` is `"notice"` or `"question"`. A question's agent is waiting for an answer; `options` are suggestions, and the user can type their own.
+- Items live in the daemon's memory and are empty after a restart. Stopping a chat releases its questions.
+
 ### `LogStream`
 `"stdout" | "stderr" | "system"`
 
@@ -263,6 +269,8 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `session.update` | `session_id`, `title?`, `model?`, `permission_mode?` | `Session` | Changes settings; they apply from the next turn. |
 | `session.rewind` | `session_id`, `turn` | `Session` | Restores the workspace files to the checkpoint taken just before `turn` started; see below. 409 while the agent is running. |
 | `permission.respond` | `request_id`, `allow`, `message?` | — | Answers a `PermissionRequest`. `message` tells the agent why it was denied. 404 if already answered. |
+| `inbox.respond` | `item_id`, `answer` | — | Answers a question in the inbox. 404 if already handled. |
+| `inbox.dismiss` | `item_id` | — | Clears a notice, or declines to answer a question. |
 | `comment.add` | `workspace_id`, `path`, `line`, `body` | `DiffComment` | Adds a draft review comment. |
 | `comment.delete` | `comment_id` | — | |
 | `comments.send` | `workspace_id`, `session_id` | `Session` | Sends every draft comment to the agent as one message (sorted by file and line), then marks them sent. 400 if there are none. |
@@ -320,6 +328,19 @@ claude -p --output-format stream-json --verbose --include-partial-messages \
 - **Checkpoints.** Before each turn the daemon snapshots the worktree to `refs/bantu/cp/<session>/<turn>`: tracked and untracked (non-ignored) files, as a commit whose parent is `HEAD`. It uses a temporary index, so the user's index, branch and files are untouched. It's skipped while a merge or rebase is in progress.
 - **Rewind.** `session.rewind` resets the branch to the checkpoint's parent, restores the snapshot's files (ignored files such as `node_modules` are left alone), and adds a `rewound` item. Claude can't rewind part of a conversation, so the next message is prefixed with a note telling the agent which turn the files went back to.
 
+### Bantu's MCP tools
+
+Every turn gets Bantu's MCP server (`POST /v1/mcp?session=<id>`, authenticated with the hook token). Tools act only on the caller's repository.
+
+| Tool | What it does |
+|---|---|
+| `list_workspaces`, `workspace_status`, `wait_for_workspace` | See and wait for this repo's workspaces |
+| `create_workspace`, `send_message`, `get_diff` | Start, message and review other workspaces' agents |
+| `list_terminals`, `get_terminal_output` | Read a workspace's terminals, such as dev server logs (ANSI codes stripped, last 2,000 lines at most) |
+| `list_diff_comments`, `add_diff_comment` | Read review comments, and add draft ones for the user to send |
+| `notify_user` | Send a notice to the inbox without waiting |
+| `ask_user` | Ask a question and block until it's answered, dismissed or stopped, or the timeout passes (10–1800 s, default 600) |
+
 ### Chat and terminal on one conversation
 
 `session.open_terminal` runs `claude --resume <id>` (or `--session-id` before the first turn) or `codex resume <id>` in a PTY, with the same workspace context, model and permission mode as the chat. Bantu's MCP server stays available; the permission hook doesn't apply, because the agent's terminal UI asks for itself.
@@ -359,6 +380,8 @@ These agents speak the [Agent Client Protocol](https://agentclientprotocol.com):
 | `comment.deleted` | `comment_id`, `workspace_id` | |
 | `permission.requested` | `request` | An agent is waiting for approval |
 | `permission.resolved` | `request_id`, `session_id`, `workspace_id`, `allowed` | Answered, stopped or timed out |
+| `inbox.added` | `item` | An agent sent a notice or question |
+| `inbox.removed` | `item_id`, `workspace_id` | It was answered, dismissed, timed out or released by a stop |
 | `terminal.updated` | `terminal` | A terminal opened or its process exited (full object) |
 | `terminal.closed` | `terminal_id`, `workspace_id` | Closed by the user, by archiving, or by a daemon restart |
 
@@ -422,7 +445,6 @@ curl -N -H "$H" '127.0.0.1:47800/v1/events?since=0'
 
 ## Planned
 
-- Checks view with CI failures forwarded to the agent; the Bantu MCP server — M2
 - Pairing codes for remote clients, Web Push — M3
 
 See [ROADMAP.md](ROADMAP.md).

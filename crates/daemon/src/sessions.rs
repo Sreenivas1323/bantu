@@ -180,6 +180,7 @@ impl Daemon {
         let (mut s, agent_id) = self.require_session(session_id).await?;
         // A turn blocked on a permission prompt must be released to stop.
         self.deny_session_permissions(session_id).await;
+        self.drop_session_questions(session_id).await;
         if let Some(r) = self.running.turns.lock().await.get_mut(session_id) {
             r.stopped = true;
             r.queue.clear();
@@ -483,6 +484,8 @@ impl Daemon {
                 }
                 None => {
                     running.remove(&s.id);
+                    // A crashed agent's MCP call is gone; so is its question.
+                    self.drop_session_questions(&s.id).await;
                     // The agent may have changed files other workspaces touch.
                     if let Ok(ws) = self.require_workspace(&s.workspace_id).await {
                         self.sync_branch_name(&ws).await;
