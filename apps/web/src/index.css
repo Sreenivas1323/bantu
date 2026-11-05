@@ -19,6 +19,11 @@
   --color-bad: oklch(0.68 0.18 25);
 }
 
+/* The app is dark, so its scrollbars and form controls should be too. */
+html {
+  color-scheme: dark;
+}
+
 html,
 body,
 #root {

@@ -49,7 +49,8 @@ export function BoardPanel({
     return () => clearInterval(timer);
   }, [load]);
 
-  const finished = children?.filter((c) => c.status === "idle" && c.ahead + c.uncommitted > 0).length ?? 0;
+  // Merging takes commits, so uncommitted work has to wait.
+  const finished = children?.filter((c) => c.status === "idle" && c.ahead > 0 && c.uncommitted === 0).length ?? 0;
 
   const integrate = async () => {
     setBusy(true);
@@ -105,7 +106,7 @@ export function BoardPanel({
               {c.title && <p className="mt-1 truncate text-[12.5px]" title={c.title}>{c.title}</p>}
               <p className="mt-0.5 text-[12px] tabular-nums text-faint">
                 <span className="font-mono">{c.workspace.branch}</span> · {c.ahead} commit{c.ahead === 1 ? "" : "s"}
-                {c.uncommitted > 0 && <span className="text-warn"> · {c.uncommitted} uncommitted</span>}
+                {c.uncommitted > 0 && <span className="text-warn"> · {c.uncommitted} uncommitted, so it can't merge yet</span>}
               </p>
               {c.last_reply && <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap [overflow-wrap:anywhere] text-[12.5px] text-muted">{c.last_reply}</p>}
             </li>

@@ -73,7 +73,9 @@ export function StatusBar({
             className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-raised hover:text-fg max-md:hidden"
           >
             <span className={`size-1.5 rounded-full ${a.logged_in ? "bg-ok" : "bg-warn"}`} />
-            {agentLabel(a.agent)} · {accountKind(a)}
+            {agentLabel(a.agent)}
+            {/* ACP agents can't report an account, so there's nothing more to say. */}
+            {(a.agent === "claude" || a.agent === "codex") && ` · ${accountKind(a)}`}
           </button>
         ))}
       {error && (
