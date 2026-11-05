@@ -9,6 +9,7 @@ export type Spotlight = { repo_id: string, workspace_id: string,
  */
 restore_to: string, 
 /**
- * The snapshot of the workspace now checked out.
+ * Where Spotlight left the main checkout's `HEAD`. If it's anywhere else,
+ * the user has moved on and Spotlight leaves it alone.
  */
 commit: string, synced_at: string, };

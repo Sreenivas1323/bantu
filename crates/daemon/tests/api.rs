@@ -1854,7 +1854,7 @@ async fn definition_of_done_check() {
     let path = Path::new(&ws.path);
     let set_check = |check: &str| {
         std::fs::write(
-            path.join(".bantu/settings.toml"),
+            clone.join(".bantu/settings.toml"),
             format!("[scripts]\ncheck = \"{check}\"\n"),
         )
         .unwrap()
@@ -1930,6 +1930,22 @@ async fn definition_of_done_check() {
         checks(&chat(&h.history(&ws.id).await, &session.id)),
         [false, true, false, false, false]
     );
+
+    // An agent can't choose what runs: the worktree's check is ignored.
+    set_check("true");
+    std::fs::write(
+        path.join(".bantu/settings.toml"),
+        "[scripts]\ncheck = \"touch written-by-the-agent\"\n",
+    )
+    .unwrap();
+    h.command(send("edit once more"), None).await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 7
+    })
+    .await;
+    assert!(!path.join("written-by-the-agent").exists());
+    let last = checks(&chat(&h.history(&ws.id).await, &session.id));
+    assert_eq!(last.last(), Some(&true), "the main checkout's check ran");
 }
 
 #[tokio::test]
@@ -2276,10 +2292,15 @@ async fn repo_prompts_and_branch_renames() {
         .await;
     let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
     let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
-    // The branch's own settings win over the main checkout's.
+    // Prompts come from the main checkout, so an agent can't rewrite them.
+    std::fs::write(
+        repo_path.join(".bantu/settings.toml"),
+        "[prompts]\nrename_branch = \"Use the team/ prefix.\"\ncreate_pr = \"Fill in our template.\"\n",
+    )
+    .unwrap();
     std::fs::write(
         Path::new(&ws.path).join(".bantu/settings.toml"),
-        "[prompts]\nrename_branch = \"Use the team/ prefix.\"\ncreate_pr = \"Fill in our template.\"\n",
+        "[prompts]\nrename_branch = \"Written by the agent.\"\n",
     )
     .unwrap();
     let session = loop {
@@ -2548,6 +2569,26 @@ async fn effort_fast_mode_and_forks() {
     assert!(first.contains("--effort high"), "{first}");
     assert!(first.contains(r#""fastMode":true"#), "{first}");
 
+    // Changes made during a turn survive the end of that turn.
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"a slow one"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| s.status == SessionStatus::Running)
+        .await;
+    h.command(
+        json!({"type":"session.update","session_id":session.id,"effort":"low"}),
+        None,
+    )
+    .await;
+    let done = h
+        .wait_session(&session.id, |s| {
+            s.status == SessionStatus::Idle && s.turns == 2
+        })
+        .await;
+    assert_eq!(done.effort.as_deref(), Some("low"));
+
     // Clearing goes back to the default.
     h.command(
         json!({"type":"session.update","session_id":session.id,"effort":"","fast":false}),
@@ -2563,7 +2604,7 @@ async fn effort_fast_mode_and_forks() {
     let fork: Session = serde_json::from_value(res["result"].clone()).unwrap();
     assert_eq!(fork.forked_from.as_deref(), Some(session.id.as_str()));
     assert!(fork.title.starts_with("Fork of "), "{}", fork.title);
-    assert_eq!(fork.turns, 1);
+    assert_eq!(fork.turns, 2);
     assert_eq!(fork.total_cost_usd, 0.0);
     let history = h.history(&ws.id).await;
     assert_eq!(chat(&history, &fork.id), chat(&history, &session.id));
@@ -2574,7 +2615,7 @@ async fn effort_fast_mode_and_forks() {
     )
     .await;
     h.wait_session(&fork.id, |s| {
-        s.status == SessionStatus::Idle && s.turns == 2
+        s.status == SessionStatus::Idle && s.turns == 3
     })
     .await;
     let line = calls().lines().last().unwrap().to_string();
@@ -2589,7 +2630,7 @@ async fn effort_fast_mode_and_forks() {
     )
     .await;
     h.wait_session(&fork.id, |s| {
-        s.status == SessionStatus::Idle && s.turns == 3
+        s.status == SessionStatus::Idle && s.turns == 4
     })
     .await;
     let line = calls().lines().last().unwrap().to_string();
@@ -2730,6 +2771,21 @@ async fn spotlight_shows_a_workspace_in_the_main_checkout() {
         "the turn should have synced"
     );
 
+    // It records where it left the checkout just after moving it.
+    for _ in 0..100 {
+        let at = Proc::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        let at = String::from_utf8_lossy(&at.stdout).trim().to_string();
+        if h.state().await.spotlights[0].commit == at {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
     // Changes the user makes in the main checkout are never overwritten.
     let readme = root.join("README.md");
     let edited = format!("{}my own edit\n", std::fs::read_to_string(&readme).unwrap());
@@ -2786,6 +2842,45 @@ async fn spotlight_shows_a_workspace_in_the_main_checkout() {
         )
         .await;
     assert_eq!(status, 404);
+
+    // If the user switches branch, Spotlight never moves them back.
+    let (status, res) = h
+        .command(
+            json!({"type":"workspace.spotlight","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    sh(&root, &["checkout", "-q", &branch]);
+    sh(&root, &["checkout", "-q", "-b", "my-own-work"]);
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"edit it a third time"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 3
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        head(&root),
+        "my-own-work",
+        "an agent's turn didn't move them"
+    );
+    let (status, res) = h
+        .command(
+            json!({"type":"repo.spotlight_stop","repo_id":repo.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(
+        head(&root),
+        "my-own-work",
+        "stopping didn't move them either"
+    );
+    sh(&root, &["checkout", "-q", &branch]);
 
     // A dirty main checkout refuses to start, and archiving ends the spotlight.
     std::fs::write(&readme, "dirty").unwrap();
@@ -2991,6 +3086,11 @@ async fn port_forwarding() {
             get(|| async { axum::response::Redirect::temporary("/hello") }),
         )
         .route(
+            "/cookie",
+            get(|| async { ([("set-cookie", "sid=1; Path=/; HttpOnly")], "ok") }),
+        )
+        .fallback(|uri: axum::http::Uri| async move { uri.to_string() })
+        .route(
             "/ws",
             get(|up: WebSocketUpgrade| async move {
                 up.on_upgrade(|mut socket| async move {
@@ -3094,6 +3194,28 @@ async fn port_forwarding() {
     assert_eq!(res["host"], format!("localhost:{port}"));
     assert_eq!(res["cookie"], "theme=dark");
     assert_eq!(res["authorization"], "");
+
+    // Paths arrive exactly as sent, and app cookies stay inside this preview.
+    let echoed = client
+        .get(format!("{prefix}/a%2Fb%3Fc?x=%2F"))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert_eq!(echoed, "/a%2Fb%3Fc?x=%2F");
+    let res = client
+        .get(format!("{prefix}/cookie"))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        res.headers()["set-cookie"],
+        format!("sid=1; Path=/p/{}/{port}; HttpOnly", ws.id)
+    );
 
     // Redirects stay inside the preview.
     let res = client
@@ -3318,6 +3440,38 @@ async fn orchestrator_board_and_integration() {
     // Agents can do it too.
     let text = tool("integrate_workspaces", json!({})).await;
     assert!(text.contains("gamma conflicts"), "{text}");
+
+    // A restricted agent can't reach past its limits through another chat.
+    let alpha_session = h
+        .state()
+        .await
+        .sessions
+        .into_iter()
+        .find(|s| s.workspace_id == alpha.id)
+        .unwrap();
+    h.command(
+        json!({"type":"session.update","session_id":alpha_session.id,"permission_mode":"bypass_permissions"}),
+        None,
+    )
+    .await;
+    let text = tool("send_message", json!({"workspace":"alpha","text":"rm -rf"})).await;
+    assert!(text.contains("bypasses permissions"), "{text}");
+
+    // And a read-only chat stays read-only.
+    h.command(
+        json!({"type":"session.update","session_id":lead_session.id,"permission_mode":"plan"}),
+        None,
+    )
+    .await;
+    for (name, args) in [
+        ("integrate_workspaces", json!({})),
+        ("create_workspace", json!({"task":"x"})),
+        ("send_message", json!({"workspace":"beta","text":"x"})),
+    ] {
+        let text = tool(name, args).await;
+        assert!(text.contains("plan mode"), "{name}: {text}");
+    }
+    assert!(tool("list_workspaces", json!({})).await.contains("alpha"));
 }
 
 #[tokio::test]
@@ -3385,7 +3539,12 @@ async fn automatic_cross_agent_review() {
     assert_eq!(review_state().await, None);
 
     // Turned on, a different agent reviews in read-only mode and approves.
-    std::fs::write(path.join(".bantu/settings.toml"), "[review]\nauto = true\n").unwrap();
+    std::fs::write(
+        repo_path.join(".bantu/settings.toml"),
+        "[review]\nauto = true\n",
+    )
+    .unwrap();
+    // New work is needed for a review to have something new to look at.
     h.command(
         json!({"type":"session.send","session_id":author.id,"text":"edit it again"}),
         None,

@@ -584,7 +584,8 @@ pub struct Spotlight {
     pub workspace_id: String,
     /// The branch (or commit) the main checkout returns to afterwards.
     pub restore_to: String,
-    /// The snapshot of the workspace now checked out.
+    /// Where Spotlight left the main checkout's `HEAD`. If it's anywhere else,
+    /// the user has moved on and Spotlight leaves it alone.
     pub commit: String,
     pub synced_at: String,
 }

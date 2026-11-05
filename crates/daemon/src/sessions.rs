@@ -203,6 +203,35 @@ impl Daemon {
     }
 
     /// Whether the agent's conversation for this chat exists and can be resumed.
+    /// Settings that make the daemon act on its own: the `check` script, the
+    /// `archive` script, automatic review and prompts. These come from the main
+    /// checkout rather than the worktree, because an agent allowed to edit files
+    /// could otherwise run any command without a prompt, or switch off its own
+    /// review. A branch's changes to them apply once they're merged.
+    pub(crate) async fn trusted_settings(
+        &self,
+        ws: &Workspace,
+    ) -> anyhow::Result<crate::settings::Settings> {
+        let repo = self
+            .store
+            .repo(&ws.repo_id)
+            .await?
+            .context("repository is gone")?;
+        let root = std::path::Path::new(&repo.root_path);
+        // Spotlight fills the main checkout with a workspace's files, so its
+        // tracked settings can't be trusted then; the base branch's can.
+        if self.store.spotlight(&repo.id).await?.is_some() {
+            for rel in crate::settings::CANDIDATES {
+                let spec = format!("{}:{rel}", ws.base_ref);
+                if let Some(text) = git::git_opt(root, &["show", &spec]).await? {
+                    return crate::settings::parse(&text).map_err(|e| anyhow!(e));
+                }
+            }
+            return Ok(Default::default());
+        }
+        crate::settings::load(&[root]).map_err(|e| anyhow!(e))
+    }
+
     pub(crate) async fn can_resume(&self, session_id: &str) -> anyhow::Result<bool> {
         // A fork's copied transcript doesn't mean its conversation exists yet.
         Ok(self.store.fork_source(session_id).await?.is_none()
@@ -251,6 +280,23 @@ impl Daemon {
         );
         drop(running);
 
+        // Nothing is running yet, so a failure here mustn't leave the chat
+        // looking busy, with later messages queued forever.
+        let started = self.start_turns(s, agent_id, ws, text, stop).await;
+        if started.is_err() {
+            self.running.turns.lock().await.remove(session_id);
+        }
+        started
+    }
+
+    async fn start_turns(
+        self: &Arc<Self>,
+        mut s: Session,
+        agent_id: String,
+        ws: Workspace,
+        text: String,
+        stop: Arc<Notify>,
+    ) -> CmdResult<Session> {
         // New work means the last review no longer applies.
         if ws.review_state.is_some() && !self.is_reviewer(&s.id).await {
             self.set_review_state(&ws.id, None).await;
@@ -369,7 +415,7 @@ impl Daemon {
 
     /// Agents can rename the branch or check out another one, and PRs, diffs
     /// and the radar all need the current name. A detached HEAD keeps the old one.
-    async fn sync_branch_name(&self, ws: &Workspace) {
+    pub(crate) async fn sync_branch_name(&self, ws: &Workspace) {
         let path = std::path::Path::new(&ws.path);
         let current = git::git_opt(path, &["symbolic-ref", "--short", "HEAD"]).await;
         if let Ok(Some(branch)) = current {
@@ -387,11 +433,8 @@ impl Daemon {
     /// message for the agent when it fails.
     async fn run_done_check(&self, s: &Session, turn: u32) -> Option<String> {
         let ws = self.require_workspace(&s.workspace_id).await.ok()?;
-        let repo = self.store.repo(&ws.repo_id).await.ok()??;
         let path = std::path::Path::new(&ws.path);
-        let settings =
-            crate::settings::load(&[path, std::path::Path::new(&repo.root_path)]).ok()?;
-        let command = settings.scripts.check?;
+        let command = self.trusted_settings(&ws).await.ok()?.scripts.check?;
 
         // Skip turns that didn't touch the worktree (questions, plans, reviews).
         let before = git::git_opt(
@@ -594,6 +637,8 @@ impl Daemon {
                 s.title = fresh.title;
                 s.model = fresh.model;
                 s.permission_mode = fresh.permission_mode;
+                s.effort = fresh.effort;
+                s.fast = fresh.fast;
             }
             match next {
                 Some(n) => {
@@ -602,14 +647,6 @@ impl Daemon {
                 }
                 None => {
                     running.remove(&s.id);
-                    // A crashed agent's MCP call is gone; so is its question.
-                    self.drop_session_questions(&s.id).await;
-                    // The agent may have changed files other workspaces touch.
-                    if let Ok(ws) = self.require_workspace(&s.workspace_id).await {
-                        self.sync_branch_name(&ws).await;
-                        self.sync_spotlight(&ws).await;
-                        self.rescan_conflicts(&ws.repo_id);
-                    }
                     s.status = SessionStatus::Idle;
                     s.queued = 0;
                     if let Err(e) = self.store.upsert_session(&s, &agent_id).await {

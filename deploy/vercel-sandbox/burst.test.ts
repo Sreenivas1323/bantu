@@ -80,6 +80,7 @@ echo "{\\"type\\":\\"assistant\\",\\"message\\":{\\"content\\":[{\\"type\\":\\"t
 case "$prompt" in
   *commit*this*) echo a > committed.txt; git add -A; git -c user.name=a -c user.email=a@a commit -qm "from the agent" ;;
   *leave*draft*) echo b > draft.txt ;;
+  *partial*) echo c > partial.txt; echo oops >&2; exit 4 ;;
   *crash*) echo boom >&2; exit 3 ;;
 esac'`;
 
@@ -114,6 +115,16 @@ test("brings work back as local branches, and stops every VM", async () => {
   expect(sh(repo, "git rev-parse --abbrev-ref HEAD")).toBe("main");
   expect(existsSync(join(repo, "committed.txt"))).toBe(false);
   expect(sh(origin, "git for-each-ref --format='%(refname)' refs/heads")).toBe("refs/heads/main");
+});
+
+test("work from an agent that stopped early still comes back", async () => {
+  const { root, repo, origin } = fixture();
+  const results = await runAll(options(repo, ["do partial work"], FAKE_AGENT), localBoxes(root, origin, []), "k");
+  const r = results[0];
+  if (r.status !== "changed") throw new Error(JSON.stringify(r));
+  expect(sh(repo, `git show ${r.branch}:partial.txt`)).toBe("c");
+  expect(r.problem).toContain("exit 4");
+  expect(r.problem).toContain("oops");
 });
 
 test("keeps the key out of the VM, and removes the clone's credentials", async () => {

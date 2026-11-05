@@ -189,10 +189,7 @@ impl Daemon {
         let Ok(ws) = self.require_workspace(workspace_id).await else {
             return prompt;
         };
-        let Ok(Some(repo)) = self.store.repo(&ws.repo_id).await else {
-            return prompt;
-        };
-        match crate::settings::load(&[Path::new(&ws.path), Path::new(&repo.root_path)]) {
+        match self.trusted_settings(&ws).await {
             Ok(settings) => settings.prompts.apply(kind, prompt),
             Err(e) => {
                 tracing::warn!("ignoring repo prompts: {e}");

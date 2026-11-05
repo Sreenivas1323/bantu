@@ -47,7 +47,7 @@ Because the VM is the boundary, the agent runs with `bypassPermissions` and does
 
 Vercel's Hobby plan includes 5 vCPU-hours free, with sessions up to 45 minutes and 10 VMs at
 once. Pro is about $0.13 per vCPU-hour, plus $0.02 per GB-hour of memory, with sessions up to 24
-hours. Every VM stops when its task ends. If you interrupt the script, running VMs stop at their
+hours. Every VM stops when its task ends. The agent gets stopped 2 minutes before `--minutes` is up, so its commits can still be collected. If you interrupt the script, running VMs stop at their
 `--minutes` limit.
 
 > Status: the full run is tested with real git and a local stand-in for the VM, and the script

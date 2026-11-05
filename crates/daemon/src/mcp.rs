@@ -10,7 +10,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bantu_protocol::{
-    AgentKind, ChatItem, EventData, Session, SessionStatus, TerminalKind, Workspace, WorkspaceState,
+    AgentKind, ChatItem, EventData, PermissionMode, Session, SessionStatus, TerminalKind,
+    Workspace, WorkspaceState,
 };
 use serde_json::{json, Value};
 
@@ -84,6 +85,17 @@ impl Daemon {
             .require_workspace(&caller.workspace_id)
             .await
             .map_err(err)?;
+        // A read-only chat stays read-only, whichever way it asks.
+        if caller.permission_mode == PermissionMode::Plan
+            && matches!(
+                name,
+                "create_workspace" | "send_message" | "integrate_workspaces"
+            )
+        {
+            return Err(format!(
+                "{name} changes things, and this chat is in plan mode (read-only)"
+            ));
+        }
         match name {
             "list_workspaces" => {
                 let mut lines = Vec::new();
@@ -205,6 +217,17 @@ impl Daemon {
                     .first_session(&ws.id)
                     .await
                     .ok_or_else(|| format!("{} has no chat", ws.name))?;
+                // Otherwise a restricted agent could reach past its limits by
+                // asking one that has none.
+                if session.permission_mode == PermissionMode::BypassPermissions
+                    && caller.permission_mode != PermissionMode::BypassPermissions
+                {
+                    return Err(format!(
+                        "{}'s chat bypasses permissions and this one doesn't, so it can't send \
+                         messages there",
+                        ws.name
+                    ));
+                }
                 let s = self.send_message(&session.id, text).await.map_err(err)?;
                 Ok(if s.queued > 0 {
                     format!(

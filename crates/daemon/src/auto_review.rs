@@ -40,6 +40,7 @@ struct State {
 }
 
 struct Run {
+    workspace: String,
     author: String,
     tree: String,
 }
@@ -91,6 +92,15 @@ impl Daemon {
     /// can start another chat's turns, which end up back here.
     pub(crate) fn after_turns(self: Arc<Self>, s: Session) -> BoxFuture<'static, ()> {
         Box::pin(async move {
+            // A crashed agent's MCP call is gone; so is its question.
+            self.drop_session_questions(&s.id).await;
+            // The agent may have renamed the branch, or changed files that other
+            // workspaces touch. This is slow, so it happens after the turn's lock.
+            if let Ok(ws) = self.require_workspace(&s.workspace_id).await {
+                self.sync_branch_name(&ws).await;
+                self.sync_spotlight(&ws).await;
+                self.rescan_conflicts(&ws.repo_id);
+            }
             let run = self.auto_review.state.lock().await.running.remove(&s.id);
             match run {
                 Some(run) => self.finish_review(&s, run).await,
@@ -109,11 +119,8 @@ impl Daemon {
             return Ok(());
         }
         let ws = self.require_workspace(&s.workspace_id).await?;
-        let Some(repo) = self.store.repo(&ws.repo_id).await? else {
-            return Ok(());
-        };
         let path = Path::new(&ws.path);
-        let Ok(settings) = crate::settings::load(&[path, Path::new(&repo.root_path)]) else {
+        let Ok(settings) = self.trusted_settings(&ws).await else {
             return Ok(());
         };
         if !settings.review.auto {
@@ -171,6 +178,7 @@ impl Daemon {
         self.auto_review.state.lock().await.running.insert(
             reviewer.id.clone(),
             Run {
+                workspace: ws.id.clone(),
                 author: s.id.clone(),
                 tree,
             },
@@ -202,10 +210,24 @@ impl Daemon {
         let Ok(ws) = self.require_workspace(&reviewer.workspace_id).await else {
             return;
         };
-        // The author moved on while this ran; its next stop starts a new review.
+        // The work changed while this ran, so its verdict doesn't apply. If the
+        // author's next stop hasn't started another review, there isn't one.
         match worktree_tree(Path::new(&ws.path)).await {
             Ok(tree) if tree == run.tree => {}
-            _ => return,
+            _ => {
+                let another = self
+                    .auto_review
+                    .state
+                    .lock()
+                    .await
+                    .running
+                    .values()
+                    .any(|r| r.workspace == run.workspace);
+                if !another && ws.review_state == Some(ReviewState::Reviewing) {
+                    self.set_review_state(&ws.id, None).await;
+                }
+                return;
+            }
         }
         let items = self
             .store

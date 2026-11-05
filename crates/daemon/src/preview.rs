@@ -218,15 +218,15 @@ async fn proxy_root(
     Path((workspace, port)): Path<(String, u16)>,
     req: Request,
 ) -> Response {
-    proxy(state, workspace, port, String::new(), req).await
+    proxy(state, workspace, port, req).await
 }
 
 async fn proxy_path(
     State(state): State<crate::http::AppState>,
-    Path((workspace, port, path)): Path<(String, u16, String)>,
+    Path((workspace, port, _)): Path<(String, u16, String)>,
     req: Request,
 ) -> Response {
-    proxy(state, workspace, port, path, req).await
+    proxy(state, workspace, port, req).await
 }
 
 fn query_param<'a>(query: &'a str, name: &str) -> Option<&'a str> {
@@ -265,7 +265,6 @@ async fn proxy(
     state: crate::http::AppState,
     workspace_id: String,
     port: u16,
-    path: String,
     req: Request,
 ) -> Response {
     let daemon = state.daemon.clone();
@@ -287,6 +286,14 @@ async fn proxy(
     let query = req.uri().query().unwrap_or_default().to_string();
     let name = cookie_name(port);
     let prefix = format!("/p/{workspace_id}/{port}");
+    // The path as it was sent: decoding `%2F` or `%3F` would change what it means.
+    let path = req
+        .uri()
+        .path()
+        .strip_prefix(&prefix)
+        .filter(|rest| !rest.is_empty())
+        .unwrap_or("/")
+        .to_string();
 
     // A grant from the daemon's API becomes a cookie, and leaves the address bar.
     if let Some(grant) = query_param(&query, GRANT_PARAM) {
@@ -310,7 +317,7 @@ async fn proxy(
             .split('&')
             .filter(|pair| !pair.starts_with(&format!("{GRANT_PARAM}=")) && !pair.is_empty())
             .collect();
-        let mut location = format!("{prefix}/{path}");
+        let mut location = format!("{prefix}{path}");
         if !rest.is_empty() {
             location = format!("{location}?{}", rest.join("&"));
         }
@@ -334,9 +341,9 @@ async fn proxy(
     daemon.activity.touch();
 
     let target_path = if query.is_empty() {
-        format!("/{path}")
+        path
     } else {
-        format!("/{path}?{query}")
+        format!("{path}?{query}")
     };
     let is_websocket = req
         .headers()
@@ -392,6 +399,16 @@ async fn proxy(
                 }
             }
         }
+        if key == header::SET_COOKIE {
+            let scoped = value
+                .to_str()
+                .ok()
+                .and_then(|c| HeaderValue::from_str(&scope_cookie(c, &prefix)).ok());
+            if let Some(scoped) = scoped {
+                out = out.header(key, scoped);
+                continue;
+            }
+        }
         out = out.header(key, value);
     }
     out.body(Body::from_stream(response.bytes_stream()))
@@ -404,6 +421,26 @@ fn forwardable(name: &HeaderName) -> bool {
         && *name != header::HOST
         && *name != header::COOKIE
         && *name != header::AUTHORIZATION
+}
+
+/// Keeps an app's cookie inside its preview. Previews share an origin, so one
+/// with `Path=/` would otherwise reach every other preview too.
+fn scope_cookie(cookie: &str, prefix: &str) -> String {
+    cookie
+        .split(';')
+        .map(|part| {
+            let trimmed = part.trim();
+            match trimmed.split_once('=') {
+                Some((name, value))
+                    if name.eq_ignore_ascii_case("path") && value.starts_with('/') =>
+                {
+                    format!(" Path={prefix}{}", value.trim_end_matches('/'))
+                }
+                _ => part.to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(";")
 }
 
 /// Keeps a redirect inside the preview: `/login` and `http://localhost:55000/login`
@@ -544,6 +581,20 @@ mod tests {
         assert_eq!(rewrite("https://accounts.example.com/x"), None);
         assert_eq!(rewrite("//evil.example/x"), None);
         assert_eq!(rewrite("relative/path"), None);
+    }
+
+    #[test]
+    fn scopes_app_cookies_to_the_preview() {
+        let prefix = "/p/w1/55000";
+        assert_eq!(
+            scope_cookie("sid=1; Path=/; HttpOnly", prefix),
+            "sid=1; Path=/p/w1/55000; HttpOnly"
+        );
+        assert_eq!(
+            scope_cookie("sid=1; path=/app/", prefix),
+            "sid=1; Path=/p/w1/55000/app"
+        );
+        assert_eq!(scope_cookie("sid=1; Secure", prefix), "sid=1; Secure");
     }
 
     #[test]

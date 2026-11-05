@@ -194,9 +194,19 @@ fn valid_endpoint(endpoint: &str) -> bool {
     let Some(origin) = origin(endpoint) else {
         return false;
     };
-    origin.starts_with("https://")
-        || origin.starts_with("http://127.0.0.1")
-        || origin.starts_with("http://localhost")
+    let Some((scheme, authority)) = origin.split_once("://") else {
+        return false;
+    };
+    // `http://127.0.0.1@evil.example` has a misleading start.
+    if authority.contains('@') {
+        return false;
+    }
+    let host = authority.split(':').next().unwrap_or_default();
+    match scheme {
+        "https" => !host.is_empty(),
+        "http" => matches!(host, "127.0.0.1" | "localhost"),
+        _ => false,
+    }
 }
 
 impl Daemon {
@@ -434,6 +444,9 @@ mod tests {
         ));
         assert!(valid_endpoint("http://127.0.0.1:9000/push"));
         assert!(!valid_endpoint("http://evil.example/push"));
+        assert!(!valid_endpoint("http://127.0.0.1.evil.example/push"));
+        assert!(!valid_endpoint("http://127.0.0.1@evil.example/push"));
+        assert!(!valid_endpoint("https://user@push.example/x"));
         assert!(!valid_endpoint("file:///etc/passwd"));
         assert!(!valid_endpoint("not a url"));
     }

@@ -125,7 +125,7 @@ impl Scripts {
     }
 }
 
-const CANDIDATES: [&str; 2] = [".bantu/settings.toml", ".conductor/settings.toml"];
+pub const CANDIDATES: [&str; 2] = [".bantu/settings.toml", ".conductor/settings.toml"];
 
 /// Loads settings from the first directory in `dirs` that has a settings file.
 /// The worktree comes first (the branch's committed config), then the repo root
@@ -140,6 +140,10 @@ pub fn load(dirs: &[&Path]) -> Result<Settings, String> {
         }
     }
     Ok(Settings::default())
+}
+
+pub fn parse(text: &str) -> Result<Settings, String> {
+    toml::from_str(text).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

@@ -32,6 +32,15 @@ impl Daemon {
         let root = Path::new(&repo.root_path);
         let current = self.store.spotlight(&repo.id).await?;
         require_clean(root).await?;
+        if let Some(current) = &current {
+            if !still_in_place(root, current).await? {
+                return Err(CommandError::Conflict(
+                    "the main checkout has moved since Spotlight last updated it; stop the \
+                     spotlight first"
+                        .into(),
+                ));
+            }
+        }
 
         // Moving between workspaces keeps the original branch to return to.
         let restore_to = match &current {
@@ -69,11 +78,14 @@ impl Daemon {
             .await?
             .ok_or_else(|| CommandError::NotFound("repository is gone".into()))?;
         let root = Path::new(&repo.root_path);
-        require_clean(root).await?;
-        // A branch name switches back to it; a sha returns to a detached HEAD.
-        git::git(root, &["checkout", "--quiet", &spotlight.restore_to])
-            .await
-            .map_err(|e| CommandError::Conflict(format!("couldn't switch back: {e}")))?;
+        // If the user has moved on, where they are now is where they want to be.
+        if still_in_place(root, &spotlight).await? {
+            require_clean(root).await?;
+            // A branch name switches back to it; a sha returns to a detached HEAD.
+            git::git(root, &["checkout", "--quiet", &spotlight.restore_to])
+                .await
+                .map_err(|e| CommandError::Conflict(format!("couldn't switch back: {e}")))?;
+        }
         let _ = git::git(root, &["update-ref", "-d", &snapshot_ref(repo_id)]).await;
         self.store.set_spotlight(repo_id, None).await?;
         Ok(())
@@ -92,7 +104,14 @@ impl Daemon {
             return;
         };
         let result = async {
-            require_clean(Path::new(&repo.root_path)).await?;
+            let root = Path::new(&repo.root_path);
+            if !still_in_place(root, &spotlight).await? {
+                return Err(CommandError::Conflict(
+                    "the main checkout has moved since it last updated, so it was left alone"
+                        .into(),
+                ));
+            }
+            require_clean(root).await?;
             self.show_in_main_checkout(ws, &repo).await
         }
         .await;
@@ -114,8 +133,9 @@ impl Daemon {
         }
     }
 
-    /// Checks out a snapshot of the workspace in the main checkout. The ref
-    /// keeps the snapshot from being garbage-collected while it's checked out.
+    /// Checks out a snapshot of the workspace in the main checkout, and returns
+    /// where that leaves `HEAD`. The ref keeps the snapshot from being
+    /// garbage-collected while it's checked out.
     async fn show_in_main_checkout(&self, ws: &Workspace, repo: &Repo) -> CmdResult<String> {
         let root = Path::new(&repo.root_path);
         let snapshot = git::snapshot(Path::new(&ws.path))
@@ -140,8 +160,19 @@ impl Daemon {
                     ))
                 })?;
         }
-        Ok(snapshot)
+        Ok(git::git(root, &["rev-parse", "HEAD"])
+            .await
+            .map_err(anyhow::Error::from)?)
     }
+}
+
+/// Whether the main checkout is where Spotlight left it. If the user switched
+/// branch or committed there, Spotlight must not move them.
+async fn still_in_place(root: &Path, spotlight: &Spotlight) -> CmdResult<bool> {
+    let head = git::git(root, &["rev-parse", "HEAD"])
+        .await
+        .map_err(anyhow::Error::from)?;
+    Ok(head == spotlight.commit)
 }
 
 /// The main checkout must have nothing to lose, and no merge or rebase running.

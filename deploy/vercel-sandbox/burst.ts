@@ -65,7 +65,8 @@ export type Options = {
 };
 
 export type Outcome =
-  | { task: Task; status: "changed"; branch: string; commits: number }
+  /** `problem` says why the agent stopped early, when it did; its commits still count. */
+  | { task: Task; status: "changed"; branch: string; commits: number; problem?: string }
   | { task: Task; status: "unchanged" }
   | { task: Task; status: "failed"; error: string };
 
@@ -133,12 +134,19 @@ export function progressLines(chunk: string): string[] {
   return out;
 }
 
+/**
+ * Leaves time to collect the work: if the VM's own limit hit first, its disk
+ * and everything the agent did would go with it.
+ */
+const COLLECT_SECONDS = 120;
+
 function agentScript(o: Options): string {
   if (o.agentCommand) return `${o.agentCommand} < ${PROMPT}`;
+  const seconds = Math.max(60, o.minutes * 60 - COLLECT_SECONDS);
   const model = o.model ? ` --model '${o.model.replaceAll("'", "'\\''")}'` : "";
   // The VM is the boundary here, so the agent doesn't stop to ask.
   return `command -v claude >/dev/null || npm install -g @anthropic-ai/claude-code >&2
-claude -p --output-format stream-json --verbose --permission-mode bypassPermissions${model} < ${PROMPT}`;
+timeout ${seconds} claude -p --output-format stream-json --verbose --permission-mode bypassPermissions${model} < ${PROMPT}`;
 }
 
 /** Runs one task in its own VM. Always stops the VM. */
@@ -168,9 +176,13 @@ export async function runTask(
         `You're working in a throwaway copy of this repository. Commit your work to the current branch with clear messages. Nothing can be pushed from here; your commits are collected when you finish.\n\n${task.prompt}\n`,
       ),
     );
-    await must(agentScript(o), "the agent", (chunk) => {
-      for (const tool of progressLines(chunk)) log(tool);
+    // An agent that stops early may still have done useful work, so collect it.
+    const agent = await box.run(agentScript(o), {
+      onOutput: (chunk) => {
+        for (const tool of progressLines(chunk)) log(tool);
+      },
     });
+    const problem = agent.exitCode === 0 ? undefined : `the agent failed (exit ${agent.exitCode}): ${agent.stderr.trim().slice(-500)}`;
 
     // Collect anything the agent didn't commit.
     await must(
@@ -179,13 +191,16 @@ export async function runTask(
     );
     const count = await must(`git rev-list --count ${baseSha}..HEAD`, "counting commits");
     const commits = Number(count.stdout.trim());
-    if (!commits) return { task, status: "unchanged" };
+    if (!commits) {
+      if (problem) throw new Error(problem);
+      return { task, status: "unchanged" };
+    }
 
     await must(`git branch -f ${WORK_REF} HEAD && git bundle create ${BUNDLE} ${WORK_REF} ^${baseSha}`, "bundling the work");
     const bundle = await box.read(BUNDLE);
     if (!bundle) throw new Error("the bundle wasn't where it should be");
     const branch = bringBack(o.repo, bundle, `bantu/burst-${slug(task.prompt)}`);
-    return { task, status: "changed", branch, commits };
+    return { task, status: "changed", branch, commits, problem };
   } catch (err) {
     return { task, status: "failed", error: err instanceof Error ? err.message : String(err) };
   } finally {
@@ -369,14 +384,14 @@ async function main(): Promise<number> {
   console.log("");
   for (const r of outcomes) {
     const name = `${r.task.index + 1}. ${r.task.prompt.split("\n")[0].slice(0, 60)}`;
-    if (r.status === "changed") console.log(`${name}\n   ${r.commits} commit(s) on ${r.branch}`);
+    if (r.status === "changed") console.log(`${name}\n   ${r.commits} commit(s) on ${r.branch}${r.problem ? `\n   Stopped early: ${r.problem}` : ""}`);
     else if (r.status === "unchanged") console.log(`${name}\n   No changes`);
     else console.log(`${name}\n   Failed: ${r.error}`);
   }
   if (outcomes.some((r) => r.status === "changed")) {
     console.log("\nIn Bantu, use New workspace → From a branch to review them. Nothing was pushed.");
   }
-  return outcomes.some((r) => r.status === "failed") ? 1 : 0;
+  return outcomes.some((r) => r.status === "failed" || (r.status === "changed" && r.problem)) ? 1 : 0;
 }
 
 if (import.meta.main) process.exit(await main());

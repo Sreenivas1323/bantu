@@ -219,18 +219,18 @@ pub fn parse_items(list: &Value) -> Vec<Item> {
         .collect()
 }
 
-/// Items not seen before, and the updated set. The first poll only records
+/// Items not seen before, and the set to remember. The first poll only records
 /// what's there, so turning on a loop doesn't start a run for every old issue.
+/// Fresh items aren't in the set: each is added once its run has started, so one
+/// that had to wait gets another chance on the next poll.
 pub fn new_items(seen: Option<BTreeSet<u32>>, items: Vec<Item>) -> (Vec<Item>, BTreeSet<u32>) {
-    let numbers: BTreeSet<u32> = items.iter().map(|i| i.number).collect();
-    let Some(mut seen) = seen else {
-        return (vec![], numbers);
+    let Some(seen) = seen else {
+        return (vec![], items.iter().map(|i| i.number).collect());
     };
-    let fresh: Vec<Item> = items
+    let fresh = items
         .into_iter()
         .filter(|i| !seen.contains(&i.number))
         .collect();
-    seen.extend(numbers);
     (fresh, seen)
 }
 
@@ -319,12 +319,17 @@ impl Daemon {
             )));
         }
         if let Some(last) = &l.last_workspace_id {
-            let busy = self
-                .store
-                .sessions()
-                .await?
+            // Still setting up counts: its agent just hasn't started yet.
+            let creating = workspaces
                 .iter()
-                .any(|s| s.workspace_id == *last && s.status == SessionStatus::Running);
+                .any(|w| w.id == *last && w.state == WorkspaceState::Creating);
+            let busy = creating
+                || self
+                    .store
+                    .sessions()
+                    .await?
+                    .iter()
+                    .any(|s| s.workspace_id == *last && s.status == SessionStatus::Running);
             if busy {
                 return Err(CommandError::Conflict(
                     "the last run of this loop is still working".into(),
@@ -408,12 +413,19 @@ impl Daemon {
         let Some(loop_id) = ws.loop_id.clone() else {
             return;
         };
-        // Later turns are a person following up. Their question changing nothing
-        // mustn't archive the workspace out from under them.
-        if s.turns != 1 {
+        let items = self.store.session_items(&s.id).await.unwrap_or_default();
+        // More than the loop's own prompt means a person is following up. Their
+        // question changing nothing mustn't archive the workspace out from under
+        // them. Bantu's own follow-ups, like a failed check, don't count.
+        let people = items
+            .iter()
+            .filter(
+                |(_, item)| matches!(item, ChatItem::User { text } if !text.starts_with("[Bantu]")),
+            )
+            .count();
+        if people != 1 {
             return;
         }
-        let items = self.store.session_items(&s.id).await.unwrap_or_default();
         let failed = items.iter().rev().find_map(|(_, item)| match item {
             ChatItem::Error { .. } => Some(true),
             ChatItem::TurnEnd { is_error, .. } => Some(*is_error),
@@ -448,8 +460,11 @@ impl Daemon {
         for mut l in self.store.loops().await? {
             if l.enabled {
                 l.next_run_at = next_run(&l.trigger, Utc::now());
-                self.store.upsert_loop(&l).await?;
             }
+            if l.last_result.as_deref() == Some("Running") {
+                l.last_result = Some("Interrupted by a daemon restart".into());
+            }
+            self.store.upsert_loop(&l).await?;
         }
         let this = self.clone();
         tokio::spawn(async move {
@@ -536,9 +551,10 @@ impl Daemon {
                 continue;
             };
             let seen = self.store.loop_seen(&l.id).await.unwrap_or(None);
-            let (fresh, seen) = new_items(seen, parse_items(&list));
+            let (fresh, mut seen) = new_items(seen, parse_items(&list));
             let _ = self.store.set_loop_seen(&l.id, &seen).await;
             for item in fresh {
+                let number = item.number;
                 let (source, kind) = if is_issue {
                     (None, "Issue")
                 } else {
@@ -550,10 +566,18 @@ impl Daemon {
                     )
                 };
                 let prompt = github_prompt(&l.prompt, kind, &item);
-                if let Err(e) = self.run_loop(&l.id, source, Some(prompt)).await {
-                    let _ = self
-                        .record_loop_result(&l.id, format!("Skipped #{}: {e}", item.number))
-                        .await;
+                match self.run_loop(&l.id, source, Some(prompt)).await {
+                    Ok(_) => {
+                        seen.insert(number);
+                        let _ = self.store.set_loop_seen(&l.id, &seen).await;
+                    }
+                    // Runs go one at a time, so the rest wait for the next poll.
+                    Err(e) => {
+                        let _ = self
+                            .record_loop_result(&l.id, format!("Waiting to start #{number}: {e}"))
+                            .await;
+                        break;
+                    }
                 }
             }
         }
@@ -716,9 +740,12 @@ mod tests {
             body: String::new(),
             url: String::new(),
         });
-        let (fresh, seen) = new_items(Some(seen), next);
+        let (fresh, seen) = new_items(Some(seen), next.clone());
         assert_eq!(fresh.iter().map(|i| i.number).collect::<Vec<_>>(), [4]);
-        assert!(seen.contains(&4));
+        // It's only remembered once its run starts, so it's offered again until then.
+        assert!(!seen.contains(&4));
+        let (again, _) = new_items(Some(seen), next);
+        assert_eq!(again.len(), 1);
 
         let prompt = github_prompt("Triage this.", "Issue", &fresh[0]);
         assert!(

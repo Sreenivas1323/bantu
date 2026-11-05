@@ -38,8 +38,14 @@ pub fn interactive_shell() -> (String, Vec<String>) {
 
 /// `script` with stderr folded into stdout, so output reads in order.
 pub fn with_merged_output(script: &str) -> String {
-    if shell().is_none() && cfg!(windows) {
+    let shell = shell();
+    if shell.is_none() && cfg!(windows) {
         format!("& {{ {script} }} 2>&1")
+    } else if shell
+        .as_deref()
+        .is_some_and(|s| s.ends_with("/fish") || s == "fish")
+    {
+        format!("begin; {script}\nend 2>&1")
     } else {
         format!("{{ {script}\n}} 2>&1")
     }

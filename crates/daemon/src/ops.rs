@@ -770,8 +770,18 @@ impl Daemon {
             }
             Checkout::PullHead(number) => {
                 sys(format!("Fetching pull request #{number}")).await;
-                let refspec = format!("+pull/{number}/head:refs/heads/{}", ws.branch);
-                git::git(&root, &["fetch", "origin", &refspec]).await?;
+                // Fast-forward only: this branch stays after archiving, and may
+                // hold commits a force-update would lose.
+                let refspec = format!("pull/{number}/head:refs/heads/{}", ws.branch);
+                git::git(&root, &["fetch", "origin", &refspec])
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "branch {} has commits the pull request doesn't, or the pull \
+                             request was force-pushed; rename or delete the branch first",
+                            ws.branch
+                        )
+                    })?;
                 git::worktree_add_existing(&root, &path, &ws.branch).await?;
             }
         }
@@ -863,7 +873,7 @@ impl Daemon {
             ))
             .await;
         } else if path.is_dir() {
-            let settings = settings::load(&[&path, &root]).map_err(|e| anyhow!(e))?;
+            let settings = self.trusted_settings(ws).await?;
             if let Some(script) = settings.scripts.archive.as_deref() {
                 sys(format!("Running archive script: {script}")).await;
                 if let Err(e) = self.run_script(ws, repo, script).await {

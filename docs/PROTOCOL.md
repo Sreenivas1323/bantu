@@ -364,7 +364,7 @@ Tests a workspace in the repo's main checkout, where the user's own dev servers,
 
 `repo.spotlight_stop` checks out the original branch again, and archiving the workspace does the same. The state is kept in the database, because the checkout stays that way across a daemon restart.
 
-The main checkout belongs to the user, so nothing here overwrites it. Tracked changes or a merge in progress refuse the command with 409. If that happens during an automatic update, the update is skipped and the reason goes in the workspace log. Gitignored files are left alone.
+The main checkout belongs to the user, so nothing here overwrites it. Tracked changes or a merge in progress refuse the command with 409. If its `HEAD` isn't where Spotlight left it, because the user switched branch or committed there, automatic updates stop and `repo.spotlight_stop` only forgets the spotlight, without moving anything. If that happens during an automatic update, the update is skipped and the reason goes in the workspace log. Gitignored files are left alone.
 
 ### `workspace.archive`
 1. Stops running agent turns and closes terminals.
@@ -381,7 +381,8 @@ Open a workspace's dev server from any device, through the daemon.
 - **`GET /v1/workspaces/{id}/ports`** checks the workspace's 10 reserved ports and returns `{ port, url }` for each one that's listening. `url` carries a grant for that port, valid for 5 minutes. It's `null` when the client is remote and `BANTU_PREVIEW_URL` isn't set.
 - **Its own listener.** Previews are served on a separate port (`--preview-port`, by default the API port + 1), and only previews. A different port is a different browser origin, so a previewed page can't read the daemon's token from `localStorage`. The daemon's token isn't accepted there.
 - **`/p/{workspace}/{port}/{path}`** forwards HTTP (streaming both ways) and WebSockets to `127.0.0.1:{port}`. Opening a grant link sets an `HttpOnly` cookie scoped to that path and removes the grant from the URL. Only the workspace's own ports can be reached (403 otherwise). Grants and cookies stop working when the daemon restarts.
-- **What's rewritten.** Redirects to `/path` or `http://localhost:{port}/path` stay inside the preview. A root-absolute request such as `/assets/app.js` is redirected back into its preview using the `Referer`. Bantu's cookie and `Authorization` header aren't forwarded, and `Host` is set to `localhost:{port}`, since dev servers often reject other names. A WebSocket opened at a root path can't be redirected, so hot reload clients may need their dev server's base path set to `$BANTU_PREVIEW_BASE` (set in workspace terminals to `/p/{workspace}/{BANTU_PORT}/`). URLs an app builds from its own host, and third-party sign-in callbacks, may still need the app configured for its preview address.
+- **Previews share an origin with each other.** That origin is separate from the daemon's, but a page in one preview could fetch another preview on the same daemon, so only preview apps you trust alongside each other. Apps' cookies are rescoped to their own preview's path, so they don't collide.
+- **What's rewritten.** Redirects to `/path` or `http://localhost:{port}/path` stay inside the preview. A root-absolute request such as `/assets/app.js` is redirected back into its preview using the `Referer`. Paths are forwarded exactly as sent. Bantu's cookie and `Authorization` header aren't forwarded, and `Host` is set to `localhost:{port}`, since dev servers often reject other names. A WebSocket opened at a root path can't be redirected, so hot reload clients may need their dev server's base path set to `$BANTU_PREVIEW_BASE` (set in workspace terminals to `/p/{workspace}/{BANTU_PORT}/`). URLs an app builds from its own host, and third-party sign-in callbacks, may still need the app configured for its preview address.
 
 ## Web Push
 
@@ -454,6 +455,8 @@ Every turn gets Bantu's MCP server (`POST /v1/mcp?session=<id>`, authenticated w
 | `list_diff_comments`, `add_diff_comment` | Read review comments, and add draft ones for the user to send |
 | `notify_user` | Send a notice to the inbox without waiting |
 | `ask_user` | Ask a question and block until it's answered, dismissed or stopped, or the timeout passes (10–1800 s, default 600) |
+
+A chat in plan mode can't use `create_workspace`, `send_message` or `integrate_workspaces`. A chat that doesn't bypass permissions can't `send_message` to one that does.
 
 ### Chat and terminal on one conversation
 
@@ -535,7 +538,7 @@ auto = true
 agent = "codex"   # defaults to Codex for Claude's work, and Claude for everyone else's
 ```
 
-Bantu looks for settings first in the worktree (the branch's committed config), then in the main checkout. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.
+Bantu looks for `setup` and `run` first in the worktree (the branch's committed config), then in the main checkout. Settings that make the daemon act on its own (`check`, `archive`, `[prompts]` and `[review]`) come only from the main checkout, because an agent allowed to edit files could otherwise run any command without a prompt, or turn off its own review. A branch's changes to them apply once they're merged. While Spotlight is active, those settings come from the base branch instead. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.
 
 Scripts run in the user's login shell (`$SHELL -lc`) in the workspace directory, with these environment variables:
 
