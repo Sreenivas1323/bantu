@@ -130,8 +130,8 @@ in Bantu chats** in the accounts dialog. This is on `main` and isn't in v0.1.0-a
 | Your laptop | $0 |
 | Your own machine or VPS, via Tailscale or Cloudflare Tunnel | $0 extra |
 | Your AWS account: EC2 t4g over Tailscale, stops itself when idle | ≈ $7 at 4 h/day |
-| Your AWS account with CloudFront (planned) | ≈ $10 at 4 h/day |
-| Your Vercel account: Sandbox microVMs for bursts of parallel tasks (planned) | Hobby free tier, then ≈ $0.13/CPU-hour |
+| Your AWS account with CloudFront ([guide](docs/AWS.md)) | ≈ $10 at 4 h/day |
+| Your Vercel account: Sandbox microVMs for bursts of parallel tasks ([guide](docs/VERCEL.md)) | Hobby free tier, then ≈ $0.13/CPU-hour |
 
 The project itself costs about $99 a year to run (Apple code signing). See
 [ARCHITECTURE.md](docs/ARCHITECTURE.md#4-bring-your-own-cloud-ranked-from-cheapest).

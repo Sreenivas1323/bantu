@@ -1,0 +1,161 @@
+// The whole run, with real git and a local stand-in for the VM. Only the Vercel
+// API itself isn't exercised here.
+
+import { afterEach, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { type Box, type BoxRequest, egressPolicy, estimate, httpsUrl, type Options, progressLines, runAll, slug } from "./burst.ts";
+
+const dirs: string[] = [];
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
+function sh(cwd: string, script: string) {
+  const r = spawnSync("bash", ["-c", script], { cwd, encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`${script}: ${r.stderr}`);
+  return r.stdout.trim();
+}
+
+/** A bare origin and a clone of it, like the user's checkout. */
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), "burst-test-"));
+  dirs.push(root);
+  sh(root, "git init -q --bare -b main origin.git && git clone -q origin.git repo 2>/dev/null");
+  const repo = join(root, "repo");
+  sh(repo, "git config user.name t && git config user.email t@t && git checkout -q -b main; echo hi > README.md && git add -A && git commit -qm init && git push -q origin main");
+  return { root, repo, origin: join(root, "origin.git") };
+}
+
+const options = (repo: string, prompts: string[], agentCommand: string): Options => ({
+  repo,
+  base: "main",
+  tasks: prompts.map((prompt, index) => ({ index, prompt })),
+  vcpus: 2,
+  minutes: 30,
+  concurrency: 2,
+  setup: undefined,
+  model: undefined,
+  allow: [],
+  agentCommand,
+});
+
+type Created = { request: BoxRequest; stopped: boolean; scripts: string[] };
+
+/** Clones into a temp folder and runs scripts there, like a VM would. */
+function localBoxes(root: string, origin: string, created: Created[]) {
+  return async (request: BoxRequest): Promise<Box> => {
+    const record: Created = { request, stopped: false, scripts: [] };
+    created.push(record);
+    const dir = mkdtempSync(join(root, "vm-"));
+    sh(dir, `git clone -q ${origin} . && git checkout -q ${request.revision}`);
+    return {
+      async run(script, opts) {
+        record.scripts.push(script);
+        const r = spawnSync("bash", ["-c", script], { cwd: dir, encoding: "utf8", env: { ...process.env, ...request.env } });
+        if (r.stdout) opts?.onOutput?.(r.stdout);
+        return { exitCode: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+      },
+      async write(path, content) {
+        mkdirSync(join(dir, path, ".."), { recursive: true });
+        writeFileSync(join(dir, path), content);
+      },
+      async read(path) {
+        const file = join(dir, path);
+        return existsSync(file) ? readFileSync(file) : null;
+      },
+      async stop() {
+        record.stopped = true;
+      },
+    };
+  };
+}
+
+// Reads the prompt on stdin like Claude does, and acts on it.
+const FAKE_AGENT = `bash -c '
+prompt=$(cat)
+echo "{\\"type\\":\\"assistant\\",\\"message\\":{\\"content\\":[{\\"type\\":\\"tool_use\\",\\"name\\":\\"Bash\\"}]}}"
+case "$prompt" in
+  *commit*this*) echo a > committed.txt; git add -A; git -c user.name=a -c user.email=a@a commit -qm "from the agent" ;;
+  *leave*draft*) echo b > draft.txt ;;
+  *crash*) echo boom >&2; exit 3 ;;
+esac'`;
+
+test("brings work back as local branches, and stops every VM", async () => {
+  const { root, repo, origin } = fixture();
+  const created: Created[] = [];
+  const prompts = ["Please commit this change", "Just leave a draft", "Look around and do nothing", "crash now"];
+  const seen: string[] = [];
+  const results = await runAll(options(repo, prompts, FAKE_AGENT), localBoxes(root, origin, created), "sk-secret", (_t, line) => seen.push(line));
+
+  expect(results.map((r) => r.status)).toEqual(["changed", "changed", "unchanged", "failed"]);
+  expect(created.every((c) => c.stopped)).toBe(true);
+  expect(seen).toContain("Bash");
+
+  const first = results[0];
+  if (first.status !== "changed") throw new Error("unreachable");
+  expect(first.branch).toBe("bantu/burst-please-commit-this-change");
+  expect(first.commits).toBe(1);
+  expect(sh(repo, `git show ${first.branch}:committed.txt`)).toBe("a");
+
+  // Work the agent left uncommitted is collected too.
+  const second = results[1];
+  if (second.status !== "changed") throw new Error("unreachable");
+  expect(sh(repo, `git show ${second.branch}:draft.txt`)).toBe("b");
+
+  const failed = results[3];
+  if (failed.status !== "failed") throw new Error("unreachable");
+  expect(failed.error).toContain("exit 3");
+  expect(failed.error).toContain("boom");
+
+  // The user's checkout and the remote are untouched.
+  expect(sh(repo, "git rev-parse --abbrev-ref HEAD")).toBe("main");
+  expect(existsSync(join(repo, "committed.txt"))).toBe(false);
+  expect(sh(origin, "git for-each-ref --format='%(refname)' refs/heads")).toBe("refs/heads/main");
+});
+
+test("keeps the key out of the VM, and removes the clone's credentials", async () => {
+  const { root, repo, origin } = fixture();
+  const created: Created[] = [];
+  await runAll(options(repo, ["look around"], FAKE_AGENT), localBoxes(root, origin, created), "sk-secret");
+  const { request, scripts } = created[0];
+  expect(JSON.stringify(request.env)).not.toContain("sk-secret");
+  expect(request.env.ANTHROPIC_API_KEY).toBeTruthy();
+  expect(request.policy.allow["api.anthropic.com"][0].transform[0].headers["x-api-key"]).toBe("sk-secret");
+  expect(scripts[0]).toBe("git remote remove origin");
+  expect(scripts.join("\n")).not.toContain("sk-secret");
+});
+
+test("a branch name that's taken gets a number", async () => {
+  const { root, repo, origin } = fixture();
+  sh(repo, "git branch bantu/burst-commit-this");
+  const results = await runAll(options(repo, ["commit this"], FAKE_AGENT), localBoxes(root, origin, []), "k");
+  const r = results[0];
+  if (r.status !== "changed") throw new Error(JSON.stringify(r));
+  expect(r.branch).toBe("bantu/burst-commit-this-2");
+});
+
+test("a failure to start a VM is reported, not thrown", async () => {
+  const { repo } = fixture();
+  const results = await runAll(
+    options(repo, ["anything"], FAKE_AGENT),
+    async () => {
+      throw new Error("no Vercel credentials");
+    },
+    "k",
+  );
+  expect(results[0]).toMatchObject({ status: "failed", error: "no Vercel credentials" });
+});
+
+test("small helpers", () => {
+  expect(httpsUrl("git@github.com:o/r.git")).toBe("https://github.com/o/r.git");
+  expect(httpsUrl("ssh://git@github.com/o/r.git")).toBe("https://github.com/o/r.git");
+  expect(httpsUrl("https://github.com/o/r.git")).toBe("https://github.com/o/r.git");
+  expect(slug("Fix the login redirect!")).toBe("fix-the-login-redirect");
+  expect(slug("修正")).toBe("task");
+  expect(egressPolicy("k", ["*.pypi.org"]).allow["*.pypi.org"]).toEqual([]);
+  expect(progressLines('{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit"}]}}\nnot json\n{"cut')).toEqual(["Edit"]);
+  expect(estimate({ tasks: [{ index: 0, prompt: "x" }, { index: 1, prompt: "y" }], vcpus: 2, minutes: 30, concurrency: 4 })).toContain("≈ $0.26");
+});
