@@ -132,6 +132,12 @@ impl Daemon {
             )));
         }
 
+        if self.session_terminal(&s.id).await.is_some() {
+            return Err(CommandError::Conflict(
+                "this chat is open in a terminal; close the terminal to continue here".into(),
+            ));
+        }
+
         let mut running = self.running.turns.lock().await;
         if let Some(r) = running.get_mut(&s.id) {
             r.queue.push_back(text);
@@ -664,7 +670,7 @@ pub fn checkpoint_ref(session_id: &str, turn: u32) -> String {
     format!("refs/bantu/cp/{session_id}/{turn}")
 }
 
-fn claude_permission_mode(m: PermissionMode) -> &'static str {
+pub(crate) fn claude_permission_mode(m: PermissionMode) -> &'static str {
     match m {
         PermissionMode::Auto => "auto",
         PermissionMode::Ask => "default",

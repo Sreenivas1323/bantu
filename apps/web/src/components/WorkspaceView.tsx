@@ -216,6 +216,11 @@ export function WorkspaceView({
           permissions={permissions}
           agents={agents}
           onOpenAccounts={onOpenAccounts}
+          terminals={terminals}
+          onShowTerminal={(id) => {
+            setTerminalId(id);
+            setTab("terminal");
+          }}
           run={run}
         />
       ) : tab === "terminal" ? (

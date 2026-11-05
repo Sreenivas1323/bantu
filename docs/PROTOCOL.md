@@ -181,6 +181,7 @@ One transcript entry, normalized across agents and tagged by `kind`:
 | `tool_result` | `tool_use_id`, `content`, `is_error` | Text output, truncated to 20,000 characters |
 | `turn_end` | `is_error`, `duration_ms`, `cost_usd`, `input_tokens`, `output_tokens` | `input_tokens` includes cache reads and writes |
 | `rewound` | `to_turn` | Files were restored to before `to_turn` |
+| `terminal_session` | `imported` | The chat continued in a terminal; `imported` entries read back from the agent's transcript come just before this one |
 | `error` | `message` | Bantu-side problems: the agent couldn't start, crashed, or was stopped (`"Stopped"`) |
 
 ### `StreamDelta`
@@ -223,8 +224,9 @@ One transcript entry, normalized across agents and tagged by `kind`:
 - `review_decision` is `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED` or `null`.
 
 ### `Terminal`
-`{ id, workspace_id, kind, title, command, exited, exit_code, created_at }`
-- `kind` is `"shell"` (an interactive login shell) or `"run"` (the repo's run script, with its `command`).
+`{ id, workspace_id, kind, title, command, session_id, exited, exit_code, created_at }`
+- `kind` is `"shell"` (an interactive login shell), `"run"` (the repo's run script, with its `command`), `"login"` (an agent's sign-in flow) or `"agent"` (any other CLI, or a chat continued in a terminal).
+- `session_id` is the chat this terminal continues, if any.
 
 ### `LogStream`
 `"stdout" | "stderr" | "system"`
@@ -250,7 +252,8 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `comment.add` | `workspace_id`, `path`, `line`, `body` | `DiffComment` | Adds a draft review comment. |
 | `comment.delete` | `comment_id` | — | |
 | `comments.send` | `workspace_id`, `session_id` | `Session` | Sends every draft comment to the agent as one message (sorted by file and line), then marks them sent. 400 if there are none. |
-| `terminal.open` | `workspace_id`, `cols?`, `rows?` | `Terminal` | Opens an interactive login shell in the worktree. |
+| `terminal.open` | `workspace_id`, `cols?`, `rows?`, `command?` | `Terminal` | Opens an interactive login shell in the worktree, or runs `command` (any CLI) there. |
+| `session.open_terminal` | `session_id`, `cols?`, `rows?` | `Terminal` | Continues a Claude or Codex chat in the agent's own terminal UI; see below. Returns the existing terminal if it's already open. 409 while a turn is running. |
 | `terminal.close` | `terminal_id` | — | Hangs up the terminal's whole process group and forgets it. |
 | `preferences.update` | `claude_user_setup?` | `Preferences` | Changes daemon-wide preferences (also in `StateSnapshot.preferences`; changes arrive as `preferences.updated`). |
 
@@ -302,6 +305,16 @@ claude -p --output-format stream-json --verbose --include-partial-messages \
 - **Branch naming.** On the first message, a placeholder branch (`bantu/<city>`) that has never been pushed is renamed to a slug of the message, e.g. "Please fix the login redirect bug" → `bantu/fix-login-redirect-bug`. Duplicates get `-2`, `-3`, and so on.
 - **Checkpoints.** Before each turn the daemon snapshots the worktree to `refs/bantu/cp/<session>/<turn>`: tracked and untracked (non-ignored) files, as a commit whose parent is `HEAD`. It uses a temporary index, so the user's index, branch and files are untouched. It's skipped while a merge or rebase is in progress.
 - **Rewind.** `session.rewind` resets the branch to the checkpoint's parent, restores the snapshot's files (ignored files such as `node_modules` are left alone), and adds a `rewound` item. Claude can't rewind part of a conversation, so the next message is prefixed with a note telling the agent which turn the files went back to.
+
+### Chat and terminal on one conversation
+
+`session.open_terminal` runs `claude --resume <id>` (or `--session-id` before the first turn) or `codex resume <id>` in a PTY, with the same workspace context, model and permission mode as the chat. Bantu's MCP server stays available; the permission hook doesn't apply, because the agent's terminal UI asks for itself.
+
+While that terminal runs, `session.send` returns 409, because two processes must not write to one conversation. When it ends, the chat gets a new turn:
+
+- **Claude**: new entries in its transcript (`<CLAUDE_CONFIG_DIR>/projects/*/<id>.jsonl`) are added as chat items, then a `terminal_session` item. Subagent work and injected context are skipped, and the transcript carries no per-turn cost.
+- **Codex**: only the `terminal_session` item is added, but the conversation resumes normally, because Codex keeps it.
+- **ACP agents** can't reopen a conversation in a terminal yet (400). Run their CLI with `terminal.open` and a `command`; that's a separate conversation.
 
 ### ACP agents (OpenCode, Gemini CLI, Cursor)
 
@@ -383,7 +396,6 @@ curl -N -H "$H" '127.0.0.1:47800/v1/events?since=0'
 
 ## Planned
 
-- Any CLI in a terminal — M2
 - Checks view with CI failures forwarded to the agent; the Bantu MCP server — M2
 - Pairing codes for remote clients, Web Push — M3
 

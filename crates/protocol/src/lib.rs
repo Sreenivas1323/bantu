@@ -239,6 +239,11 @@ pub enum ChatItem {
     Rewound {
         to_turn: u32,
     },
+    /// The chat continued in the agent's terminal UI. `imported` items were
+    /// read back from the agent's transcript and precede this one.
+    TerminalSession {
+        imported: u32,
+    },
     /// Bantu-side problems: the agent couldn't start, crashed, or was cancelled.
     Error {
         message: String,
@@ -343,6 +348,9 @@ pub enum TerminalKind {
     Run,
     /// Signing an agent CLI in to its account (not tied to a workspace).
     Login,
+    /// An agent's own terminal UI: a chat continued in a terminal (`session_id`
+    /// is set), or any other CLI the user started.
+    Agent,
 }
 
 /// A PTY in a workspace. Bytes flow over `GET /v1/terminals/{id}/ws`.
@@ -357,6 +365,9 @@ pub struct Terminal {
     pub title: String,
     /// The command for `run` terminals.
     pub command: Option<String>,
+    /// The chat this terminal continues. It can't take turns while this runs.
+    #[serde(default)]
+    pub session_id: Option<String>,
     pub exited: bool,
     pub exit_code: Option<i32>,
     pub created_at: String,
@@ -485,11 +496,24 @@ pub enum Command {
         workspace_id: String,
         session_id: String,
     },
-    /// Open an interactive shell in the workspace.
+    /// Open an interactive shell in the workspace, or run `command` (any CLI)
+    /// in a terminal there.
     #[serde(rename = "terminal.open")]
     TerminalOpen {
         workspace_id: String,
         cols: Option<u16>,
+        rows: Option<u16>,
+        #[serde(default)]
+        command: Option<String>,
+    },
+    /// Continue a chat in its agent's own terminal UI. The chat takes no turns
+    /// until the terminal ends; then its transcript is imported where possible.
+    #[serde(rename = "session.open_terminal")]
+    SessionOpenTerminal {
+        session_id: String,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
         rows: Option<u16>,
     },
     /// Kill the terminal's process group and forget it.

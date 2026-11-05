@@ -177,6 +177,9 @@ async fn main() -> Result<()> {
         branch_prefix: args.branch_prefix,
         claude_bin: args.claude_bin,
         codex_bin: args.codex_bin,
+        claude_config_dir: std::env::var_os("CLAUDE_CONFIG_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home_dir.join(".claude")),
         opencode_bin: args.opencode_bin,
         gemini_bin: args.gemini_bin,
         cursor_bin: args.cursor_bin,

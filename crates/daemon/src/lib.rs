@@ -16,6 +16,7 @@ pub mod service;
 pub mod sessions;
 pub mod settings;
 pub mod store;
+pub mod terminal_driver;
 pub mod terminals;
 
 use std::path::{Path, PathBuf};
@@ -41,6 +42,9 @@ pub struct Config {
     pub claude_bin: PathBuf,
     /// The OpenAI Codex CLI used for agent sessions.
     pub codex_bin: PathBuf,
+    /// Where Claude Code keeps its data (`CLAUDE_CONFIG_DIR`, usually `~/.claude`).
+    /// Conversations continued in a terminal are read back from here.
+    pub claude_config_dir: PathBuf,
     /// Agents driven over the Agent Client Protocol.
     pub opencode_bin: PathBuf,
     pub gemini_bin: PathBuf,

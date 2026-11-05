@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentKind, AgentStatus, Command, CommandResponse, PermissionRequest, Session, Workspace } from "@bantu/protocol";
+import type { AgentKind, AgentStatus, Command, CommandResponse, PermissionRequest, Session, Terminal, Workspace } from "@bantu/protocol";
 import type { ChatEntry, DaemonState } from "../../lib/store.ts";
 import { agentLabel, AGENT_KINDS } from "../../lib/useAgents.ts";
 import { Composer } from "./Composer.tsx";
@@ -18,6 +18,8 @@ export function ChatPanel({
   permissions,
   agents,
   onOpenAccounts,
+  terminals,
+  onShowTerminal,
   run,
 }: {
   workspace: Workspace;
@@ -32,6 +34,9 @@ export function ChatPanel({
   onOpenAccounts: () => void;
   /** Pending permission requests for this workspace. */
   permissions: PermissionRequest[];
+  /** This workspace's terminals, to find one continuing the active chat. */
+  terminals: Terminal[];
+  onShowTerminal: (terminalId: string) => void;
   run: Run;
 }) {
   // Jump to a chat the user just created once the daemon reports it.
@@ -48,6 +53,15 @@ export function ChatPanel({
     const res = await run({ type: "session.create", workspace_id: workspace.id, agent, model: null, permission_mode: null });
     const created = res?.result as Session | undefined;
     if (created?.id) setPendingNew(created.id);
+  };
+
+  const liveTerminal = active && terminals.find((t) => t.session_id === active.id && !t.exited);
+  const canUseTerminal = active && (active.agent === "claude" || active.agent === "codex");
+  const openTerminal = async () => {
+    if (!active) return;
+    const res = await run({ type: "session.open_terminal", session_id: active.id, cols: null, rows: null });
+    const t = res?.result as Terminal | undefined;
+    if (t?.id) onShowTerminal(t.id);
   };
 
   if (!active) {
@@ -116,6 +130,17 @@ export function ChatPanel({
               ))}
             </span>
           )}
+          {ready && canUseTerminal && (
+            <button
+              type="button"
+              disabled={active.status === "running"}
+              onClick={() => void openTerminal()}
+              className="ml-auto shrink-0 rounded px-2 py-1 text-muted hover:bg-raised hover:text-fg disabled:opacity-40"
+              title="Continue this conversation in the agent's own terminal UI"
+            >
+              Open in terminal
+            </button>
+          )}
         </div>
       )}
       <Transcript
@@ -127,6 +152,17 @@ export function ChatPanel({
           await run({ type: "session.rewind", session_id: active.id, turn });
         }}
       />
+      {liveTerminal && (
+        <div className="mx-auto w-full max-w-3xl px-5 pb-2">
+          <button
+            type="button"
+            onClick={() => onShowTerminal(liveTerminal.id)}
+            className="w-full rounded-md border border-line bg-panel px-3 py-2 text-left text-[12.5px] text-muted hover:text-fg"
+          >
+            This conversation is open in a terminal. Go to the terminal →
+          </button>
+        </div>
+      )}
       <AgentSetupNotice status={agents?.find((a) => a.agent === active.agent)} onOpenAccounts={onOpenAccounts} />
       {permissions.some((p) => p.session_id === active.id) && (
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-5 pb-2">
@@ -146,7 +182,9 @@ export function ChatPanel({
       )}
       <Composer
         session={active}
-        disabledReason={ready ? null : `Workspace is ${workspace.state}`}
+        disabledReason={
+          !ready ? `Workspace is ${workspace.state}` : liveTerminal ? "This chat is open in a terminal. Close it to continue here." : null
+        }
         onSend={async (text) => (await run({ type: "session.send", session_id: active.id, text })) !== null}
         onStop={async () => {
           await run({ type: "session.cancel", session_id: active.id });

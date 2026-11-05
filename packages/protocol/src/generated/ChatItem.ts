@@ -11,4 +11,4 @@ content: string, is_error: boolean, } | { "kind": "turn_end", is_error: boolean,
 /**
  * Last part of the combined output.
  */
-output: string, duration_ms: number, } | { "kind": "rewound", to_turn: number, } | { "kind": "error", message: string, };
+output: string, duration_ms: number, } | { "kind": "rewound", to_turn: number, } | { "kind": "terminal_session", imported: number, } | { "kind": "error", message: string, };

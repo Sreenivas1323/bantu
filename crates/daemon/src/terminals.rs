@@ -28,6 +28,36 @@ const DEFAULT_SIZE: PtySize = PtySize {
 
 type CmdResult<T> = Result<T, CommandError>;
 
+/// What to start in a new PTY.
+pub struct TerminalSpec {
+    pub kind: TerminalKind,
+    pub title: String,
+    /// Runs in the user's login shell; without one, the shell itself is interactive.
+    pub command: Option<String>,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+    /// The chat this terminal continues.
+    pub session_id: Option<String>,
+    /// How much of the agent's transcript existed before this terminal started.
+    pub transcript_offset: u64,
+    pub env: Vec<(String, String)>,
+}
+
+impl TerminalSpec {
+    pub fn new(kind: TerminalKind, title: String) -> Self {
+        Self {
+            kind,
+            title,
+            command: None,
+            cols: None,
+            rows: None,
+            session_id: None,
+            transcript_offset: 0,
+            env: Vec::new(),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Terminals {
     map: Mutex<HashMap<String, Arc<Term>>>,
@@ -41,6 +71,7 @@ pub struct Term {
     /// Recent output plus the live channel. Viewers subscribe while holding
     /// this lock so they see every byte exactly once.
     output: StdMutex<(VecDeque<u8>, broadcast::Sender<Vec<u8>>)>,
+    transcript_offset: u64,
 }
 
 impl Term {
@@ -101,8 +132,27 @@ impl Daemon {
         workspace_id: &str,
         cols: Option<u16>,
         rows: Option<u16>,
+        command: Option<String>,
     ) -> CmdResult<Terminal> {
         let ws = self.ready_workspace(workspace_id).await?;
+        if let Some(command) = command.filter(|c| !c.trim().is_empty()) {
+            let title = command
+                .split_whitespace()
+                .next()
+                .unwrap_or("CLI")
+                .to_string();
+            return self
+                .spawn_terminal(
+                    Some(&ws),
+                    TerminalSpec {
+                        command: Some(command),
+                        cols,
+                        rows,
+                        ..TerminalSpec::new(TerminalKind::Agent, title)
+                    },
+                )
+                .await;
+        }
         let count = self
             .terminals()
             .await
@@ -112,8 +162,15 @@ impl Daemon {
             })
             .count();
         let title = format!("Terminal {}", count + 1);
-        self.spawn_terminal(Some(&ws), TerminalKind::Shell, title, None, cols, rows)
-            .await
+        self.spawn_terminal(
+            Some(&ws),
+            TerminalSpec {
+                cols,
+                rows,
+                ..TerminalSpec::new(TerminalKind::Shell, title)
+            },
+        )
+        .await
     }
 
     pub async fn run_workspace(self: &Arc<Self>, workspace_id: &str) -> CmdResult<Terminal> {
@@ -142,11 +199,10 @@ impl Daemon {
         })?;
         self.spawn_terminal(
             Some(&ws),
-            TerminalKind::Run,
-            "Run".into(),
-            Some(command),
-            None,
-            None,
+            TerminalSpec {
+                command: Some(command),
+                ..TerminalSpec::new(TerminalKind::Run, "Run".into())
+            },
         )
         .await
     }
@@ -192,7 +248,7 @@ impl Daemon {
         Ok(())
     }
 
-    async fn ready_workspace(&self, id: &str) -> CmdResult<Workspace> {
+    pub(crate) async fn ready_workspace(&self, id: &str) -> CmdResult<Workspace> {
         let ws = self.require_workspace(id).await?;
         if ws.state != WorkspaceState::Ready {
             return Err(CommandError::Conflict(format!(
@@ -206,12 +262,18 @@ impl Daemon {
     pub(crate) async fn spawn_terminal(
         self: &Arc<Self>,
         ws: Option<&Workspace>,
-        kind: TerminalKind,
-        title: String,
-        command: Option<String>,
-        cols: Option<u16>,
-        rows: Option<u16>,
+        spec: TerminalSpec,
     ) -> CmdResult<Terminal> {
+        let TerminalSpec {
+            kind,
+            title,
+            command,
+            cols,
+            rows,
+            session_id,
+            transcript_offset,
+            env,
+        } = spec;
         let size = PtySize {
             cols: cols.unwrap_or(DEFAULT_SIZE.cols).max(2),
             rows: rows.unwrap_or(DEFAULT_SIZE.rows).max(2),
@@ -226,6 +288,9 @@ impl Daemon {
         }
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        for (key, value) in env {
+            cmd.env(key, value);
+        }
         match ws {
             Some(ws) => {
                 cmd.cwd(&ws.path);
@@ -254,6 +319,7 @@ impl Daemon {
             kind,
             title,
             command,
+            session_id,
             exited: false,
             exit_code: None,
             created_at: now(),
@@ -265,6 +331,7 @@ impl Daemon {
             master: StdMutex::new(pair.master),
             child: StdMutex::new(child),
             output: StdMutex::new((VecDeque::new(), tx)),
+            transcript_offset,
         });
         self.terminals
             .map
@@ -320,13 +387,18 @@ fn pump_output(
         info.exit_code = code;
         info.clone()
     };
+    let offset = term.transcript_offset;
     rt.spawn(async move {
+        let session_id = info.session_id.clone();
         // Closed terminals were already removed and announced.
         if daemon.terminal(&info.id).await.is_some() {
             let _ = daemon
                 .store
                 .emit(EventData::TerminalUpdated { terminal: info })
                 .await;
+        }
+        if let Some(session_id) = session_id {
+            daemon.finish_session_terminal(&session_id, offset).await;
         }
     });
 }

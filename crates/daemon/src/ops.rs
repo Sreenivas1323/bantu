@@ -134,7 +134,16 @@ impl Daemon {
                 workspace_id,
                 cols,
                 rows,
-            } => serde_json::to_value(self.open_terminal(&workspace_id, cols, rows).await?),
+                command,
+            } => serde_json::to_value(
+                self.open_terminal(&workspace_id, cols, rows, command)
+                    .await?,
+            ),
+            Command::SessionOpenTerminal {
+                session_id,
+                cols,
+                rows,
+            } => serde_json::to_value(self.open_session_terminal(&session_id, cols, rows).await?),
             Command::TerminalClose { terminal_id } => {
                 self.close_terminal(&terminal_id).await?;
                 Ok(serde_json::Value::Null)

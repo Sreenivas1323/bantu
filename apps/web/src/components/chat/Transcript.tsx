@@ -105,6 +105,13 @@ function Item({
       return <Markdown text={item.text} />;
     case "thinking":
       return <Thinking text={item.text} />;
+    case "terminal_session":
+      return (
+        <p className="text-center text-[12px] text-faint">
+          Continued in the terminal
+          {item.imported > 0 ? ` · ${item.imported} ${item.imported === 1 ? "entry" : "entries"} added here` : ""}
+        </p>
+      );
     case "tool_use":
       return <ToolCard use={item} result={results.get(item.id)} workspacePath={workspacePath} />;
     case "tool_result":

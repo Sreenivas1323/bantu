@@ -83,6 +83,7 @@ impl Harness {
             branch_prefix: "bantu/".into(),
             claude_bin,
             codex_bin,
+            claude_config_dir: home.path().join("claude-config"),
             opencode_bin: acp_bin.clone(),
             gemini_bin: acp_bin.clone(),
             cursor_bin: acp_bin,
@@ -136,6 +137,26 @@ impl Harness {
             .lines()
             .map(str::to_string)
             .collect()
+    }
+
+    /// The agent's own conversation id, which `/v1/state` doesn't expose:
+    /// the fake records it on its command line.
+    async fn session_with_agent_id(&self, session_id: &str) -> (String, String) {
+        let terminal = self
+            .state()
+            .await
+            .terminals
+            .into_iter()
+            .find(|t| t.session_id.as_deref() == Some(session_id))
+            .unwrap();
+        let command = terminal.command.unwrap();
+        let id = command
+            .split_whitespace()
+            .skip_while(|w| *w != "--session-id" && *w != "--resume")
+            .nth(1)
+            .unwrap()
+            .to_string();
+        (terminal.id, id)
     }
 
     fn acp_calls(&self) -> String {
@@ -2078,4 +2099,132 @@ async fn acp_sessions() {
             .any(|i| matches!(i, ChatItem::Assistant { text } if text == "acp: decision deny")),
         "{items:?}"
     );
+}
+
+#[tokio::test]
+async fn chat_continues_in_a_terminal() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+
+    let (status, res) = h
+        .command(
+            json!({"type":"session.open_terminal","session_id":session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["kind"], "agent");
+    assert_eq!(res["result"]["session_id"], json!(session.id));
+    let command = res["result"]["command"].as_str().unwrap();
+    assert!(command.contains("--session-id"), "{command}");
+    let terminal_id = res["result"]["id"].as_str().unwrap().to_string();
+
+    // Opening again returns the same terminal, and the chat can't take turns.
+    let (_, again) = h
+        .command(
+            json!({"type":"session.open_terminal","session_id":session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(again["result"]["id"], json!(terminal_id));
+    let (status, _) = h
+        .command(
+            json!({"type":"session.send","session_id":session.id,"text":"hi"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 409);
+
+    // What happened in the terminal is read back when it closes.
+    let (_, full) = h.session_with_agent_id(&session.id).await;
+    let project = h
+        .claude_calls
+        .with_file_name("claude-config/projects/-workspace");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(
+        project.join(format!("{full}.jsonl")),
+        concat!(
+            r#"{"type":"user","message":{"content":"typed in the terminal"}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"answered there"}]}}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    let (status, _) = h
+        .command(
+            json!({"type":"terminal.close","terminal_id":terminal_id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_session(&session.id, |s| s.turns == 1).await;
+    let mut items = Vec::new();
+    for _ in 0..100 {
+        items = chat(&h.history(&ws.id).await, &session.id);
+        if items
+            .iter()
+            .any(|i| matches!(i, ChatItem::TerminalSession { .. }))
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        items,
+        vec![
+            ChatItem::User {
+                text: "typed in the terminal".into()
+            },
+            ChatItem::Assistant {
+                text: "answered there".into()
+            },
+            ChatItem::TerminalSession { imported: 2 },
+        ]
+    );
+
+    // The next chat turn resumes the same conversation.
+    let (status, _) = h
+        .command(
+            json!({"type":"session.send","session_id":session.id,"text":"back in chat"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let calls = std::fs::read_to_string(&h.claude_calls).unwrap();
+    assert!(
+        calls.lines().last().unwrap().contains("--resume"),
+        "{calls}"
+    );
+
+    // Any other CLI can run in a terminal too.
+    let (status, res) = h
+        .command(
+            json!({"type":"terminal.open","workspace_id":ws.id,"command":"echo hello"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["title"], "echo");
+    assert_eq!(res["result"]["kind"], "agent");
+    assert_eq!(res["result"]["session_id"], Value::Null);
 }

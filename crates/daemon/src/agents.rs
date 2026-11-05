@@ -9,6 +9,7 @@ use bantu_protocol::{AgentKind, AgentStatus, LoginMethod, Terminal, TerminalKind
 use serde_json::Value;
 
 use crate::ops::{CommandError, Daemon};
+use crate::terminals::TerminalSpec;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -114,11 +115,10 @@ impl Daemon {
             .to_string();
         self.spawn_terminal(
             None,
-            TerminalKind::Login,
-            title.into(),
-            Some(command),
-            None,
-            None,
+            TerminalSpec {
+                command: Some(command),
+                ..TerminalSpec::new(TerminalKind::Login, title.into())
+            },
         )
         .await
     }
@@ -179,7 +179,7 @@ async fn run(bin: &std::path::Path, args: &[&str]) -> Option<(bool, String)> {
     Some((out.status.success(), text))
 }
 
-fn shell_quote(s: &str) -> String {
+pub(crate) fn shell_quote(s: &str) -> String {
     if s.chars()
         .all(|c| c.is_ascii_alphanumeric() || "/._-".contains(c))
     {
