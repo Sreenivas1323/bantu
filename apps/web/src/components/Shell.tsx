@@ -9,6 +9,7 @@ import { StatusBar } from "./StatusBar.tsx";
 import { RepoSuggestions } from "./RepoSuggestions.tsx";
 import type { DaemonClient } from "../lib/api.ts";
 import { AccountsDialog } from "./AccountsDialog.tsx";
+import { ImportDialog } from "./ImportDialog.tsx";
 import { InboxDialog } from "./InboxDialog.tsx";
 import { LoopsDialog } from "./LoopsDialog.tsx";
 import { useAgents } from "../lib/useAgents.ts";
@@ -23,6 +24,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const [showAccounts, setShowAccounts] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
   const [loopsRepoId, setLoopsRepoId] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
   // Phones show one thing at a time: the workspace list slides over the page.
   const [navOpen, setNavOpen] = useState(true);
 
@@ -139,6 +141,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
           await run({ type: "repo.remove", repo_id: repoId });
         }}
         onOpenLoops={setLoopsRepoId}
+        onOpenImport={() => setShowImport(true)}
       />
       <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
         <div className="flex items-center gap-2 border-b border-line bg-panel px-2 py-1.5 md:hidden">
@@ -222,6 +225,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
           onClose={() => setLoopsRepoId(null)}
         />
       )}
+      {showImport && <ImportDialog status={state.imports} run={run} onClose={() => setShowImport(false)} />}
       {showInbox && (
         <InboxDialog
           inbox={Object.values(state.inbox)}

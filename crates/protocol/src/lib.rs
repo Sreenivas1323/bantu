@@ -599,6 +599,42 @@ pub struct ForwardedPort {
     pub url: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ImportSource {
+    Conductor,
+    Pane,
+}
+
+/// What an import would bring across.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct ImportPreview {
+    pub source: ImportSource,
+    pub path: String,
+    /// The tool's database exists on this machine.
+    pub found: bool,
+    pub workspaces: u32,
+    pub chats: u32,
+    /// Active in the tool, but their folders are gone.
+    pub missing_worktrees: u32,
+}
+
+/// How an import is going.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct ImportStatus {
+    pub source: ImportSource,
+    pub running: bool,
+    pub workspaces: u32,
+    pub chats: u32,
+    pub items: u32,
+    /// Workspaces not imported: already here, or their folders are gone.
+    pub skipped: u32,
+    pub error: Option<String>,
+}
+
 /// What starts a loop's runs.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -789,6 +825,21 @@ pub enum Command {
     /// Start a run now.
     #[serde(rename = "loop.run")]
     LoopRun { loop_id: String },
+    /// See what an import would bring across. `path` overrides where the tool's
+    /// database normally is.
+    #[serde(rename = "import.scan")]
+    ImportScan {
+        source: ImportSource,
+        #[serde(default)]
+        path: Option<String>,
+    },
+    /// Import active workspaces and chats. Progress arrives as `import.updated`.
+    #[serde(rename = "import.run")]
+    ImportRun {
+        source: ImportSource,
+        #[serde(default)]
+        path: Option<String>,
+    },
     /// Add a draft review comment on a line of the workspace diff.
     #[serde(rename = "comment.add")]
     CommentAdd {
@@ -991,6 +1042,8 @@ pub enum EventData {
     },
     #[serde(rename = "loop.deleted")]
     LoopDeleted { loop_id: String },
+    #[serde(rename = "import.updated")]
+    ImportUpdated { status: ImportStatus },
     #[serde(rename = "inbox.added")]
     InboxAdded { item: InboxItem },
     #[serde(rename = "inbox.removed")]
@@ -1023,6 +1076,7 @@ impl EventData {
             | Self::RepoRemoved { .. }
             | Self::ConflictsUpdated { .. }
             | Self::SpotlightUpdated { .. }
+            | Self::ImportUpdated { .. }
             | Self::LoopUpdated { .. }
             | Self::LoopDeleted { .. }
             | Self::PreferencesUpdated { .. } => None,
@@ -1168,6 +1222,9 @@ mod tests {
             "FileStatus",
             "ForwardedPort",
             "Health",
+            "ImportPreview",
+            "ImportSource",
+            "ImportStatus",
             "InboxItem",
             "InboxKind",
             "IntegrationResult",

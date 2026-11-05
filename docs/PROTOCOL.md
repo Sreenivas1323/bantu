@@ -294,6 +294,8 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `loop.update` | `loop_id`, `enabled?`, `prompt?` | `Loop` | Pauses, resumes or changes a loop. |
 | `loop.delete` | `loop_id` | — | Existing runs' workspaces are kept. |
 | `loop.run` | `loop_id` | `Workspace` | Starts a run now. 409 if the last run is still working or the repo has 10 active workspaces. |
+| `import.scan` | `source`, `path?` | `ImportPreview` | Shows what an import from `conductor` or `pane` would bring across. `path` overrides where the tool's database normally is. |
+| `import.run` | `source`, `path?` | `ImportPreview` | Imports in the background; see below. 404 if the database isn't there. |
 | `comment.add` | `workspace_id`, `path`, `line`, `body` | `DiffComment` | Adds a draft review comment. |
 | `comment.delete` | `comment_id` | — | |
 | `comments.send` | `workspace_id`, `session_id` | `Session` | Sends every draft comment to the agent as one message (sorted by file and line), then marks them sent. 400 if there are none. |
@@ -334,6 +336,15 @@ A `Loop` runs an agent on its own: `{ id, repo_id, name, trigger, prompt, agent,
 - **Missed runs aren't caught up on.** If the daemon or machine was off at the scheduled time, the next run is the next one due.
 - **GitHub triggers need a label**, because labels take triage rights while anyone can open an issue, and an issue's text goes into the agent's prompt. They refuse `bypass_permissions` and don't check out forks' PRs. The first poll records what's already open, so turning a loop on doesn't start a run for every old issue.
 - **Alerts.** A finished loop run sends no push alert, but one that asks for approval still does.
+
+### Importing from Conductor and Pane
+
+`import.run` brings across a tool's active workspaces and chats, with `import.updated` events carrying an `ImportStatus` (`{ source, running, workspaces, chats, items, skipped, error }`).
+
+- **The source isn't changed.** Its database is opened read-only (`~/Library/Application Support/com.conductor.app/conductor.db`, `~/.pane/sessions.db`), in `immutable` mode unless it has pending WAL data, so no sidecar files are created. These are private formats that can change between versions, so an unknown layout is reported as an error and nothing else happens.
+- **Worktrees are adopted in place.** They get `external: true`, so archiving only forgets them: no scripts run and no files are removed. Each still gets its own reserved ports, and its branch stays as it is.
+- **What comes across.** Active workspaces whose folders still exist and belong to the expected repo, on a branch (a detached HEAD is skipped). Archived ones don't. Each chat keeps its last 1,000 messages. Claude and Codex chats keep their conversation ids, so they can carry on. Chats with other agents, or with no conversation id, don't come across.
+- **Importing again is safe.** A worktree that's already a Bantu workspace is skipped.
 
 ### `workspace.integrate`
 A workspace created through the `create_workspace` MCP tool records its lead in `parent_id`. This command merges the lead's children with `git merge --no-edit`, in the lead's worktree, one at a time.

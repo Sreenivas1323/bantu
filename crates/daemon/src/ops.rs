@@ -198,6 +198,12 @@ impl Daemon {
             Command::LoopRun { loop_id } => {
                 serde_json::to_value(self.run_loop(&loop_id, None, None).await?)
             }
+            Command::ImportScan { source, path } => {
+                serde_json::to_value(self.import_scan(source, path).await?)
+            }
+            Command::ImportRun { source, path } => {
+                serde_json::to_value(self.import_run(source, path).await?)
+            }
             Command::CommentAdd {
                 workspace_id,
                 path,
@@ -390,6 +396,51 @@ impl Daemon {
         Ok(())
     }
 
+    /// Registers a repo found by an import.
+    pub(crate) async fn adopt_repo(&self, root: &str) -> CmdResult<Repo> {
+        self.add_repo(root).await
+    }
+
+    /// Records a worktree another tool made, without touching it. The name gets
+    /// a number if it's taken. Marked `external`, so archiving leaves the files.
+    pub(crate) async fn adopt_workspace(
+        &self,
+        repo: &Repo,
+        wanted_name: &str,
+        path: String,
+        branch: String,
+        base_ref: String,
+    ) -> CmdResult<Workspace> {
+        let _alloc = self.alloc_lock.lock().await;
+        let all = self.store.workspaces().await?;
+        let taken = |name: &str| all.iter().any(|w| w.repo_id == repo.id && w.name == name);
+        let mut name = wanted_name.to_string();
+        let mut n = 2;
+        while taken(&name) {
+            name = format!("{wanted_name}-{n}");
+            n += 1;
+        }
+        let ws = Workspace {
+            id: new_id(),
+            repo_id: repo.id.clone(),
+            name,
+            branch,
+            base_ref,
+            path,
+            port_base: free_port_base(&all),
+            state: WorkspaceState::Ready,
+            error: None,
+            archive_commit: None,
+            created_at: now(),
+            parent_id: None,
+            loop_id: None,
+            external: true,
+            review_state: None,
+        };
+        self.store.upsert_workspace(&ws).await?;
+        Ok(ws)
+    }
+
     async fn require_repo(&self, repo_id: &str) -> CmdResult<Repo> {
         self.store
             .repo(repo_id)
@@ -458,15 +509,7 @@ impl Daemon {
                 path.display()
             )));
         }
-        let used_ports: Vec<u16> = all
-            .iter()
-            .filter(|w| w.state != WorkspaceState::Archived)
-            .map(|w| w.port_base)
-            .collect();
-        let port_base = (0..)
-            .map(|i| PORT_RANGE_START + i * PORTS_PER_WORKSPACE)
-            .find(|p| !used_ports.contains(p))
-            .expect("port range exhausted");
+        let port_base = free_port_base(&all);
 
         let base_ref = match base_ref.or(plan.base_ref.clone()) {
             Some(b) => b,
@@ -812,7 +855,14 @@ impl Daemon {
         let path = PathBuf::from(&ws.path);
         let sys = |line: String| self.store.log(&ws.id, LogStream::System, line);
 
-        if path.is_dir() {
+        if ws.external {
+            // Another tool owns this worktree: no scripts, nothing removed.
+            sys(format!(
+                "Forgot this workspace; {} is left as it is",
+                ws.path
+            ))
+            .await;
+        } else if path.is_dir() {
             let settings = settings::load(&[&path, &root]).map_err(|e| anyhow!(e))?;
             if let Some(script) = settings.scripts.archive.as_deref() {
                 sys(format!("Running archive script: {script}")).await;
@@ -828,8 +878,10 @@ impl Daemon {
                 ws.archive_commit = Some(sha);
             }
         }
-        sys("Removing worktree".into()).await;
-        git::worktree_remove(&root, &path).await?;
+        if !ws.external {
+            sys("Removing worktree".into()).await;
+            git::worktree_remove(&root, &path).await?;
+        }
         // Checkpoint refs only matter while the worktree exists.
         for s in self.store.sessions().await? {
             if s.workspace_id == ws.id {
@@ -992,6 +1044,18 @@ fn expand_home(path: &str) -> PathBuf {
             .unwrap_or_default(),
         _ => PathBuf::from(path),
     }
+}
+
+fn free_port_base(all: &[Workspace]) -> u16 {
+    let used: Vec<u16> = all
+        .iter()
+        .filter(|w| w.state != WorkspaceState::Archived)
+        .map(|w| w.port_base)
+        .collect();
+    (0..)
+        .map(|i| PORT_RANGE_START + i * PORTS_PER_WORKSPACE)
+        .find(|p| !used.contains(p))
+        .expect("port range exhausted")
 }
 
 pub fn new_id() -> String {

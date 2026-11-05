@@ -25,6 +25,7 @@ type Props = {
   onNewWorkspace: (repoId: string, from?: WorkspaceSource) => Promise<void>;
   onRemoveRepo: (repoId: string) => Promise<void>;
   onOpenLoops: (repoId: string) => void;
+  onOpenImport: () => void;
 };
 
 export function Sidebar(props: Props) {
@@ -60,10 +61,15 @@ export function Sidebar(props: Props) {
           />
         ))}
       </nav>
-      <label className="flex items-center gap-2 border-t border-line px-3 py-2 text-muted">
-        <input type="checkbox" checked={showArchived} onChange={props.onToggleArchived} />
-        Show archived
-      </label>
+      <div className="flex items-center gap-2 border-t border-line px-3 py-2 text-muted">
+        <label className="flex flex-1 items-center gap-2">
+          <input type="checkbox" checked={showArchived} onChange={props.onToggleArchived} />
+          Show archived
+        </label>
+        <button type="button" onClick={props.onOpenImport} className="rounded px-1.5 py-0.5 text-xs hover:bg-raised hover:text-fg" title="Bring workspaces and chats over from Conductor or Pane">
+          Import…
+        </button>
+      </div>
     </aside>
   );
 }

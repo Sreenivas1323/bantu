@@ -2,6 +2,8 @@ import type {
   ChatItem,
   DiffComment,
   Event,
+  ImportSource,
+  ImportStatus,
   InboxItem,
   Loop,
   LogStream,
@@ -43,6 +45,8 @@ export type DaemonState = {
   /** Conflict-radar results per repo id. */
   conflicts: Record<string, WorkspaceConflict[]>;
   loops: Record<string, Loop>;
+  /** The latest import from each tool. Not in the snapshot: it's only for the dialog. */
+  imports: Partial<Record<ImportSource, ImportStatus>>;
   /** What's in each repo's main checkout, by repo id. */
   spotlights: Record<string, Spotlight>;
   preferences: Preferences;
@@ -64,6 +68,7 @@ export const emptyState: DaemonState = {
   conflicts: {},
   spotlights: {},
   loops: {},
+  imports: {},
   preferences: { claude_user_setup: false, loadouts: [] },
 };
 
@@ -94,6 +99,7 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         conflicts: groupConflicts(snapshot.conflicts),
         spotlights: Object.fromEntries(snapshot.spotlights.map((s) => [s.repo_id, s])),
         loops: Object.fromEntries(snapshot.loops.map((l) => [l.id, l])),
+        imports: state.imports,
         preferences: snapshot.preferences,
         // History isn't in the snapshot; it's backfilled per workspace.
         logs: state.logs,
@@ -198,6 +204,8 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
       const { [data.repo_id]: _previous, ...spotlights } = state.spotlights;
       return { ...next, spotlights: data.spotlight ? { ...spotlights, [data.repo_id]: data.spotlight } : spotlights };
     }
+    case "import.updated":
+      return { ...next, imports: { ...state.imports, [data.status.source]: data.status } };
     case "loop.updated":
       return { ...next, loops: { ...state.loops, [data.loop.id]: data.loop } };
     case "loop.deleted": {

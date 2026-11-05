@@ -50,3 +50,6 @@ export type { IntegrationSkip } from "./generated/IntegrationSkip";
 export type { ReviewState } from "./generated/ReviewState";
 export type { Loop } from "./generated/Loop";
 export type { LoopTrigger } from "./generated/LoopTrigger";
+export type { ImportPreview } from "./generated/ImportPreview";
+export type { ImportSource } from "./generated/ImportSource";
+export type { ImportStatus } from "./generated/ImportStatus";

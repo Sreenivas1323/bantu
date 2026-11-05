@@ -82,5 +82,5 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Automatic cross-agent review (`[review] auto = true`): a different agent reviews finished work, findings go back to the author for up to 2 rounds, and approval marks the workspace ready
 - [x] Loops: cron schedules and GitHub triggers (issues and PRs by label, polled with `gh`), each run in a fresh workspace, archived automatically if it changes nothing — GitHub polling is unit-tested, not yet run against a real repo
 - [ ] Vercel Sandbox burst runners
-- [ ] Import sessions from Conductor and Pane
+- [x] Import from Conductor and Pane: active workspaces adopted in place (archiving only forgets them), chats with their recent history, read-only on the source
 - [ ] Windows support

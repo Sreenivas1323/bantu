@@ -169,6 +169,21 @@ impl Harness {
         (terminal.id, id)
     }
 
+    /// The status from the last finished `import.updated` after `since`.
+    async fn import_finished(&self, since: i64) -> Option<Value> {
+        let last = self.state().await.last_seq;
+        if last <= since {
+            return None;
+        }
+        let events = self.events(since, (last - since) as usize).await;
+        events.iter().rev().find_map(|e| match &e.data {
+            EventData::ImportUpdated { status } if !status.running => {
+                Some(serde_json::to_value(status).unwrap())
+            }
+            _ => None,
+        })
+    }
+
     fn acp_calls(&self) -> String {
         std::fs::read_to_string(self.claude_calls.with_file_name("acp-calls.log"))
             .unwrap_or_default()
@@ -3593,4 +3608,217 @@ async fn loops_run_in_fresh_workspaces() {
     let state = h.state().await;
     assert!(state.loops.is_empty());
     assert_eq!(count(&state), 3);
+}
+
+#[tokio::test]
+async fn imports_from_conductor_and_pane() {
+    let (dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let worktree = dir.path().join("other-tool/ashgabat");
+    sh(
+        &repo_path,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "their/branch",
+            worktree.to_str().unwrap(),
+        ],
+    );
+    let gone = dir.path().join("other-tool/deleted");
+    let wrong_repo = dir.path().join("elsewhere");
+    std::fs::create_dir_all(&wrong_repo).unwrap();
+    sh(&wrong_repo, &["init", "-q"]);
+
+    let db = dir.path().join("conductor.db");
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&db)
+        .create_if_missing(true);
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+    for statement in [
+        "CREATE TABLE repos (id TEXT, root_path TEXT, default_branch TEXT)",
+        "CREATE TABLE workspaces (local_id TEXT, repository_id TEXT, state TEXT, workspace_path TEXT,
+            workspace_name TEXT, directory_name TEXT, intended_target_branch TEXT, initialization_parent_branch TEXT)",
+        "CREATE TABLE sessions (id TEXT, workspace_id TEXT, claude_session_id TEXT, agent_type,
+            title TEXT, model TEXT, permission_mode TEXT, created_at TEXT, is_hidden INTEGER)",
+        "CREATE TABLE session_messages (id TEXT, session_id TEXT, role TEXT, content TEXT, cancelled_at TEXT)",
+    ] {
+        sqlx::query(statement).execute(&pool).await.unwrap();
+    }
+    sqlx::query("INSERT INTO repos VALUES ('r1', ?, 'main')")
+        .bind(repo_path.to_str().unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+    for (id, state, path) in [
+        ("w1", "ready", worktree.to_str().unwrap()),
+        ("w2", "archived", worktree.to_str().unwrap()),
+        ("w3", "ready", gone.to_str().unwrap()),
+        ("w4", "ready", wrong_repo.to_str().unwrap()),
+    ] {
+        sqlx::query(
+            "INSERT INTO workspaces VALUES (?, 'r1', ?, ?, 'Ashgabat', 'ashgabat', 'main', NULL)",
+        )
+        .bind(id)
+        .bind(state)
+        .bind(path)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let conversation = "11111111-1111-4111-8111-111111111111";
+    for (id, agent, conv, hidden) in [
+        ("s1", "claude", Some(conversation), 0),
+        ("s2", "acp", Some("x"), 0),
+        ("s3", "claude", None, 0),
+        ("s4", "claude", Some("y"), 1),
+    ] {
+        sqlx::query("INSERT INTO sessions VALUES (?, 'w1', ?, ?, 'Fix login', 'opus', 'plan', '2026-01-01', ?)")
+            .bind(id)
+            .bind(conv)
+            .bind(agent)
+            .bind(hidden)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let answer = json!({"type":"assistant","message":{"content":[{"type":"text","text":"Done"}]}})
+        .to_string();
+    for (role, content, cancelled) in [
+        ("user", "fix the login", None),
+        ("assistant", answer.as_str(), None),
+        ("user", "never sent", Some("2026-01-02")),
+    ] {
+        sqlx::query("INSERT INTO session_messages VALUES ('m', 's1', ?, ?, ?)")
+            .bind(role)
+            .bind(content)
+            .bind(cancelled)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    pool.close().await;
+    let before = std::fs::read(&db).unwrap();
+
+    let path = db.to_str().unwrap();
+    let (status, res) = h
+        .command(
+            json!({"type":"import.scan","source":"conductor","path":path}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["found"], true);
+    assert_eq!(res["result"]["workspaces"], 2);
+    assert_eq!(res["result"]["missing_worktrees"], 1);
+
+    let (status, res) = h
+        .command(
+            json!({"type":"import.scan","source":"pane","path":"/not/here.db"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["found"], false);
+    let (status, _) = h
+        .command(
+            json!({"type":"import.run","source":"pane","path":"/not/here.db"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 404);
+
+    let run_import = || async {
+        let since = h.state().await.last_seq;
+        let (status, res) = h
+            .command(
+                json!({"type":"import.run","source":"conductor","path":path}),
+                None,
+            )
+            .await;
+        assert_eq!(status, 200, "{res}");
+        for _ in 0..200 {
+            if let Some(done) = h.import_finished(since).await {
+                return done;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the import never finished");
+    };
+    let done = run_import().await;
+    assert_eq!(done["workspaces"], 1, "{done}");
+    assert_eq!(done["chats"], 1, "{done}");
+    assert_eq!(done["items"], 2, "{done}");
+    assert_eq!(done["skipped"], 2, "{done}");
+    assert_eq!(done["error"], Value::Null, "{done}");
+    assert_eq!(
+        std::fs::read(&db).unwrap(),
+        before,
+        "the source wasn't changed"
+    );
+
+    let state = h.state().await;
+    let ws = &state.workspaces[0];
+    assert_eq!(state.workspaces.len(), 1);
+    assert!(ws.external);
+    assert_eq!(ws.name, "ashgabat");
+    assert_eq!(ws.branch, "their/branch");
+    assert_eq!(ws.state, WorkspaceState::Ready);
+    let session = &state.sessions[0];
+    assert_eq!(state.sessions.len(), 1);
+    assert_eq!(session.title, "Fix login");
+    assert_eq!(session.model.as_deref(), Some("opus"));
+    assert_eq!(session.permission_mode.as_str(), "plan");
+    assert_eq!(session.turns, 1);
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert_eq!(
+        items[0],
+        ChatItem::User {
+            text: "fix the login".into()
+        }
+    );
+    assert_eq!(
+        items[1],
+        ChatItem::Assistant {
+            text: "Done".into()
+        }
+    );
+
+    // Importing again changes nothing.
+    let done = run_import().await;
+    assert_eq!(done["workspaces"], 0, "{done}");
+    assert_eq!(h.state().await.workspaces.len(), 1);
+
+    // The chat carries on with its own conversation.
+    let (status, _) = h
+        .command(
+            json!({"type":"session.send","session_id":session.id,"text":"carry on"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let calls = std::fs::read_to_string(&h.claude_calls).unwrap();
+    assert!(
+        calls.contains(&format!("--resume {conversation}")),
+        "{calls}"
+    );
+
+    // Archiving forgets the workspace, and the other tool's files stay.
+    let marker = worktree.join("their-file.txt");
+    std::fs::write(&marker, "keep me").unwrap();
+    let (status, _) = h
+        .command(
+            json!({"type":"workspace.archive","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_for(&ws.id, WorkspaceState::Archived).await;
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "keep me");
+    assert!(worktree.join(".git").exists());
 }

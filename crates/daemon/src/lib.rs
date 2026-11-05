@@ -8,6 +8,7 @@ pub mod checks;
 pub mod codex;
 pub mod discover;
 pub mod http;
+pub mod import;
 pub mod inbox;
 pub mod loops;
 pub mod mcp;
