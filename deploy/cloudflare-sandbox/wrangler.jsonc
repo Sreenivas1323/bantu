@@ -1,0 +1,38 @@
+// Bantu burst runner on Cloudflare Containers. See docs/CLOUDFLARE-BURST.md.
+// Laid out like the coding-agent examples in cloudflare/sandbox-sdk for @cloudflare/sandbox 1.0.
+{
+  "name": "bantu-burst",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-15",
+  // @cloudflare/sandbox's Files resolves Linux errno names through node:os.
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    // Passed to ctx.container.start(). standard-2 is 1 vCPU, 6 GiB memory, 12 GB disk.
+    "INSTANCE_TYPE": "standard-2",
+  },
+  "secrets": {
+    // wrangler secret put BURST_SECRET / ANTHROPIC_API_KEY. Deploy refuses to run without them.
+    "required": ["BURST_SECRET", "ANTHROPIC_API_KEY"],
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "SANDBOX", "class_name": "BurstSandbox" }],
+  },
+  "containers": [
+    {
+      "class_name": "BurstSandbox",
+      // The Durable Object starts the container itself and picks the instance type.
+      "scheduling_policy": "durable_object",
+      "images": {
+        "sandbox": { "dockerfile": "./Dockerfile" },
+      },
+      // The most containers running at once, across all bursts.
+      "max_instances": 10,
+    },
+  ],
+  // Declares the Durable Object class. This replaces "migrations" (new_sqlite_classes) for new
+  // Workers; the two can't be combined.
+  "exports": {
+    "BurstSandbox": { "type": "durable-object", "storage": "sqlite" },
+  },
+  "observability": { "enabled": true },
+}
