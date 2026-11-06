@@ -4,7 +4,7 @@
 or in your own cloud. Free and open source.**
 
 *Bantu* is Telugu for the faithful helper who does the work while you direct it.
-See it at **[pay-out.me/bantu](http://pay-out.me/bantu/)**.
+See it at **[sreenivas1323.github.io/bantu](https://sreenivas1323.github.io/bantu/)**.
 
 > Status: **alpha**. You can run Claude Code and Codex agents in parallel workspaces, approve
 > their actions, review diffs, fix CI and open PRs. Expect rough edges. Codex hasn't been tested
