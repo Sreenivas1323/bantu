@@ -108,7 +108,7 @@ export function BoardPanel({
                 <span className="font-mono">{c.workspace.branch}</span> · {c.ahead} commit{c.ahead === 1 ? "" : "s"}
                 {c.uncommitted > 0 && <span className="text-warn"> · {c.uncommitted} uncommitted, so it can't merge yet</span>}
               </p>
-              {c.last_reply && <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap [overflow-wrap:anywhere] text-[12.5px] text-muted">{c.last_reply}</p>}
+              {c.last_reply && <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap [overflow-wrap:anywhere] text-[12.5px] text-muted">{plainText(c.last_reply)}</p>}
             </li>
           ))}
         </ul>
@@ -135,4 +135,16 @@ function Outcome({ result }: { result: IntegrationResult }) {
       {result.merged.length === 0 && !result.conflict && result.skipped.length === 0 && <p className="text-muted">Nothing to merge.</p>}
     </div>
   );
+}
+
+/** A reply's words without its markdown, for a short preview. */
+function plainText(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/(\*\*|__|\*|_)(\S[^*_]*?)\1/g, "$2")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(#+|[-*+]|\d+\.)\s+/gm, "")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
 }

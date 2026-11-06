@@ -112,7 +112,8 @@ function RepoGroup({
           onClick={() => {
             if (confirm(`Remove ${repo.name} from Bantu? Files on disk are not touched.`)) void onRemoveRepo(repo.id);
           }}
-          className="rounded px-1 text-xs text-faint opacity-0 hover:text-bad group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
+          // Out of the layout until wanted, so the repo name gets the room.
+          className="hidden rounded px-1 text-xs text-faint hover:text-bad group-hover:inline-block group-focus-within:inline-block max-md:inline-block"
           title="Remove repository"
         >
           Remove
