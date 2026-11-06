@@ -12,6 +12,7 @@ use bantu_protocol::{
 use serde_json::Value;
 
 use crate::ops::{new_id, CommandError, Daemon};
+use crate::settings::PromptKind;
 use crate::store::now;
 
 /// Per-file patch size beyond which the UI gets a truncated patch.
@@ -133,11 +134,14 @@ impl Daemon {
         let session = self
             .update_session(&session.id, Some("Review".into()), None, None)
             .await?;
-        self.send_message(
-            &session.id,
-            review_prompt(&ws.branch, &ws.base_ref, &merge_base),
-        )
-        .await
+        let prompt = self
+            .with_repo_prompt(
+                workspace_id,
+                PromptKind::Review,
+                review_prompt(&ws.branch, &ws.base_ref, &merge_base),
+            )
+            .await;
+        self.send_message(&session.id, prompt).await
     }
 
     pub async fn create_pr(
@@ -168,6 +172,107 @@ impl Daemon {
              If a PR for this branch already exists, push the new commits and reply with its URL.",
             branch = ws.branch,
         );
+        let prompt = self
+            .with_repo_prompt(workspace_id, PromptKind::CreatePr, prompt)
+            .await;
+        self.send_message(session_id, prompt).await
+    }
+
+    /// `prompt` plus any instructions the repo's settings add for this action.
+    /// Settings that don't parse shouldn't block the action.
+    pub(crate) async fn with_repo_prompt(
+        &self,
+        workspace_id: &str,
+        kind: PromptKind,
+        prompt: String,
+    ) -> String {
+        let Ok(ws) = self.require_workspace(workspace_id).await else {
+            return prompt;
+        };
+        match self.trusted_settings(&ws).await {
+            Ok(settings) => settings.prompts.apply(kind, prompt),
+            Err(e) => {
+                tracing::warn!("ignoring repo prompts: {e}");
+                prompt
+            }
+        }
+    }
+
+    /// Asks the agent to bring the branch back in line with the conflicting
+    /// work the radar found.
+    pub async fn resolve_conflicts(
+        self: &Arc<Self>,
+        workspace_id: &str,
+        session_id: &str,
+    ) -> CmdResult<Session> {
+        let ws = self.require_workspace(workspace_id).await?;
+        let conflicts = self.scan_conflicts(&ws.repo_id).await?;
+        let workspaces = self.store.workspaces().await?;
+        let name = |id: &str| {
+            workspaces
+                .iter()
+                .find(|w| w.id == id)
+                .map_or(id.to_string(), |w| {
+                    format!("{} (branch {})", w.name, w.branch)
+                })
+        };
+        let mut lines = Vec::new();
+        for c in &conflicts {
+            let other = if c.workspace_id == ws.id {
+                match (&c.other_workspace_id, &c.base_ref) {
+                    (Some(other), _) => name(other),
+                    (None, Some(base)) => format!("the base branch {base}"),
+                    (None, None) => continue,
+                }
+            } else if c.other_workspace_id.as_deref() == Some(ws.id.as_str()) {
+                name(&c.workspace_id)
+            } else {
+                continue;
+            };
+            lines.push(format!("- With {other}: {}", c.files.join(", ")));
+        }
+        if lines.is_empty() {
+            return Err(CommandError::BadRequest(
+                "the radar finds no conflicts for this workspace".into(),
+            ));
+        }
+        let prompt = format!(
+            "This branch (`{branch}`) won't merge cleanly with other work:\n{list}\n\n\
+             Commit your current work, then merge `{base}` into this branch and resolve any \
+             conflicts, keeping the intent of both sides. Conflicts with other workspaces will \
+             need coordinating: read their branches with `git diff`, and avoid changing the same \
+             lines where you can. Don't edit other worktrees. Run the relevant tests, then \
+             summarize what you decided.",
+            branch = ws.branch,
+            list = lines.join("\n"),
+            base = ws.base_ref,
+        );
+        let prompt = self
+            .with_repo_prompt(workspace_id, PromptKind::ResolveConflicts, prompt)
+            .await;
+        self.send_message(session_id, prompt).await
+    }
+
+    /// Asks the agent to rename the branch to describe the work. The daemon
+    /// picks up the new name when the turn ends.
+    pub async fn rename_branch(
+        self: &Arc<Self>,
+        workspace_id: &str,
+        session_id: &str,
+    ) -> CmdResult<Session> {
+        let ws = self.require_workspace(workspace_id).await?;
+        let prompt = format!(
+            "Rename this workspace's branch (`{branch}`) to a short name that describes the work \
+             done so far, using `git branch -m <new-name>`. Keep the `{prefix}` prefix unless the \
+             repository's instructions say otherwise. If the branch was already pushed, push the \
+             new name and delete the old one on origin only if no pull request uses it; otherwise \
+             leave the name alone and tell me why. Reply with the new name.",
+            branch = ws.branch,
+            prefix = self.config.branch_prefix,
+        );
+        let prompt = self
+            .with_repo_prompt(workspace_id, PromptKind::RenameBranch, prompt)
+            .await;
         self.send_message(session_id, prompt).await
     }
 
@@ -224,8 +329,14 @@ impl Daemon {
             });
         }
         let more = failing.len().saturating_sub(MAX_CHECKS_WITH_LOGS);
-        self.send_message(session_id, fix_checks_message(&ws.branch, &sections, more))
-            .await
+        let prompt = self
+            .with_repo_prompt(
+                workspace_id,
+                PromptKind::FixChecks,
+                fix_checks_message(&ws.branch, &sections, more),
+            )
+            .await;
+        self.send_message(session_id, prompt).await
     }
 
     /// The open (or most recent) PR for the workspace's branch, if any.
@@ -319,7 +430,7 @@ fn clean_actions_log(raw: &str) -> String {
         .join("\n")
 }
 
-fn strip_ansi(s: &str) -> String {
+pub(crate) fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
@@ -331,14 +442,25 @@ fn strip_ansi(s: &str) -> String {
                     break;
                 }
             }
-        } else {
+        } else if c == '\u{1b}' && chars.peek() == Some(&']') {
+            // Window titles and similar end with BEL or ESC \.
+            while let Some(c) = chars.next() {
+                if c == '\u{7}' {
+                    break;
+                }
+                if c == '\u{1b}' {
+                    chars.next();
+                    break;
+                }
+            }
+        } else if c != '\r' {
             out.push(c);
         }
     }
     out
 }
 
-fn tail_lines(text: &str, n: usize) -> String {
+pub(crate) fn tail_lines(text: &str, n: usize) -> String {
     let lines: Vec<&str> = text.lines().collect();
     lines[lines.len().saturating_sub(n)..].join("\n")
 }
@@ -369,7 +491,7 @@ fn fix_checks_message(branch: &str, checks: &[FailingCheck], more: usize) -> Str
     msg
 }
 
-fn review_prompt(branch: &str, base: &str, merge_base: &str) -> String {
+pub(crate) fn review_prompt(branch: &str, base: &str, merge_base: &str) -> String {
     format!(
         "Review the changes on `{branch}` against `{base}`: everything since `{merge_base}`, \
          including uncommitted work (`git diff {merge_base}` plus untracked files from \
@@ -397,7 +519,7 @@ fn review_message(comments: &[DiffComment]) -> String {
     msg
 }
 
-fn parse_pr(v: &Value) -> Option<PullRequest> {
+pub(crate) fn parse_pr(v: &Value) -> Option<PullRequest> {
     let (mut passing, mut failing, mut pending) = (0, 0, 0);
     for check in v["statusCheckRollup"].as_array().into_iter().flatten() {
         // CheckRun has status/conclusion; StatusContext has state.
@@ -589,6 +711,10 @@ Binary files /dev/null and b/logo.png differ
         assert!(msg.contains("```\nerror: test failed\n```"));
         assert!(msg.contains("and 2 more failing check(s)"));
         assert_eq!(tail_lines("a\nb\nc", 2), "b\nc");
+        assert_eq!(
+            strip_ansi("\u{1b}]0;title\u{7}ok\r\n\u{1b}[32mgo\u{1b}[0m"),
+            "ok\ngo"
+        );
         let raw = "Rust (macos)\tRun cargo test\t2026-11-02T06:00:34.6346140Z \u{1b}[1m\u{1b}[91merror\u{1b}[0m: test failed\n\
                    Rust (macos)\tRun cargo test\t2026-11-02T06:00:34.6455480Z ##[error]Process completed";
         assert_eq!(

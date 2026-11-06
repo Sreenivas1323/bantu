@@ -15,22 +15,25 @@ Clients (thin, static, no backend of ours)
             \                     |                          |                 /
              ─────────────  Bantu protocol v1 (versioned; Rust types → TS)  ─────────────
                HTTP POST commands (Idempotency-Key)  +  SSE event stream (seq, resumable)
-               + WebSocket only for raw PTY bytes and port forwarding
+               + WebSocket only for raw PTY bytes and port forwarding (on its own port)
                                         |
 bantud: ONE Rust binary, the same on macOS, Linux, EC2, a sandbox (Windows later)
   ├─ workspace manager  git worktrees, 10-port ranges, .worktreeinclude + .env* copy,
   │                     setup/run/archive scripts from .bantu/settings.toml, branch naming
   ├─ agent sessions     normalized ChatItems; message queue; cancel; permission requests
   │     claude      (the user's `claude` CLI, stream-json, one process per turn)   ← today
-  │     codex       (app-server JSON-RPC, from Rust)   acp (OpenCode, Cursor, Gemini)   ← M2
-  │     terminal    (any CLI in a pty)   ← M2
+  │     codex       (`codex exec --json`, one process per turn)
+  │     acp         (OpenCode, Gemini, Cursor: JSON-RPC over stdio, one process per turn)
+  │     terminal    (any CLI in a pty; a chat continued in its agent's own UI)
   ├─ permissions        Claude PermissionRequest HTTP hook → approval in any client
   ├─ review             diff vs merge-base (throwaway index), line comments → agent, PR status via gh
   ├─ pty manager        portable-pty, 512 KB scrollback replayed to every viewer, process-group kill
   ├─ checkpoints        temp GIT_INDEX_FILE → write-tree/commit-tree → refs/bantu/cp/<session>/<turn>
-  ├─ git intelligence   busy-check today; conflict radar (git merge-tree --write-tree) later
-  ├─ MCP server         (M2) diff, comments, terminal, notify/ask, spawn_workspace, send, wait_report
-  ├─ scheduler          (M4) cron loops, GitHub triggers (polled via gh; no webhook server), idle auto-stop
+  ├─ git intelligence   busy-check, conflict radar (git merge-tree --write-tree), Spotlight
+  ├─ MCP server         workspaces, diffs, comments, terminals, notify/ask, integrate
+  ├─ scheduler          cron loops, GitHub triggers (polled via gh; no webhook server)
+  ├─ alerts             Web Push sent by the daemon (VAPID + RFC 8291), through curl
+  ├─ previews           dev servers through a separate origin, with per-port grants
   └─ SQLite (WAL)       append-only event log + projections
 ```
 
@@ -56,7 +59,7 @@ Every agent session is structured chat by default: tool-call cards, plan approva
 message queue, rewind, a context-usage dial. One click switches the **same conversation**
 to a raw terminal (`claude --resume <id>`, `codex resume`) and back.
 
-- **Structured** drivers speak each agent's own machine interface: Claude Code's `stream-json` output, Codex `app-server`, or ACP. Their output is normalized into one schema (`ChatItem`).
+- **Structured** drivers speak each agent's own machine interface: Claude Code's `stream-json` output, Codex's `exec --json`, or ACP. Their output is normalized into one schema (`ChatItem`).
 - **The terminal driver** runs any CLI in a pty. It's the escape hatch for agents with no structured interface, and for people who just want the TUI.
 
 Conductor has no terminal mode for agents, and Pane's chat mode is experimental. Bantu treats both as first class.
@@ -94,7 +97,7 @@ What makes the product feel smart is mostly structure plus good built-in prompts
 **Beyond both** (details in [competitive/ideas.md](competitive/ideas.md)):
 1. **Orchestrator mode.** One prompt is split into N workspaces, which are dispatched, watched (typed reports, named locks) and integrated into a single branch or stack.
 2. **Conflict radar.** `git merge-tree --write-tree` between active branches warns you that "A and B will conflict in `auth.ts`" before either PR exists. It runs locally, so it's free.
-3. **Definition of done.** A repo's `done` checks (tests, lint, screenshot) must pass before a workspace is marked Ready; the agent retries automatically.
+3. **Definition of done.** A repo's `check` script runs after agent edits, and failures go back to the agent automatically.
 4. **Cross-agent review.** Claude writes and Codex reviews, or the other way round.
 5. **Universal Notify inbox.** Permission prompts, questions and "done" reach desktop, web and phone. Phone alerts use Web Push sent from the daemon itself (VAPID keys per daemon); no server of ours.
 6. **Import from Conductor and Pane.**
@@ -111,7 +114,7 @@ run `bantud` somewhere you control:
 | T1 Own box | `curl … \| sh` on a Mac mini, Linux box or VPS; reach it with Tailscale (free personal plan) or Cloudflare Tunnel (free) | $0 extra |
 | T2 AWS one-click | CloudFormation "Launch Stack": EC2 t4g.medium (Graviton) + 30 GB gp3 + Elastic IP. A CloudFront distribution (free tier: 1 TB, 10M requests) gives HTTPS + SSE/WebSocket with no load balancer. The security group only allows CloudFront's origin prefix list. The daemon stops its own instance when idle, and a Lambda Function URL "wake" endpoint (free tier) starts it from any client. | ≈ $6 idle floor (IPv4 $3.65 + EBS $2.40) + ≈ $0.034 per running hour → **≈ $10/mo at 4 h/day** |
 | T2b AWS + Tailscale | The same, without the Elastic IP or CloudFront; the daemon joins your tailnet | ≈ $5/mo at 4 h/day |
-| T3 Vercel Sandbox bursts | Per-task Firecracker microVMs in your Vercel account: create from a prebuilt repo snapshot → a headless daemon runs the agent → events stream back → snapshot + stop | Hobby: 5 CPU-h free, 45-min sessions; Pro: ≈ $0.13/CPU-h + $0.02/GB-h |
+| T3 Vercel Sandbox bursts | Per-task Firecracker microVMs in your Vercel account: clone → the agent runs → commits come back as local branches → stop ([VERCEL.md](VERCEL.md)) | Hobby: 5 CPU-h free, 45-min sessions; Pro: ≈ $0.13/CPU-h + $0.02/GB-h |
 
 What each provider is for:
 - **CloudFront** is a front door and CDN, not compute.
@@ -138,11 +141,11 @@ Hard rule: **no feature may require a server run by the project.**
 | Part | Choice |
 |---|---|
 | Daemon | Rust: tokio, axum (HTTP, SSE, WebSocket), sqlx (SQLite, WAL), portable-pty, the `git` CLI (not libgit2, so behavior matches the user's git), `ts-rs` for TS bindings |
-| Agents | The user's own CLIs: `claude` today; `codex app-server` and ACP agents next |
+| Agents | The user's own CLIs: `claude`, `codex exec`, and ACP agents (`opencode`, `gemini`, Cursor's `agent`) |
 | UI | React + Vite + Tailwind; react-markdown; xterm.js; a small unified-diff viewer; bun for tooling |
 | Desktop | Tauri 2 (updater, `bantu://` deep links) |
 | Mobile | PWA first; a native wrapper later |
-| Deploy | CloudFormation YAML (Launch Stack URL), `install.sh`, `@vercel/sandbox` runner |
+| Deploy | CloudFormation YAML, `install.sh`, `@vercel/sandbox` runner |
 
 ## Repository layout
 
@@ -154,7 +157,7 @@ apps/web           React web UI (also served by bantud)
 apps/desktop       Tauri 2 shell
 docs/              architecture, protocol, roadmap, competitive research
 scripts/           changelog watcher, fake-claude.sh (offline Claude stand-in for UI work and tests)
-deploy/            (M3) install.sh, AWS CloudFormation, Vercel Sandbox runner
+deploy/            install.sh, AWS CloudFormation, Vercel Sandbox burst runner
 ```
 
 ## Known risks

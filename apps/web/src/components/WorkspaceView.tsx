@@ -4,9 +4,13 @@ import type {
   Command,
   CommandResponse,
   DiffComment,
+  InboxItem,
+  Loadout,
   PermissionRequest,
   Repo,
+  ReviewState,
   Session,
+  Spotlight,
   Terminal,
   Workspace,
 } from "@bantu/protocol";
@@ -17,13 +21,16 @@ import { ConflictBanner } from "./ConflictBanner.tsx";
 import { useWorkspaceGit } from "../lib/useWorkspaceGit.ts";
 import { ChangesPanel } from "./changes/ChangesPanel.tsx";
 import { ChatPanel } from "./chat/ChatPanel.tsx";
+import { BoardPanel } from "./BoardPanel.tsx";
+import { ChecksPanel } from "./checks/ChecksPanel.tsx";
 import { GitStatus } from "./GitStatus.tsx";
 import { TerminalPanel } from "./terminal/TerminalPanel.tsx";
 import { CopyButton } from "./CopyButton.tsx";
 import { LogView } from "./LogView.tsx";
+import { PortsPanel } from "./PortsPanel.tsx";
 import { StateDot } from "./StateDot.tsx";
 
-type Tab = "chat" | "changes" | "terminal" | "log";
+type Tab = "chat" | "board" | "changes" | "checks" | "terminal" | "ports" | "log";
 
 export function WorkspaceView({
   workspace,
@@ -35,11 +42,14 @@ export function WorkspaceView({
   comments,
   terminals,
   permissions,
+  questions,
   conflicts,
   agents,
   onOpenAccounts,
   allWorkspaces,
   onSelectWorkspace,
+  loadouts,
+  spotlight,
   client,
   run,
   onArchive,
@@ -55,11 +65,16 @@ export function WorkspaceView({
   /** This workspace's terminals, oldest first. */
   terminals: Terminal[];
   permissions: PermissionRequest[];
+  /** Questions from this workspace's agents. */
+  questions: InboxItem[];
   conflicts: ReturnType<typeof conflictsFor>;
   agents: AgentStatus[] | null;
   onOpenAccounts: () => void;
   allWorkspaces: Record<string, Workspace>;
   onSelectWorkspace: (id: string) => void;
+  loadouts: Loadout[];
+  /** What's in this repo's main checkout, if anything. */
+  spotlight: Spotlight | undefined;
   client: DaemonClient;
   run: (command: Command) => Promise<CommandResponse | null>;
   onArchive: (id: string) => Promise<void>;
@@ -77,13 +92,22 @@ export function WorkspaceView({
   const ready = workspace.state === "ready";
 
   const canArchive = workspace.state === "ready" || workspace.state === "failed";
+  const childCount = Object.values(allWorkspaces).filter((w) => w.parent_id === workspace.id && w.state !== "archived").length;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
-      <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-5 pt-4 pb-2">
-        <div className="min-w-0">
+      <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-5 pt-4 pb-2 max-md:px-3 max-md:pt-2">
+        <div className="min-w-0 max-md:hidden">
           <p className="truncate text-xs text-muted">
             {repo?.name ?? "Unknown repository"} · <span className="font-mono">{workspace.branch}</span>
+            {workspace.parent_id && allWorkspaces[workspace.parent_id] && (
+              <>
+                {" · started by "}
+                <button type="button" onClick={() => onSelectWorkspace(workspace.parent_id!)} className="underline-offset-2 hover:text-fg hover:underline">
+                  {allWorkspaces[workspace.parent_id].name}
+                </button>
+              </>
+            )}
           </p>
           <h2 className="mt-0.5 flex items-center gap-2 text-lg font-semibold tracking-tight">
             {workspace.name}
@@ -91,9 +115,35 @@ export function WorkspaceView({
               <StateDot state={workspace.state} decorative />
               {workspace.state}
             </span>
+            {workspace.review_state && (
+              <span className={`rounded-full border px-2 py-0.5 text-xs font-normal ${REVIEW[workspace.review_state].tone}`}>{REVIEW[workspace.review_state].label}</span>
+            )}
           </h2>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2 max-md:justify-start">
+        {ready && (
+          <button
+            type="button"
+            aria-pressed={spotlight?.workspace_id === workspace.id}
+            onClick={() =>
+              void run(
+                spotlight?.workspace_id === workspace.id
+                  ? { type: "repo.spotlight_stop", repo_id: workspace.repo_id }
+                  : { type: "workspace.spotlight", workspace_id: workspace.id },
+              )
+            }
+            title={
+              spotlight?.workspace_id === workspace.id
+                ? `Return the main checkout to ${spotlight.restore_to}`
+                : "Try this work in the repo's main checkout, where your own servers and .env files live"
+            }
+            className={`rounded-md border px-2.5 py-1 text-[12px] hover:bg-raised ${
+              spotlight?.workspace_id === workspace.id ? "border-accent/60 text-accent" : "border-line text-muted hover:text-fg"
+            }`}
+          >
+            {spotlight?.workspace_id === workspace.id ? "Stop spotlight" : "Spotlight"}
+          </button>
+        )}
         {ready && (
           <button
             type="button"
@@ -109,6 +159,18 @@ export function WorkspaceView({
             className="rounded-md border border-line px-2.5 py-1 text-[12px] text-muted hover:bg-raised hover:text-fg"
           >
             ▶ Run
+          </button>
+        )}
+        {ready && !!active && (git.diff?.files.length ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={async () => {
+              if (await run({ type: "workspace.rename_branch", workspace_id: workspace.id, session_id: active.id })) setTab("chat");
+            }}
+            title="Ask the agent to rename the branch to describe the work"
+            className="rounded-md border border-line px-2.5 py-1 text-[12px] text-muted hover:bg-raised hover:text-fg"
+          >
+            Rename branch
           </button>
         )}
         {ready && (git.diff?.files.length ?? 0) > 0 && (
@@ -149,7 +211,7 @@ export function WorkspaceView({
         {canArchive &&
           (confirming ? (
             <div className="flex items-center gap-1.5">
-              <span className="text-muted">Remove the worktree? The branch is kept.</span>
+              <span className="text-muted max-md:hidden">Remove the worktree? The branch is kept.</span>
               <button
                 type="button"
                 disabled={busy}
@@ -186,19 +248,60 @@ export function WorkspaceView({
         <div className="mx-5 mb-2 rounded-md border border-bad/40 bg-bad/10 px-3 py-2 text-bad">{workspace.error}</div>
       )}
 
-      <ConflictBanner conflicts={conflicts} workspaces={allWorkspaces} onSelect={onSelectWorkspace} />
-      <div className="flex gap-1 border-b border-line px-5" role="tablist" aria-label="Workspace">
+      {spotlight && (
+        <p role="status" className="border-b border-accent/30 bg-accent/5 px-5 py-1.5 text-[12.5px] text-accent">
+          {spotlight.workspace_id === workspace.id ? (
+            <>
+              The main checkout is showing this workspace at <span className="font-mono">{spotlight.commit.slice(0, 8)}</span>, and updates after each agent turn.
+            </>
+          ) : (
+            <>
+              The main checkout is showing{" "}
+              <button type="button" onClick={() => onSelectWorkspace(spotlight.workspace_id)} className="font-medium underline-offset-2 hover:underline">
+                {allWorkspaces[spotlight.workspace_id]?.name ?? "another workspace"}
+              </button>
+              . Spotlighting this one switches it here.
+            </>
+          )}
+        </p>
+      )}
+      <ConflictBanner
+        conflicts={conflicts}
+        workspaces={allWorkspaces}
+        onSelect={onSelectWorkspace}
+        onResolve={
+          ready && active
+            ? async () => {
+                if (await run({ type: "workspace.resolve_conflicts", workspace_id: workspace.id, session_id: active.id })) setTab("chat");
+              }
+            : undefined
+        }
+      />
+      <div className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto border-b border-line px-5 max-md:px-2" role="tablist" aria-label="Workspace">
         <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
           Chat
         </TabButton>
+        {childCount > 0 && (
+          <TabButton active={tab === "board"} onClick={() => setTab("board")}>
+            Board
+            <span className="ml-1.5 text-faint tabular-nums">{childCount}</span>
+          </TabButton>
+        )}
         <TabButton active={tab === "changes"} onClick={() => setTab("changes")}>
           Changes
           {git.diff && git.diff.files.length > 0 && <span className="ml-1.5 text-faint tabular-nums">{git.diff.files.length}</span>}
           {drafts > 0 && <span className="ml-1.5 rounded bg-warn/15 px-1 text-[11px] text-warn">{drafts}</span>}
         </TabButton>
+        <TabButton active={tab === "checks"} onClick={() => setTab("checks")}>
+          Checks
+          {(git.pr?.checks_failing ?? 0) > 0 && <span className="ml-1.5 rounded bg-bad/15 px-1 text-[11px] text-bad">{git.pr?.checks_failing}</span>}
+        </TabButton>
         <TabButton active={tab === "terminal"} onClick={() => setTab("terminal")}>
           Terminal
           {terminals.some((t) => !t.exited) && <span className="ml-1.5 text-faint tabular-nums">{terminals.filter((t) => !t.exited).length}</span>}
+        </TabButton>
+        <TabButton active={tab === "ports"} onClick={() => setTab("ports")}>
+          Preview
         </TabButton>
         <TabButton active={tab === "log"} onClick={() => setTab("log")}>
           Setup log
@@ -214,8 +317,15 @@ export function WorkspaceView({
           chat={chat}
           streaming={streaming}
           permissions={permissions}
+          questions={questions}
           agents={agents}
           onOpenAccounts={onOpenAccounts}
+          terminals={terminals}
+          loadouts={loadouts}
+          onShowTerminal={(id) => {
+            setTerminalId(id);
+            setTab("terminal");
+          }}
           run={run}
         />
       ) : tab === "terminal" ? (
@@ -226,6 +336,31 @@ export function WorkspaceView({
           onSelect={setTerminalId}
           client={client}
           run={run}
+        />
+      ) : tab === "board" ? (
+        <BoardPanel
+          workspace={workspace}
+          client={client}
+          run={run}
+          activeSessionId={active?.id}
+          onOpen={onSelectWorkspace}
+          onAgentTookOver={() => setTab("chat")}
+        />
+      ) : tab === "ports" ? (
+        <PortsPanel workspace={workspace} client={client} />
+      ) : tab === "checks" ? (
+        <ChecksPanel
+          workspaceId={workspace.id}
+          client={client}
+          canSend={!!active && ready}
+          onFixChecks={async () => {
+            if (!active) return;
+            if (await run({ type: "workspace.fix_checks", workspace_id: workspace.id, session_id: active.id })) setTab("chat");
+          }}
+          onAddressComments={async () => {
+            if (!active) return;
+            if (await run({ type: "workspace.address_comments", workspace_id: workspace.id, session_id: active.id })) setTab("chat");
+          }}
         />
       ) : tab === "changes" ? (
         <ChangesPanel
@@ -287,6 +422,12 @@ export function WorkspaceView({
   );
 }
 
+const REVIEW: Record<ReviewState, { label: string; tone: string }> = {
+  reviewing: { label: "In review", tone: "border-line text-muted" },
+  changes_requested: { label: "Changes requested", tone: "border-warn/50 text-warn" },
+  approved: { label: "Ready", tone: "border-ok/50 text-ok" },
+};
+
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
@@ -294,7 +435,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`-mb-px border-b-2 px-2.5 py-1.5 ${active ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"}`}
+      className={`-mb-px shrink-0 border-b-2 px-2.5 py-1.5 max-md:py-2.5 ${active ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"}`}
     >
       {children}
     </button>

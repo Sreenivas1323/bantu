@@ -116,15 +116,32 @@ impl Daemon {
     /// Handles one hook call: publish the request, wait for an answer, and
     /// return Claude's hook response body.
     pub async fn request_permission(&self, session: &Session, hook_input: &Value) -> Value {
+        let decision = self
+            .wait_for_permission(
+                session,
+                hook_input["tool_name"]
+                    .as_str()
+                    .unwrap_or("tool")
+                    .to_string(),
+                hook_input["tool_input"].clone(),
+            )
+            .await;
+        hook_response(&decision)
+    }
+
+    /// Publishes a request and waits for the user, a stop, or the timeout.
+    pub async fn wait_for_permission(
+        &self,
+        session: &Session,
+        tool_name: String,
+        tool_input: Value,
+    ) -> Decision {
         let request = PermissionRequest {
             id: new_id(),
             session_id: session.id.clone(),
             workspace_id: session.workspace_id.clone(),
-            tool_name: hook_input["tool_name"]
-                .as_str()
-                .unwrap_or("tool")
-                .to_string(),
-            tool_input: hook_input["tool_input"].clone(),
+            tool_name,
+            tool_input,
             created_at: now(),
         };
         let (tx, rx) = oneshot::channel();
@@ -142,7 +159,7 @@ impl Daemon {
             })
             .await;
 
-        let decision = match tokio::time::timeout(ANSWER_TIMEOUT, rx).await {
+        match tokio::time::timeout(ANSWER_TIMEOUT, rx).await {
             Ok(Ok(d)) => d,
             // Dropped sender: the request was discarded without an answer.
             Ok(Err(_)) => Decision {
@@ -159,8 +176,7 @@ impl Daemon {
                     interrupt: false,
                 }
             }
-        };
-        hook_response(&decision)
+        }
     }
 
     pub async fn respond_permission(

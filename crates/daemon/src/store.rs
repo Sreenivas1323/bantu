@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bantu_protocol::{
-    AgentKind, ChatItem, DiffComment, Event, EventData, LogStream, PermissionMode, Preferences,
-    Repo, Session, SessionStatus, Workspace, WorkspaceState,
+    AgentKind, ChatItem, DiffComment, Event, EventData, LogStream, Loop, PermissionMode,
+    Preferences, Repo, ReviewState, Session, SessionStatus, Spotlight, Workspace, WorkspaceState,
 };
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
@@ -93,9 +93,11 @@ impl Store {
         let (guard, mut tx) = self.begin().await?;
         sqlx::query(
             "INSERT INTO workspaces (id, repo_id, name, branch, base_ref, path, port_base,
-                                     state, error, archive_commit, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     state, error, archive_commit, created_at,
+                                     parent_id, loop_id, external, review_state)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
+                review_state = excluded.review_state,
                 name = excluded.name, branch = excluded.branch,
                 base_ref = excluded.base_ref, path = excluded.path,
                 port_base = excluded.port_base, state = excluded.state,
@@ -112,6 +114,10 @@ impl Store {
         .bind(&ws.error)
         .bind(&ws.archive_commit)
         .bind(&ws.created_at)
+        .bind(&ws.parent_id)
+        .bind(&ws.loop_id)
+        .bind(ws.external)
+        .bind(ws.review_state.map(|r| r.as_str()))
         .execute(&mut *tx)
         .await?;
         let data = EventData::WorkspaceUpdated {
@@ -141,11 +147,13 @@ impl Store {
         let (guard, mut tx) = self.begin().await?;
         sqlx::query(
             "INSERT INTO sessions (id, workspace_id, agent, title, model, permission_mode, status,
-                                   queued, turns, total_cost_usd, agent_session_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   queued, turns, total_cost_usd, agent_session_id, created_at,
+                                   effort, fast, forked_from)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title, model = excluded.model,
                 permission_mode = excluded.permission_mode, status = excluded.status,
+                effort = excluded.effort, fast = excluded.fast,
                 queued = excluded.queued, turns = excluded.turns,
                 total_cost_usd = excluded.total_cost_usd",
         )
@@ -161,6 +169,9 @@ impl Store {
         .bind(s.total_cost_usd)
         .bind(agent_session_id)
         .bind(&s.created_at)
+        .bind(&s.effort)
+        .bind(s.fast)
+        .bind(&s.forked_from)
         .execute(&mut *tx)
         .await?;
         let data = EventData::SessionUpdated { session: s.clone() };
@@ -175,6 +186,26 @@ impl Store {
     ) -> Result<()> {
         sqlx::query("UPDATE sessions SET agent_session_id = ? WHERE id = ?")
             .bind(agent_session_id)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The parent's conversation id, while a fork hasn't had a successful turn.
+    pub async fn fork_source(&self, session_id: &str) -> Result<Option<String>> {
+        Ok(
+            sqlx::query_scalar("SELECT fork_source FROM sessions WHERE id = ?")
+                .bind(session_id)
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten(),
+        )
+    }
+
+    pub async fn set_fork_source(&self, session_id: &str, source: Option<&str>) -> Result<()> {
+        sqlx::query("UPDATE sessions SET fork_source = ? WHERE id = ?")
+            .bind(source)
             .bind(session_id)
             .execute(&self.pool)
             .await?;
@@ -238,6 +269,150 @@ impl Store {
             preferences: p.clone(),
         };
         self.finish(guard, tx, data).await
+    }
+
+    /// Which workspace is in the repo's main checkout. It must survive a
+    /// restart, because the checkout stays that way until it's stopped.
+    pub async fn set_spotlight(
+        &self,
+        repo_id: &str,
+        spotlight: Option<&Spotlight>,
+    ) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        let key = format!("spotlight:{repo_id}");
+        match spotlight {
+            Some(s) => {
+                sqlx::query(
+                    "INSERT INTO preferences (key, value) VALUES (?, ?)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                )
+                .bind(&key)
+                .bind(serde_json::to_string(s)?)
+                .execute(&mut *tx)
+                .await?;
+            }
+            None => {
+                sqlx::query("DELETE FROM preferences WHERE key = ?")
+                    .bind(&key)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        let data = EventData::SpotlightUpdated {
+            repo_id: repo_id.to_string(),
+            spotlight: spotlight.cloned(),
+        };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn upsert_loop(&self, l: &Loop) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query(
+            "INSERT INTO preferences (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(format!("loop:{}", l.id))
+        .bind(serde_json::to_string(l)?)
+        .execute(&mut *tx)
+        .await?;
+        let data = EventData::LoopUpdated { loop_: l.clone() };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn delete_loop(&self, id: &str) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query("DELETE FROM preferences WHERE key = ? OR key = ?")
+            .bind(format!("loop:{id}"))
+            .bind(format!("loopseen:{id}"))
+            .execute(&mut *tx)
+            .await?;
+        let data = EventData::LoopDeleted {
+            loop_id: id.to_string(),
+        };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn get_loop(&self, id: &str) -> Result<Option<Loop>> {
+        let value: Option<String> =
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key = ?")
+                .bind(format!("loop:{id}"))
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(value.and_then(|v| serde_json::from_str(&v).ok()))
+    }
+
+    pub async fn loops(&self) -> Result<Vec<Loop>> {
+        let values: Vec<String> =
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key LIKE 'loop:%'")
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(values
+            .iter()
+            .filter_map(|v| serde_json::from_str(v).ok())
+            .collect())
+    }
+
+    /// GitHub issue or PR numbers a loop has already seen. `None` before its first poll.
+    pub async fn loop_seen(&self, id: &str) -> Result<Option<std::collections::BTreeSet<u32>>> {
+        let value: Option<String> =
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key = ?")
+                .bind(format!("loopseen:{id}"))
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(value.and_then(|v| serde_json::from_str(&v).ok()))
+    }
+
+    pub async fn set_loop_seen(
+        &self,
+        id: &str,
+        seen: &std::collections::BTreeSet<u32>,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO preferences (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(format!("loopseen:{id}"))
+        .bind(serde_json::to_string(seen)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn upsert_push_subscription(&self, s: &crate::push::Subscription) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO push_subscriptions (endpoint, p256dh, auth, created_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth",
+        )
+        .bind(&s.endpoint)
+        .bind(&s.p256dh)
+        .bind(&s.auth)
+        .bind(now())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_push_subscription(&self, endpoint: &str) -> Result<()> {
+        sqlx::query("DELETE FROM push_subscriptions WHERE endpoint = ?")
+            .bind(endpoint)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn push_subscriptions(&self) -> Result<Vec<crate::push::Subscription>> {
+        let rows = sqlx::query("SELECT endpoint, p256dh, auth FROM push_subscriptions")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| crate::push::Subscription {
+                endpoint: r.get("endpoint"),
+                p256dh: r.get("p256dh"),
+                auth: r.get("auth"),
+            })
+            .collect())
     }
 
     /// Records an event that has no projection (e.g. in-memory terminals).
@@ -317,6 +492,26 @@ impl Store {
             .unwrap_or_default())
     }
 
+    pub async fn spotlight(&self, repo_id: &str) -> Result<Option<Spotlight>> {
+        let value: Option<String> =
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key = ?")
+                .bind(format!("spotlight:{repo_id}"))
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(value.and_then(|v| serde_json::from_str(&v).ok()))
+    }
+
+    pub async fn spotlights(&self) -> Result<Vec<Spotlight>> {
+        let values: Vec<String> =
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key LIKE 'spotlight:%'")
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(values
+            .iter()
+            .filter_map(|v| serde_json::from_str(v).ok())
+            .collect())
+    }
+
     pub async fn repos(&self) -> Result<Vec<Repo>> {
         let rows = sqlx::query("SELECT * FROM repos ORDER BY created_at")
             .fetch_all(&self.pool)
@@ -386,6 +581,25 @@ impl Store {
         .fetch_optional(&self.pool)
         .await?;
         Ok(found.is_some())
+    }
+
+    /// A session's whole transcript with its turn numbers, oldest first.
+    pub async fn session_items(&self, session_id: &str) -> Result<Vec<(u32, ChatItem)>> {
+        let rows: Vec<String> = sqlx::query_scalar(
+            "SELECT payload FROM events
+             WHERE kind = 'session.item' AND json_extract(payload, '$.session_id') = ?
+             ORDER BY seq",
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut items = Vec::with_capacity(rows.len());
+        for payload in rows {
+            if let EventData::SessionItem { turn, item, .. } = serde_json::from_str(&payload)? {
+                items.push((turn, item));
+            }
+        }
+        Ok(items)
     }
 
     /// The newest transcript item of a session.
@@ -509,6 +723,12 @@ fn event_kind(data: &EventData) -> &'static str {
         EventData::PermissionRequested { .. } => "permission.requested",
         EventData::PermissionResolved { .. } => "permission.resolved",
         EventData::TerminalClosed { .. } => "terminal.closed",
+        EventData::SpotlightUpdated { .. } => "spotlight.updated",
+        EventData::ImportUpdated { .. } => "import.updated",
+        EventData::LoopUpdated { .. } => "loop.updated",
+        EventData::LoopDeleted { .. } => "loop.deleted",
+        EventData::InboxAdded { .. } => "inbox.added",
+        EventData::InboxRemoved { .. } => "inbox.removed",
     }
 }
 
@@ -538,6 +758,12 @@ fn workspace_from_row(r: &SqliteRow) -> Result<Workspace> {
         error: r.get("error"),
         archive_commit: r.get("archive_commit"),
         created_at: r.get("created_at"),
+        parent_id: r.get("parent_id"),
+        loop_id: r.get("loop_id"),
+        external: r.get("external"),
+        review_state: r
+            .get::<Option<String>, _>("review_state")
+            .and_then(|s| ReviewState::parse(&s)),
     })
 }
 
@@ -559,6 +785,9 @@ fn session_from_row(r: &SqliteRow) -> Result<Session> {
         model: r.get("model"),
         permission_mode: PermissionMode::parse(&mode)
             .with_context(|| format!("unknown permission mode {mode:?}"))?,
+        effort: r.get("effort"),
+        fast: r.get("fast"),
+        forked_from: r.get("forked_from"),
         status: match status.as_str() {
             "running" => SessionStatus::Running,
             _ => SessionStatus::Idle,

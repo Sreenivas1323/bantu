@@ -25,6 +25,8 @@ case "$prompt" in *permission*)
 esac
 case "$prompt" in *slow*) sleep 3 ;; esac
 case "$prompt" in *edit*) echo agent-was-here >> README.md; echo new > agent-file.txt ;; esac
+# Findings from an automatic review get "fixed", unless review-stubborn.txt exists.
+case "$prompt" in *"automatic review"*) [ -f review-stubborn.txt ] && date +%s%N >> review-stubborn.txt || rm -f review-fails.txt ;; esac
 case "$prompt" in *"repo's check"*) echo fixed > fixed.txt; date +%s%N >> attempts.txt ;; esac
 echo '{"type":"system","subtype":"init"}'
 echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}'

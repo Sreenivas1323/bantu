@@ -77,6 +77,98 @@ pub struct Workspace {
     /// Commit holding uncommitted tracked changes at archive time (`refs/bantu/archive/<id>`).
     pub archive_commit: Option<String>,
     pub created_at: String,
+    /// The workspace whose agent started this one.
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    /// The loop this workspace is a run of.
+    #[serde(default)]
+    pub loop_id: Option<String>,
+    /// Another tool owns the worktree (it was imported), so archiving forgets
+    /// the workspace and leaves the files alone.
+    #[serde(default)]
+    pub external: bool,
+    /// Where automatic review has got to. `None` when it hasn't run on this work.
+    #[serde(default)]
+    pub review_state: Option<ReviewState>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ReviewState {
+    /// Another agent is reviewing the changes.
+    Reviewing,
+    /// The reviewer found problems.
+    ChangesRequested,
+    /// The reviewer found nothing significant, so this work is ready.
+    Approved,
+}
+
+impl ReviewState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reviewing => "reviewing",
+            Self::ChangesRequested => "changes_requested",
+            Self::Approved => "approved",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "reviewing" => Self::Reviewing,
+            "changes_requested" => Self::ChangesRequested,
+            "approved" => Self::Approved,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ChildStatus {
+    Starting,
+    Working,
+    /// Its agent is waiting for the user to approve or answer something.
+    Waiting,
+    Idle,
+    Failed,
+}
+
+/// One child on a lead workspace's board.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct ChildWorkspace {
+    pub workspace: Workspace,
+    pub status: ChildStatus,
+    pub title: Option<String>,
+    pub last_reply: Option<String>,
+    pub files: u32,
+    pub additions: u32,
+    pub deletions: u32,
+    pub ahead: u32,
+    pub uncommitted: u32,
+    pub conflicted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct IntegrationSkip {
+    pub workspace: String,
+    pub reason: String,
+}
+
+/// The result of merging child workspaces into their lead.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct IntegrationResult {
+    /// Names of the workspaces merged.
+    pub merged: Vec<String>,
+    pub skipped: Vec<IntegrationSkip>,
+    /// The workspace that conflicted. That merge was aborted.
+    pub conflict: Option<String>,
+    /// The lead's agent was asked to finish the job.
+    pub sent_to_agent: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -87,6 +179,12 @@ pub enum AgentKind {
     Claude,
     /// OpenAI Codex CLI (`codex exec --json`), using the user's own login.
     Codex,
+    /// OpenCode (`opencode acp`), over the Agent Client Protocol.
+    Opencode,
+    /// Gemini CLI (`gemini --acp`), over the Agent Client Protocol.
+    Gemini,
+    /// Cursor's CLI (`agent acp`), over the Agent Client Protocol.
+    Cursor,
 }
 
 impl AgentKind {
@@ -94,6 +192,9 @@ impl AgentKind {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::Opencode => "opencode",
+            Self::Gemini => "gemini",
+            Self::Cursor => "cursor",
         }
     }
 
@@ -101,6 +202,9 @@ impl AgentKind {
         Some(match s {
             "claude" => Self::Claude,
             "codex" => Self::Codex,
+            "opencode" => Self::Opencode,
+            "gemini" => Self::Gemini,
+            "cursor" => Self::Cursor,
             _ => return None,
         })
     }
@@ -167,6 +271,16 @@ pub struct Session {
     /// `None` uses the agent's default model.
     pub model: Option<String>,
     pub permission_mode: PermissionMode,
+    /// How hard the model thinks: `low`, `medium`, `high`, `xhigh` or `max`.
+    /// `None` uses the agent's default. Claude and Codex only.
+    #[serde(default)]
+    pub effort: Option<String>,
+    /// Claude's fast mode: faster output at a higher cost.
+    #[serde(default)]
+    pub fast: bool,
+    /// The chat this one was forked from.
+    #[serde(default)]
+    pub forked_from: Option<String>,
     pub status: SessionStatus,
     /// Messages waiting for the current turn to finish.
     pub queued: u32,
@@ -226,6 +340,11 @@ pub enum ChatItem {
     /// The user restored the files to how they were before `to_turn`.
     Rewound {
         to_turn: u32,
+    },
+    /// The chat continued in the agent's terminal UI. `imported` items were
+    /// read back from the agent's transcript and precede this one.
+    TerminalSession {
+        imported: u32,
     },
     /// Bantu-side problems: the agent couldn't start, crashed, or was cancelled.
     Error {
@@ -321,6 +440,72 @@ pub struct PullRequest {
     pub checks_pending: u32,
 }
 
+/// One CI check on the workspace's pull request.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct CheckRun {
+    pub name: String,
+    pub workflow: Option<String>,
+    /// `pass`, `fail`, `pending`, `skipping` or `cancel`.
+    pub bucket: String,
+    pub link: Option<String>,
+    pub description: Option<String>,
+}
+
+/// The newest deployment of the workspace's branch to one environment.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Deployment {
+    pub environment: String,
+    /// GitHub's deployment state, e.g. `success`, `failure`, `in_progress`.
+    pub state: String,
+    pub url: Option<String>,
+    pub created_at: String,
+}
+
+/// A conversation comment, review summary or line comment on the pull request.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct PrComment {
+    pub author: String,
+    pub body: String,
+    /// Set for line comments.
+    pub path: Option<String>,
+    pub line: Option<u32>,
+    pub url: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum TodoSource {
+    /// The agent's own todo list.
+    Agent,
+    /// A task list item in the pull request description.
+    PullRequest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct TodoItem {
+    pub text: String,
+    pub done: bool,
+    pub source: TodoSource,
+}
+
+/// Everything the Checks tab shows for a workspace.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct WorkspaceChecks {
+    pub workspace_id: String,
+    pub pull_request: Option<PullRequest>,
+    pub checks: Vec<CheckRun>,
+    pub deployments: Vec<Deployment>,
+    pub comments: Vec<PrComment>,
+    pub todos: Vec<TodoItem>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
@@ -331,6 +516,9 @@ pub enum TerminalKind {
     Run,
     /// Signing an agent CLI in to its account (not tied to a workspace).
     Login,
+    /// An agent's own terminal UI: a chat continued in a terminal (`session_id`
+    /// is set), or any other CLI the user started.
+    Agent,
 }
 
 /// A PTY in a workspace. Bytes flow over `GET /v1/terminals/{id}/ws`.
@@ -345,6 +533,9 @@ pub struct Terminal {
     pub title: String,
     /// The command for `run` terminals.
     pub command: Option<String>,
+    /// The chat this terminal continues. It can't take turns while this runs.
+    #[serde(default)]
+    pub session_id: Option<String>,
     pub exited: bool,
     pub exit_code: Option<i32>,
     pub created_at: String,
@@ -372,6 +563,128 @@ pub struct PermissionRequest {
     pub tool_name: String,
     #[ts(type = "unknown")]
     pub tool_input: serde_json::Value,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum InboxKind {
+    /// Something the agent wants the user to know. It doesn't wait.
+    Notice,
+    /// The agent is waiting for an answer.
+    Question,
+}
+
+/// A workspace's work shown in the repo's main checkout for testing.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Spotlight {
+    pub repo_id: String,
+    pub workspace_id: String,
+    /// The branch (or commit) the main checkout returns to afterwards.
+    pub restore_to: String,
+    /// Where Spotlight left the main checkout's `HEAD`. If it's anywhere else,
+    /// the user has moved on and Spotlight leaves it alone.
+    pub commit: String,
+    pub synced_at: String,
+}
+
+/// A server listening on one of a workspace's reserved ports.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct ForwardedPort {
+    pub port: u16,
+    /// Opens it through the daemon, for a few minutes. `None` when this client
+    /// is remote and the daemon has no preview address (`BANTU_PREVIEW_URL`).
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ImportSource {
+    Conductor,
+    Pane,
+}
+
+/// What an import would bring across.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct ImportPreview {
+    pub source: ImportSource,
+    pub path: String,
+    /// The tool's database exists on this machine.
+    pub found: bool,
+    pub workspaces: u32,
+    pub chats: u32,
+    /// Active in the tool, but their folders are gone.
+    pub missing_worktrees: u32,
+}
+
+/// How an import is going.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct ImportStatus {
+    pub source: ImportSource,
+    pub running: bool,
+    pub workspaces: u32,
+    pub chats: u32,
+    pub items: u32,
+    /// Workspaces not imported: already here, or their folders are gone.
+    pub skipped: u32,
+    pub error: Option<String>,
+}
+
+/// What starts a loop's runs.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum LoopTrigger {
+    /// A five-field cron schedule in the daemon's time zone, or `@hourly`,
+    /// `@daily`, `@weekly`, `@monthly`.
+    Cron { schedule: String },
+    /// A new open issue with this label.
+    GithubIssue { label: String },
+    /// A new open pull request with this label, not from a fork.
+    GithubPullRequest { label: String },
+}
+
+/// An agent that starts on its own. Each run gets a fresh workspace.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Loop {
+    pub id: String,
+    pub repo_id: String,
+    pub name: String,
+    pub trigger: LoopTrigger,
+    pub prompt: String,
+    pub agent: AgentKind,
+    pub model: Option<String>,
+    pub permission_mode: PermissionMode,
+    pub enabled: bool,
+    pub last_run_at: Option<String>,
+    /// When a cron loop next runs. `None` while paused and for GitHub triggers.
+    pub next_run_at: Option<String>,
+    pub last_workspace_id: Option<String>,
+    /// How the last run went, in words.
+    pub last_result: Option<String>,
+    pub created_at: String,
+}
+
+/// A notice or question an agent sent to the user.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct InboxItem {
+    pub id: String,
+    pub workspace_id: String,
+    pub session_id: String,
+    pub kind: InboxKind,
+    /// The notice's headline, or the question itself.
+    pub title: String,
+    pub body: Option<String>,
+    /// Suggested answers. The user can also type their own.
+    pub options: Vec<String>,
     pub created_at: String,
 }
 
@@ -423,7 +736,15 @@ pub enum Command {
         agent: Option<AgentKind>,
         model: Option<String>,
         permission_mode: Option<PermissionMode>,
+        #[serde(default)]
+        effort: Option<String>,
+        #[serde(default)]
+        fast: Option<bool>,
     },
+    /// Start a new chat that continues from where this one is now. The
+    /// original is left as it was.
+    #[serde(rename = "session.fork")]
+    SessionFork { session_id: String },
     /// Send a user message. Queued if the agent is mid-turn.
     #[serde(rename = "session.send")]
     SessionSend { session_id: String, text: String },
@@ -437,6 +758,11 @@ pub enum Command {
         title: Option<String>,
         model: Option<String>,
         permission_mode: Option<PermissionMode>,
+        /// An empty string goes back to the agent's default.
+        #[serde(default)]
+        effort: Option<String>,
+        #[serde(default)]
+        fast: Option<bool>,
     },
     /// Restore the workspace files to the checkpoint taken just before `turn`
     /// started. The conversation is kept; the agent is told on its next turn.
@@ -457,6 +783,64 @@ pub enum Command {
         /// Shown to the agent when denying, e.g. what to do instead.
         message: Option<String>,
     },
+    /// Answer a question in the inbox.
+    #[serde(rename = "inbox.respond")]
+    InboxRespond { item_id: String, answer: String },
+    /// Clear a notice, or decline to answer a question.
+    #[serde(rename = "inbox.dismiss")]
+    InboxDismiss { item_id: String },
+    /// Send this browser alerts through Web Push, from `PushSubscription.toJSON()`.
+    #[serde(rename = "push.subscribe")]
+    PushSubscribe {
+        endpoint: String,
+        p256dh: String,
+        auth: String,
+    },
+    #[serde(rename = "push.unsubscribe")]
+    PushUnsubscribe { endpoint: String },
+    /// Create a loop. `model` and `agent` default like a new chat's; it starts enabled.
+    #[serde(rename = "loop.create")]
+    LoopCreate {
+        repo_id: String,
+        name: String,
+        trigger: LoopTrigger,
+        prompt: String,
+        #[serde(default)]
+        agent: Option<AgentKind>,
+        #[serde(default)]
+        model: Option<String>,
+        #[serde(default)]
+        permission_mode: Option<PermissionMode>,
+    },
+    /// Pause or resume a loop, or change its prompt.
+    #[serde(rename = "loop.update")]
+    LoopUpdate {
+        loop_id: String,
+        #[serde(default)]
+        enabled: Option<bool>,
+        #[serde(default)]
+        prompt: Option<String>,
+    },
+    #[serde(rename = "loop.delete")]
+    LoopDelete { loop_id: String },
+    /// Start a run now.
+    #[serde(rename = "loop.run")]
+    LoopRun { loop_id: String },
+    /// See what an import would bring across. `path` overrides where the tool's
+    /// database normally is.
+    #[serde(rename = "import.scan")]
+    ImportScan {
+        source: ImportSource,
+        #[serde(default)]
+        path: Option<String>,
+    },
+    /// Import active workspaces and chats. Progress arrives as `import.updated`.
+    #[serde(rename = "import.run")]
+    ImportRun {
+        source: ImportSource,
+        #[serde(default)]
+        path: Option<String>,
+    },
     /// Add a draft review comment on a line of the workspace diff.
     #[serde(rename = "comment.add")]
     CommentAdd {
@@ -473,11 +857,24 @@ pub enum Command {
         workspace_id: String,
         session_id: String,
     },
-    /// Open an interactive shell in the workspace.
+    /// Open an interactive shell in the workspace, or run `command` (any CLI)
+    /// in a terminal there.
     #[serde(rename = "terminal.open")]
     TerminalOpen {
         workspace_id: String,
         cols: Option<u16>,
+        rows: Option<u16>,
+        #[serde(default)]
+        command: Option<String>,
+    },
+    /// Continue a chat in its agent's own terminal UI. The chat takes no turns
+    /// until the terminal ends; then its transcript is imported where possible.
+    #[serde(rename = "session.open_terminal")]
+    SessionOpenTerminal {
+        session_id: String,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
         rows: Option<u16>,
     },
     /// Kill the terminal's process group and forget it.
@@ -493,6 +890,24 @@ pub enum Command {
         workspace_id: String,
         session_id: String,
     },
+    /// Ask the session's agent to resolve the conflicts the radar found.
+    #[serde(rename = "workspace.resolve_conflicts")]
+    WorkspaceResolveConflicts {
+        workspace_id: String,
+        session_id: String,
+    },
+    /// Ask the session's agent to rename the branch to describe the work.
+    #[serde(rename = "workspace.rename_branch")]
+    WorkspaceRenameBranch {
+        workspace_id: String,
+        session_id: String,
+    },
+    /// Send the pull request's comments to the session's agent to work through.
+    #[serde(rename = "workspace.address_comments")]
+    WorkspaceAddressComments {
+        workspace_id: String,
+        session_id: String,
+    },
     /// Start a fresh, read-only (plan mode) chat that reviews the workspace's
     /// changes against its base. Pick a different agent for a second opinion.
     #[serde(rename = "workspace.review")]
@@ -501,6 +916,21 @@ pub enum Command {
         #[serde(default)]
         agent: Option<AgentKind>,
     },
+    /// Merge this workspace's finished children into its branch, locally. On a
+    /// conflict the merge is aborted, and `session_id`'s agent takes over if set.
+    #[serde(rename = "workspace.integrate")]
+    WorkspaceIntegrate {
+        workspace_id: String,
+        #[serde(default)]
+        session_id: Option<String>,
+    },
+    /// Show a workspace's work in the repo's main checkout, following it after
+    /// each agent turn. Refused if the main checkout has uncommitted changes.
+    #[serde(rename = "workspace.spotlight")]
+    WorkspaceSpotlight { workspace_id: String },
+    /// Return the repo's main checkout to the branch it was on.
+    #[serde(rename = "repo.spotlight_stop")]
+    RepoSpotlightStop { repo_id: String },
     /// Ask the session's agent to commit, push and open a pull request.
     #[serde(rename = "workspace.create_pr")]
     WorkspaceCreatePr {
@@ -512,7 +942,23 @@ pub enum Command {
     PreferencesUpdate {
         #[serde(default)]
         claude_user_setup: Option<bool>,
+        /// Replaces the whole list.
+        #[serde(default)]
+        loadouts: Option<Vec<Loadout>>,
     },
+}
+
+/// A named combination of agent and settings for starting a chat.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Loadout {
+    pub name: String,
+    pub agent: AgentKind,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    #[serde(default)]
+    pub fast: bool,
+    pub permission_mode: PermissionMode,
 }
 
 /// Daemon-wide preferences, changed with `preferences.update`.
@@ -525,6 +971,8 @@ pub struct Preferences {
     /// The repo's own `CLAUDE.md` and `.claude/settings.json` always load.
     #[serde(default)]
     pub claude_user_setup: bool,
+    #[serde(default)]
+    pub loadouts: Vec<Loadout>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -581,6 +1029,29 @@ pub enum EventData {
         workspace_id: String,
         allowed: bool,
     },
+    /// `None` when the main checkout went back to its own branch.
+    #[serde(rename = "spotlight.updated")]
+    SpotlightUpdated {
+        repo_id: String,
+        spotlight: Option<Spotlight>,
+    },
+    #[serde(rename = "loop.updated")]
+    LoopUpdated {
+        #[serde(rename = "loop")]
+        #[ts(rename = "loop")]
+        loop_: Loop,
+    },
+    #[serde(rename = "loop.deleted")]
+    LoopDeleted { loop_id: String },
+    #[serde(rename = "import.updated")]
+    ImportUpdated { status: ImportStatus },
+    #[serde(rename = "inbox.added")]
+    InboxAdded { item: InboxItem },
+    #[serde(rename = "inbox.removed")]
+    InboxRemoved {
+        item_id: String,
+        workspace_id: String,
+    },
     #[serde(rename = "terminal.updated")]
     TerminalUpdated { terminal: Terminal },
     #[serde(rename = "terminal.closed")]
@@ -605,6 +1076,10 @@ impl EventData {
             Self::RepoAdded { .. }
             | Self::RepoRemoved { .. }
             | Self::ConflictsUpdated { .. }
+            | Self::SpotlightUpdated { .. }
+            | Self::ImportUpdated { .. }
+            | Self::LoopUpdated { .. }
+            | Self::LoopDeleted { .. }
             | Self::PreferencesUpdated { .. } => None,
             Self::WorkspaceUpdated { workspace } => Some(&workspace.id),
             Self::WorkspaceLog { workspace_id, .. } | Self::SessionItem { workspace_id, .. } => {
@@ -616,6 +1091,8 @@ impl EventData {
             Self::TerminalUpdated { terminal } => terminal.workspace_id.as_deref(),
             Self::PermissionRequested { request } => Some(&request.workspace_id),
             Self::PermissionResolved { workspace_id, .. } => Some(workspace_id),
+            Self::InboxAdded { item } => Some(&item.workspace_id),
+            Self::InboxRemoved { workspace_id, .. } => Some(workspace_id),
             Self::TerminalClosed { workspace_id, .. } => workspace_id.as_deref(),
         }
     }
@@ -655,8 +1132,16 @@ pub struct StateSnapshot {
     pub terminals: Vec<Terminal>,
     /// Requests still waiting for an answer.
     pub permissions: Vec<PermissionRequest>,
+    /// Notices and questions from agents.
+    #[serde(default)]
+    pub inbox: Vec<InboxItem>,
     /// Latest conflict-radar results across all repos.
     pub conflicts: Vec<WorkspaceConflict>,
+    /// Workspaces currently shown in their repo's main checkout.
+    #[serde(default)]
+    pub spotlights: Vec<Spotlight>,
+    #[serde(default)]
+    pub loops: Vec<Loop>,
     pub preferences: Preferences,
 }
 
@@ -725,27 +1210,48 @@ mod tests {
             "AgentKind",
             "AgentStatus",
             "ChatItem",
+            "CheckRun",
+            "ChildStatus",
+            "ChildWorkspace",
             "Command",
             "CommandResponse",
+            "Deployment",
             "DiffComment",
             "Event",
             "EventData",
             "FileDiff",
             "FileStatus",
+            "ForwardedPort",
             "Health",
+            "ImportPreview",
+            "ImportSource",
+            "ImportStatus",
+            "InboxItem",
+            "InboxKind",
+            "IntegrationResult",
+            "IntegrationSkip",
             "LogStream",
+            "Loadout",
+            "Loop",
+            "LoopTrigger",
             "LoginMethod",
             "PermissionMode",
             "PermissionRequest",
+            "PrComment",
             "PullRequest",
             "Repo",
+            "ReviewState",
             "Session",
             "SessionStatus",
+            "Spotlight",
             "StateSnapshot",
             "StreamDelta",
             "Terminal",
             "TerminalKind",
+            "TodoItem",
+            "TodoSource",
             "Workspace",
+            "WorkspaceChecks",
             "WorkspaceConflict",
             "WorkspaceDiff",
             "WorkspaceSource",

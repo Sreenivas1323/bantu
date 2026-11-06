@@ -21,15 +21,15 @@ export function TerminalPanel({
   const active = terminals.find((t) => t.id === activeId) ?? terminals[terminals.length - 1];
   const ready = workspace.state === "ready";
 
-  const open = async () => {
-    const res = await run({ type: "terminal.open", workspace_id: workspace.id, cols: null, rows: null });
+  const open = async (command: string | null = null) => {
+    const res = await run({ type: "terminal.open", workspace_id: workspace.id, cols: null, rows: null, command });
     const t = res?.result as Terminal | undefined;
     if (t?.id) onSelect(t.id);
   };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-0.5 overflow-x-auto border-b border-line px-3" role="tablist" aria-label="Terminals">
+      <div className="scroll-quiet flex items-center gap-0.5 overflow-x-auto border-b border-line px-3" role="tablist" aria-label="Terminals">
         {terminals.map((t) => (
           <div
             key={t.id}
@@ -58,6 +58,19 @@ export function TerminalPanel({
         {ready && (
           <button type="button" onClick={() => void open()} className="ml-1 shrink-0 rounded px-2 py-1 text-muted hover:bg-raised hover:text-fg" title="New shell in this workspace">
             + Shell
+          </button>
+        )}
+        {ready && (
+          <button
+            type="button"
+            onClick={() => {
+              const command = window.prompt("Command to run in this workspace (any CLI, e.g. aider)")?.trim();
+              if (command) void open(command);
+            }}
+            className="shrink-0 rounded px-2 py-1 text-muted hover:bg-raised hover:text-fg"
+            title="Run any CLI in a terminal in this workspace"
+          >
+            + Command
           </button>
         )}
       </div>

@@ -9,13 +9,37 @@ use bantu_protocol::{AgentKind, AgentStatus, LoginMethod, Terminal, TerminalKind
 use serde_json::Value;
 
 use crate::ops::{CommandError, Daemon};
+use crate::platform::{self, shell_quote};
+use crate::terminals::TerminalSpec;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
 impl Daemon {
     pub async fn agent_statuses(&self) -> Vec<AgentStatus> {
-        let (claude, codex) = tokio::join!(self.claude_status(), self.codex_status());
-        vec![claude, codex]
+        let (claude, codex, opencode, gemini, cursor) = tokio::join!(
+            self.claude_status(),
+            self.codex_status(),
+            self.acp_status(AgentKind::Opencode),
+            self.acp_status(AgentKind::Gemini),
+            self.acp_status(AgentKind::Cursor),
+        );
+        vec![claude, codex, opencode, gemini, cursor]
+    }
+
+    /// ACP has no standard way to ask who's signed in without starting a
+    /// session, so an installed agent counts as ready until a turn says otherwise.
+    async fn acp_status(&self, agent: AgentKind) -> AgentStatus {
+        let mut status = empty(agent);
+        let Some((bin, _)) = crate::acp::command(&self.config, agent) else {
+            return status;
+        };
+        let Some(version) = run(&bin, &["--version"]).await.filter(|(ok, _)| *ok) else {
+            return status;
+        };
+        status.installed = true;
+        status.logged_in = true;
+        status.version = version.1.split_whitespace().last().map(str::to_string);
+        status
     }
 
     async fn claude_status(&self) -> AgentStatus {
@@ -56,7 +80,7 @@ impl Daemon {
         method: Option<LoginMethod>,
     ) -> Result<Terminal, CommandError> {
         let method = method.unwrap_or(LoginMethod::Subscription);
-        let (bin, args, title) = match (agent, method) {
+        let (bin, args, title): (&std::path::Path, &str, &str) = match (agent, method) {
             (AgentKind::Claude, LoginMethod::Subscription) => (
                 &self.config.claude_bin,
                 "auth login --claudeai",
@@ -78,15 +102,27 @@ impl Daemon {
                 "Codex API key",
             ),
             (AgentKind::Codex, _) => (&self.config.codex_bin, "login", "Sign in to Codex"),
+            (AgentKind::Opencode, _) => (
+                &self.config.opencode_bin,
+                "auth login",
+                "Sign in to OpenCode",
+            ),
+            // Gemini CLI signs in from its own first-run screen.
+            (AgentKind::Gemini, _) => (&self.config.gemini_bin, "", "Sign in to Gemini"),
+            (AgentKind::Cursor, _) => (&self.config.cursor_bin, "login", "Sign in to Cursor"),
         };
-        let command = format!("{} {args}", shell_quote(&bin.to_string_lossy()));
+        let command = format!(
+            "{} {args}",
+            platform::call(&shell_quote(&bin.to_string_lossy()))
+        )
+        .trim_end()
+        .to_string();
         self.spawn_terminal(
             None,
-            TerminalKind::Login,
-            title.into(),
-            Some(command),
-            None,
-            None,
+            TerminalSpec {
+                command: Some(command),
+                ..TerminalSpec::new(TerminalKind::Login, title.into())
+            },
         )
         .await
     }
@@ -133,7 +169,7 @@ pub fn apply_codex_login(status: &mut AgentStatus, ok: bool, out: &str) {
 
 /// Runs a probe with a timeout; `(success, stdout)`, or `None` if it can't start.
 async fn run(bin: &std::path::Path, args: &[&str]) -> Option<(bool, String)> {
-    let out = tokio::process::Command::new(bin)
+    let out = tokio::process::Command::new(crate::platform::program(bin))
         .args(args)
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true)
@@ -145,16 +181,6 @@ async fn run(bin: &std::path::Path, args: &[&str]) -> Option<(bool, String)> {
         text = String::from_utf8_lossy(&out.stderr).to_string();
     }
     Some((out.status.success(), text))
-}
-
-fn shell_quote(s: &str) -> String {
-    if s.chars()
-        .all(|c| c.is_ascii_alphanumeric() || "/._-".contains(c))
-    {
-        s.to_string()
-    } else {
-        format!("'{}'", s.replace('\'', r"'\''"))
-    }
 }
 
 #[cfg(test)]
@@ -181,6 +207,7 @@ mod tests {
         let mut c = empty(AgentKind::Codex);
         apply_codex_login(&mut c, false, "Not logged in");
         assert!(!c.logged_in);
+        #[cfg(unix)]
         assert_eq!(
             shell_quote("/Users/me/My Apps/claude"),
             "'/Users/me/My Apps/claude'"

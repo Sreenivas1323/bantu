@@ -13,8 +13,13 @@ const MODES: { value: PermissionMode; label: string }[] = [
 const MODELS: Record<Session["agent"], string[]> = {
   claude: ["opus", "sonnet", "haiku"],
   codex: ["gpt-5-codex", "gpt-5"],
+  // ACP agents list their own models; type one with Custom.
+  opencode: [],
+  gemini: [],
+  cursor: [],
 };
 const CUSTOM = "__custom__";
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
 export function Composer({
   session,
@@ -22,13 +27,16 @@ export function Composer({
   onSend,
   onStop,
   onUpdate,
+  onSaveLoadout,
 }: {
   session: Session;
   /** Set when sending isn't possible (e.g. the workspace isn't ready). */
   disabledReason: string | null;
   onSend: (text: string) => Promise<boolean>;
   onStop: () => Promise<void>;
-  onUpdate: (change: { model?: string; permission_mode?: PermissionMode }) => Promise<void>;
+  onUpdate: (change: { model?: string; permission_mode?: PermissionMode; effort?: string; fast?: boolean }) => Promise<void>;
+  /** Saves this chat's agent and settings under a name. */
+  onSaveLoadout: () => void;
 }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -40,7 +48,8 @@ export function Composer({
   const drafts = useRef(new Map<string, string>());
   useEffect(() => {
     setText(drafts.current.get(session.id) ?? "");
-    ref.current?.focus();
+    // On a touch screen, focusing would open the keyboard over the transcript.
+    if (!window.matchMedia("(pointer: coarse)").matches) ref.current?.focus();
   }, [session.id]);
 
   useLayoutEffect(() => {
@@ -61,7 +70,7 @@ export function Composer({
       }
     } finally {
       setSending(false);
-      ref.current?.focus();
+      if (!window.matchMedia("(pointer: coarse)").matches) ref.current?.focus();
     }
   };
 
@@ -77,7 +86,7 @@ export function Composer({
   const modelOptions = model && !known.includes(model) ? [...known, model] : known;
 
   return (
-    <div className="border-t border-line bg-panel/60 px-5 pt-3 pb-3">
+    <div className="border-t border-line bg-panel/60 px-5 pt-3 pb-3 max-md:px-2 max-md:pt-2 max-md:pb-2">
       <div className="mx-auto max-w-3xl">
         <div className="rounded-lg border border-line bg-bg focus-within:border-accent/60">
           <textarea
@@ -94,7 +103,7 @@ export function Composer({
             aria-label="Message"
             className="block max-h-60 w-full resize-none bg-transparent px-3 py-2.5 text-[16px] leading-6 placeholder:text-faint focus:outline-none disabled:opacity-50"
           />
-          <div className="flex items-center gap-2 px-2 pb-2">
+          <div className="flex flex-wrap items-center gap-2 px-2 pb-2">
             <select
               value={session.permission_mode}
               onChange={(e) => void onUpdate({ permission_mode: e.target.value as PermissionMode })}
@@ -131,6 +140,40 @@ export function Composer({
               ))}
               <option value={CUSTOM}>Custom…</option>
             </select>
+            {(session.agent === "claude" || session.agent === "codex") && (
+              <select
+                value={session.effort ?? ""}
+                onChange={(e) => void onUpdate({ effort: e.target.value })}
+                aria-label="Effort"
+                className="rounded-md border border-line bg-panel px-1.5 py-1 text-[12px] text-muted"
+              >
+                <option value="">Default effort</option>
+                {EFFORTS.map((effort) => (
+                  <option key={effort} value={effort}>
+                    {effort} effort
+                  </option>
+                ))}
+              </select>
+            )}
+            {session.agent === "claude" && (
+              <button
+                type="button"
+                aria-pressed={session.fast}
+                onClick={() => void onUpdate({ fast: !session.fast })}
+                title="Fast mode: faster output at a higher cost"
+                className={`rounded-md border px-1.5 py-1 text-[12px] ${session.fast ? "border-accent/60 text-accent" : "border-line text-muted hover:text-fg"}`}
+              >
+                Fast
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onSaveLoadout}
+              title="Save this agent and these settings as a loadout for new chats"
+              className="rounded-md border border-line px-1.5 py-1 text-[12px] text-muted hover:text-fg"
+            >
+              Save…
+            </button>
             {session.queued > 0 && (
               <span className="rounded-full bg-raised px-2 py-0.5 text-[11.5px] text-muted">{session.queued} queued</span>
             )}
@@ -156,7 +199,7 @@ export function Composer({
             </button>
           </div>
         </div>
-        <p className="mt-1.5 text-[11px] text-faint">
+        <p className="mt-1.5 text-[11px] text-faint max-md:hidden">
           Enter to send · Shift+Enter for a new line
           {session.permission_mode === "bypass_permissions" && (
             <span className="text-warn"> · Bypass lets the agent run anything without asking</span>

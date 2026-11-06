@@ -14,10 +14,16 @@ pub const LABEL: &str = "dev.bantu.bantud";
 const PERSISTED_ENV: &[&str] = &[
     "BANTUD_PORT",
     "BANTU_PUBLIC_URL",
+    "BANTU_APP_URL",
+    "BANTUD_PREVIEW_PORT",
+    "BANTU_PREVIEW_URL",
     "BANTU_ALLOWED_HOSTS",
     "BANTU_WORKSPACES_DIR",
     "BANTU_CLAUDE_BIN",
     "BANTU_CODEX_BIN",
+    "BANTU_OPENCODE_BIN",
+    "BANTU_GEMINI_BIN",
+    "BANTU_CURSOR_BIN",
     "BANTU_BRANCH_PREFIX",
 ];
 
@@ -190,9 +196,7 @@ fn xml_escape(s: &str) -> String {
 }
 
 fn user_home() -> Result<PathBuf> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .context("HOME is not set")
+    crate::platform::home_dir().context("HOME is not set")
 }
 
 fn launchd_domain() -> Result<String> {

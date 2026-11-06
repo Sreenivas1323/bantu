@@ -7,6 +7,9 @@ import { TerminalView } from "./terminal/TerminalView.tsx";
 const INSTALL: Record<AgentKind, string> = {
   claude: "curl -fsSL https://claude.ai/install.sh | bash",
   codex: "npm install -g @openai/codex",
+  opencode: "curl -fsSL https://opencode.ai/install | bash",
+  gemini: "npm install -g @google/gemini-cli",
+  cursor: "curl https://cursor.com/install -fsS | bash",
 };
 
 const METHODS: Record<AgentKind, { method: LoginMethod; label: string; hint: string }[]> = {
@@ -19,6 +22,9 @@ const METHODS: Record<AgentKind, { method: LoginMethod; label: string; hint: str
     { method: "subscription", label: "ChatGPT", hint: "Use your ChatGPT plan" },
     { method: "console", label: "API key", hint: "OpenAI API, billed per use" },
   ],
+  opencode: [{ method: "subscription", label: "OpenCode", hint: "Pick a provider in OpenCode's own sign-in" }],
+  gemini: [{ method: "subscription", label: "Google", hint: "Sign in from Gemini CLI's first-run screen" }],
+  cursor: [{ method: "subscription", label: "Cursor", hint: "Sign in to your Cursor account" }],
 };
 
 /**
@@ -103,7 +109,7 @@ export function AccountsDialog({
                     title={m.hint}
                     className="rounded-md border border-line px-2.5 py-1 text-[12px] text-muted hover:bg-raised hover:text-fg"
                   >
-                    {a.logged_in ? "Switch to" : "Sign in with"} {m.label}
+                    {a.logged_in ? "Switch account:" : "Sign in with"} {m.label}
                   </button>
                 ))}
               </div>
@@ -119,7 +125,7 @@ export function AccountsDialog({
           <input
             type="checkbox"
             checked={preferences.claude_user_setup}
-            onChange={(e) => void run({ type: "preferences.update", claude_user_setup: e.target.checked })}
+            onChange={(e) => void run({ type: "preferences.update", claude_user_setup: e.target.checked, loadouts: null })}
             className="mt-0.5 accent-accent"
           />
           <span className="flex flex-col gap-0.5">
@@ -131,6 +137,34 @@ export function AccountsDialog({
             </span>
           </span>
         </label>
+        {preferences.loadouts.length > 0 && (
+          <section className="rounded-md border border-line p-3">
+            <h3 className="font-medium">Loadouts</h3>
+            <p className="mb-2 text-[12.5px] text-muted">Saved from a chat's settings. They appear next to + New chat.</p>
+            <ul className="flex flex-col gap-1">
+              {preferences.loadouts.map((l) => (
+                <li key={l.name} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate">
+                    {l.name} <span className="text-[12px] text-faint">{agentLabel(l.agent)}{l.model ? ` · ${l.model}` : ""}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void run({
+                        type: "preferences.update",
+                        claude_user_setup: null,
+                        loadouts: preferences.loadouts.filter((other) => other.name !== l.name),
+                      })
+                    }
+                    className="text-[12px] text-faint hover:text-bad"
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {login && (
           <section className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between text-[12.5px]">

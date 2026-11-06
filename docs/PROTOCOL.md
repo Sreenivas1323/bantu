@@ -35,6 +35,10 @@ All bodies are JSON (`content-type: application/json`). Errors are JSON too: `{ 
 | `GET /v1/workspaces/{id}/history?limit=<n>` | token | `Event[]`, oldest first |
 | `GET /v1/workspaces/{id}/diff` | token | `WorkspaceDiff` |
 | `GET /v1/workspaces/{id}/pr` | token | `PullRequest` or `null` |
+| `GET /v1/workspaces/{id}/checks` | token | `WorkspaceChecks` |
+| `GET /v1/workspaces/{id}/ports` | token | `ForwardedPort[]`, the servers listening on the workspace's ports |
+| `GET /v1/workspaces/{id}/children` | token | `ChildWorkspace[]`, the workspaces its agent started |
+| `GET /v1/push/key` | token | `{ public_key }`, the VAPID key browsers subscribe with |
 | `GET /v1/terminals/{id}/ws` | token | WebSocket of raw PTY bytes |
 | `POST /v1/hooks/permission?session=<id>` | hook token | Claude Code hook response (internal) |
 
@@ -54,10 +58,11 @@ All bodies are JSON (`content-type: application/json`). Errors are JSON too: `{ 
   "sessions": [Session, ...],
   "comments": [DiffComment, ...],
   "terminals": [Terminal, ...],
-  "permissions": [PermissionRequest, ...]
+  "permissions": [PermissionRequest, ...],
+  "inbox": [InboxItem, ...]
 }
 ```
-Render this, then open `/v1/events?since=42`. The snapshot carries no logs or transcripts; fetch those per workspace from `/history`. `terminals` and `permissions` live in the daemon's memory and are empty after a restart.
+Render this, then open `/v1/events?since=42`. The snapshot carries no logs or transcripts; fetch those per workspace from `/history`. `terminals`, `permissions` and `inbox` live in the daemon's memory and are empty after a restart.
 
 ### `POST /v1/commands` → `CommandResponse`
 The body is one `Command`. An optional `Idempotency-Key` header makes retries safe. The daemon stores the response for 24 hours and replays it for the same key without running the command again. Server errors (5xx) aren't stored, so they can be retried. Clients on flaky networks (phones, CloudFront) should always send one, e.g. a UUID per user action.
@@ -106,6 +111,14 @@ Everything the branch changed relative to its merge-base with `base_ref`: commit
 ### `GET /v1/workspaces/{id}/pr` → `PullRequest | null`
 The branch's pull request and a summary of its checks, from `gh pr view`. It is `null` when there's no PR, no `origin` remote, or `gh` isn't installed.
 
+### `GET /v1/workspaces/{id}/checks` → `WorkspaceChecks`
+`{ workspace_id, pull_request, checks: CheckRun[], deployments: Deployment[], comments: PrComment[], todos: TodoItem[] }`, for the Checks tab. GitHub data comes from `gh` and is empty when `gh` is missing or the branch has no PR. `todos` always includes the agent's latest todo list.
+
+- `CheckRun`: `{ name, workflow, bucket, link, description }`, where `bucket` is `pass`, `fail`, `pending`, `skipping` or `cancel`.
+- `Deployment`: `{ environment, state, url, created_at }`, the newest deployment per environment (up to 5).
+- `PrComment`: `{ author, body, path, line, url, created_at }`, for conversation comments, review summaries and line comments.
+- `TodoItem`: `{ text, done, source }`, where `source` is `agent` or `pull_request` (task list items in the PR description).
+
 ### `GET /v1/terminals/{id}/ws`
 A WebSocket attached to a PTY.
 - **Binary frames** carry raw bytes both ways: keystrokes in, terminal output out.
@@ -142,6 +155,10 @@ This is Claude Code's `PermissionRequest` HTTP hook (see [Agent sessions](#agent
 | `error` | string \| null | Set when `state` is `failed` |
 | `archive_commit` | string \| null | Commit holding uncommitted tracked changes at archive time |
 | `created_at` | string | RFC 3339 |
+| `parent_id` | string \| null | The workspace whose agent started this one |
+| `loop_id` | string \| null | The loop this workspace is a run of |
+| `external` | boolean | Another tool owns the worktree (it was imported), so archiving leaves the files alone |
+| `review_state` | `"reviewing" \| "changes_requested" \| "approved"` \| null | Where automatic review has got to |
 
 ### `Session`
 One chat with an agent in a workspace. Every workspace gets one automatically when it becomes ready.
@@ -150,10 +167,13 @@ One chat with an agent in a workspace. Every workspace gets one automatically wh
 |---|---|---|
 | `id` | string | |
 | `workspace_id` | string | |
-| `agent` | `"claude"` | More agents later |
+| `agent` | `"claude" \| "codex" \| "opencode" \| "gemini" \| "cursor"` | Fixed when the chat is created |
 | `title` | string | `"New chat"` until the first message, which becomes the title |
 | `model` | string \| null | `null` uses the agent's default (e.g. `opus`, `sonnet`, `haiku`, or a full model id) |
 | `permission_mode` | `PermissionMode` | See below |
+| `effort` | string \| null | `low`, `medium`, `high`, `xhigh` or `max`; `null` uses the agent's default. Claude and Codex only (Codex treats `max` as `xhigh`) |
+| `fast` | boolean | Claude's fast mode |
+| `forked_from` | string \| null | The chat this one was forked from |
 | `status` | `"idle" \| "running"` | |
 | `queued` | number | Messages waiting for the current turn to finish |
 | `turns` | number | Turns started so far |
@@ -181,6 +201,7 @@ One transcript entry, normalized across agents and tagged by `kind`:
 | `tool_result` | `tool_use_id`, `content`, `is_error` | Text output, truncated to 20,000 characters |
 | `turn_end` | `is_error`, `duration_ms`, `cost_usd`, `input_tokens`, `output_tokens` | `input_tokens` includes cache reads and writes |
 | `rewound` | `to_turn` | Files were restored to before `to_turn` |
+| `terminal_session` | `imported` | The chat continued in a terminal; `imported` entries read back from the agent's transcript come just before this one |
 | `error` | `message` | Bantu-side problems: the agent couldn't start, crashed, or was stopped (`"Stopped"`) |
 
 ### `StreamDelta`
@@ -223,8 +244,17 @@ One transcript entry, normalized across agents and tagged by `kind`:
 - `review_decision` is `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED` or `null`.
 
 ### `Terminal`
-`{ id, workspace_id, kind, title, command, exited, exit_code, created_at }`
-- `kind` is `"shell"` (an interactive login shell) or `"run"` (the repo's run script, with its `command`).
+`{ id, workspace_id, kind, title, command, session_id, exited, exit_code, created_at }`
+- `kind` is `"shell"` (an interactive login shell), `"run"` (the repo's run script, with its `command`), `"login"` (an agent's sign-in flow) or `"agent"` (any other CLI, or a chat continued in a terminal).
+- `session_id` is the chat this terminal continues, if any.
+
+### `InboxItem`
+`{ id, workspace_id, session_id, kind, title, body, options, created_at }`: a notice or question an agent sent with the `notify_user` or `ask_user` MCP tool.
+- `kind` is `"notice"` or `"question"`. A question's agent is waiting for an answer; `options` are suggestions, and the user can type their own.
+- Items live in the daemon's memory and are empty after a restart. Stopping a chat releases its questions.
+
+### `Spotlight`
+`{ repo_id, workspace_id, restore_to, commit, synced_at }`: a workspace shown in its repo's main checkout. `restore_to` is where the checkout returns afterwards. Listed in `StateSnapshot.spotlights`; changes arrive as `spotlight.updated`.
 
 ### `LogStream`
 `"stdout" | "stderr" | "system"`
@@ -240,19 +270,39 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `workspace.create` | `repo_id`, `name?`, `base_ref?` | `Workspace` (`creating`) | Creates a worktree and branch; see below. |
 | `workspace.archive` | `workspace_id` | `Workspace` (`archiving`) | Stops its agents and terminals, then archives; see below. |
 | `workspace.run` | `workspace_id` | `Terminal` | Starts the repo's run script in a `run` terminal, or returns the one already running. 400 if there's no run script. |
+| `workspace.integrate` | `workspace_id`, `session_id?` | `IntegrationResult` | Merges finished child workspaces into this one's branch; see below. 409 if the lead is busy or has uncommitted changes. |
+| `workspace.spotlight` | `workspace_id` | `Spotlight` | Shows the workspace's work in the repo's main checkout; see below. 409 if the main checkout has uncommitted changes. |
+| `repo.spotlight_stop` | `repo_id` | — | Returns the main checkout to its branch. 409 if it has uncommitted changes. |
 | `workspace.create_pr` | `workspace_id`, `session_id` | `Session` | Asks the agent to commit, push and `gh pr create` against `base_ref`. 400 without an `origin` remote. |
-| `session.create` | `workspace_id`, `model?`, `permission_mode?` | `Session` | Opens another chat in a ready workspace. |
+| `workspace.fix_checks` | `workspace_id`, `session_id` | `Session` | Sends failing checks and their logs to the agent. |
+| `workspace.address_comments` | `workspace_id`, `session_id` | `Session` | Sends the PR's comments to the agent. 400 without a PR or comments. |
+| `workspace.resolve_conflicts` | `workspace_id`, `session_id` | `Session` | Asks the agent to resolve what the conflict radar found. 400 if there's nothing to resolve. |
+| `workspace.rename_branch` | `workspace_id`, `session_id` | `Session` | Asks the agent to rename the branch. The daemon picks up the new name when the turn ends. |
+| `workspace.review` | `workspace_id`, `agent?` | `Session` | Starts a read-only chat that reviews the workspace's changes. |
+| `session.create` | `workspace_id`, `agent?`, `model?`, `permission_mode?`, `effort?`, `fast?` | `Session` | Opens another chat in a ready workspace. |
+| `session.fork` | `session_id` | `Session` | Starts a new chat that continues from where this one is now; see below. 409 while a turn is running. |
 | `session.send` | `session_id`, `text` | `Session` | Sends a message. If a turn is running it's queued (`queued` goes up) and runs afterwards, in order. |
 | `session.cancel` | `session_id` | `Session` | Stops the running turn (it ends with an `error` item `"Stopped"`), drops queued messages, and denies pending permission requests. |
-| `session.update` | `session_id`, `title?`, `model?`, `permission_mode?` | `Session` | Changes settings; they apply from the next turn. |
+| `session.update` | `session_id`, `title?`, `model?`, `permission_mode?`, `effort?`, `fast?` | `Session` | Changes settings; they apply from the next turn. An empty `effort` goes back to the default. |
 | `session.rewind` | `session_id`, `turn` | `Session` | Restores the workspace files to the checkpoint taken just before `turn` started; see below. 409 while the agent is running. |
 | `permission.respond` | `request_id`, `allow`, `message?` | — | Answers a `PermissionRequest`. `message` tells the agent why it was denied. 404 if already answered. |
+| `inbox.respond` | `item_id`, `answer` | — | Answers a question in the inbox. 404 if already handled. |
+| `inbox.dismiss` | `item_id` | — | Clears a notice, or declines to answer a question. |
+| `push.subscribe` | `endpoint`, `p256dh`, `auth` | — | Sends this browser alerts through Web Push. 400 unless the endpoint uses HTTPS. |
+| `push.unsubscribe` | `endpoint` | — | |
+| `loop.create` | `repo_id`, `name`, `trigger`, `prompt`, `agent?`, `model?`, `permission_mode?` | `Loop` | Creates a loop, enabled; see below. |
+| `loop.update` | `loop_id`, `enabled?`, `prompt?` | `Loop` | Pauses, resumes or changes a loop. |
+| `loop.delete` | `loop_id` | — | Existing runs' workspaces are kept. |
+| `loop.run` | `loop_id` | `Workspace` | Starts a run now. 409 if the last run is still working or the repo has 10 active workspaces. |
+| `import.scan` | `source`, `path?` | `ImportPreview` | Shows what an import from `conductor` or `pane` would bring across. `path` overrides where the tool's database normally is. |
+| `import.run` | `source`, `path?` | `ImportPreview` | Imports in the background; see below. 404 if the database isn't there. |
 | `comment.add` | `workspace_id`, `path`, `line`, `body` | `DiffComment` | Adds a draft review comment. |
 | `comment.delete` | `comment_id` | — | |
 | `comments.send` | `workspace_id`, `session_id` | `Session` | Sends every draft comment to the agent as one message (sorted by file and line), then marks them sent. 400 if there are none. |
-| `terminal.open` | `workspace_id`, `cols?`, `rows?` | `Terminal` | Opens an interactive login shell in the worktree. |
+| `terminal.open` | `workspace_id`, `cols?`, `rows?`, `command?` | `Terminal` | Opens an interactive login shell in the worktree, or runs `command` (any CLI) there. |
+| `session.open_terminal` | `session_id`, `cols?`, `rows?` | `Terminal` | Continues a Claude or Codex chat in the agent's own terminal UI; see below. Returns the existing terminal if it's already open. 409 while a turn is running. |
 | `terminal.close` | `terminal_id` | — | Hangs up the terminal's whole process group and forgets it. |
-| `preferences.update` | `claude_user_setup?` | `Preferences` | Changes daemon-wide preferences (also in `StateSnapshot.preferences`; changes arrive as `preferences.updated`). |
+| `preferences.update` | `claude_user_setup?`, `loadouts?` | `Preferences` | Changes daemon-wide preferences (also in `StateSnapshot.preferences`; changes arrive as `preferences.updated`). |
 
 ```json
 { "type": "session.send", "session_id": "s_123", "text": "Fix the flaky login test" }
@@ -269,6 +319,53 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 6. Runs the repo's setup script, if any. Its output streams as `workspace.log` events.
 7. Ends in state `ready` with one idle `Session`, or in `failed` with `error` set.
 
+### Loops
+
+A `Loop` runs an agent on its own: `{ id, repo_id, name, trigger, prompt, agent, model, permission_mode, enabled, last_run_at, next_run_at, last_workspace_id, last_result, created_at }`. Listed in `StateSnapshot.loops`; changes arrive as `loop.updated` and `loop.deleted`.
+
+`trigger` is tagged by `kind`:
+
+| `kind` | Fields | When |
+|---|---|---|
+| `cron` | `schedule` | Five cron fields (`*`, `5`, `1-5`, `*/15`, lists) in the daemon's time zone, or `@hourly`, `@daily`, `@weekly`, `@monthly` |
+| `github_issue` | `label` | A new open issue with that label, polled about once a minute with `gh` |
+| `github_pull_request` | `label` | A new open PR with that label, not from a fork |
+
+- **Each run gets a fresh workspace**, with `loop_id` set. A run that changes nothing is archived automatically. A failed one is kept, so you can see why.
+- **One at a time.** A run is skipped if the last one is still working or the repo already has 10 active workspaces, and `last_result` says so.
+- **Missed runs aren't caught up on.** If the daemon or machine was off at the scheduled time, the next run is the next one due.
+- **GitHub triggers need a label**, because labels take triage rights while anyone can open an issue, and an issue's text goes into the agent's prompt. They refuse `bypass_permissions` and don't check out forks' PRs. The first poll records what's already open, so turning a loop on doesn't start a run for every old issue.
+- **Alerts.** A finished loop run sends no push alert, but one that asks for approval still does.
+
+### Importing from Conductor and Pane
+
+`import.run` brings across a tool's active workspaces and chats, with `import.updated` events carrying an `ImportStatus` (`{ source, running, workspaces, chats, items, skipped, error }`).
+
+- **The source isn't changed.** Its database is opened read-only (`~/Library/Application Support/com.conductor.app/conductor.db`, `~/.pane/sessions.db`), in `immutable` mode unless it has pending WAL data, so no sidecar files are created. These are private formats that can change between versions, so an unknown layout is reported as an error and nothing else happens.
+- **Worktrees are adopted in place.** They get `external: true`, so archiving only forgets them: no scripts run and no files are removed. Each still gets its own reserved ports, and its branch stays as it is.
+- **What comes across.** Active workspaces whose folders still exist and belong to the expected repo, on a branch (a detached HEAD is skipped). Archived ones don't. Each chat keeps its last 1,000 messages. Claude and Codex chats keep their conversation ids, so they can carry on. Chats with other agents, or with no conversation id, don't come across.
+- **Importing again is safe.** A worktree that's already a Bantu workspace is skipped.
+
+### `workspace.integrate`
+A workspace created through the `create_workspace` MCP tool records its lead in `parent_id`. This command merges the lead's children with `git merge --no-edit`, in the lead's worktree, one at a time.
+
+- A child is skipped, with a reason, if its agent is working, it has uncommitted files, it isn't ready, or it has nothing new.
+- On the first conflict that merge is aborted, so the branch is never left half merged. With a `session_id`, that chat's agent is asked to merge the conflicting branch and the rest, and `sent_to_agent` is true.
+- Merges are local. Nothing is pushed.
+
+`IntegrationResult` is `{ merged, skipped: [{ workspace, reason }], conflict, sent_to_agent }`.
+
+### `workspace.spotlight`
+Tests a workspace in the repo's main checkout, where the user's own dev servers, `.env` files and tools already live.
+
+1. Takes a snapshot of the workspace (commits, uncommitted and untracked files) and keeps it at `refs/bantu/spotlight/<repo id>`.
+2. Runs `git checkout --detach <snapshot>` in the main checkout. Detaching means no branch moves, and the workspace's branch stays usable in its worktree.
+3. Repeats after each agent turn in that workspace.
+
+`repo.spotlight_stop` checks out the original branch again, and archiving the workspace does the same. The state is kept in the database, because the checkout stays that way across a daemon restart.
+
+The main checkout belongs to the user, so nothing here overwrites it. Tracked changes or a merge in progress refuse the command with 409. If its `HEAD` isn't where Spotlight left it, because the user switched branch or committed there, automatic updates stop and `repo.spotlight_stop` only forgets the spotlight, without moving anything. If that happens during an automatic update, the update is skipped and the reason goes in the workspace log. Gitignored files are left alone.
+
 ### `workspace.archive`
 1. Stops running agent turns and closes terminals.
 2. Runs the archive script, if any. A failing archive script is logged and doesn't block archiving.
@@ -276,6 +373,25 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 4. Removes the worktree and the session checkpoint refs.
 5. Keeps the branch.
 6. Ends in state `archived`.
+
+## Port previews
+
+Open a workspace's dev server from any device, through the daemon.
+
+- **`GET /v1/workspaces/{id}/ports`** checks the workspace's 10 reserved ports and returns `{ port, url }` for each one that's listening. `url` carries a grant for that port, valid for 5 minutes. It's `null` when the client is remote and `BANTU_PREVIEW_URL` isn't set.
+- **Its own listener.** Previews are served on a separate port (`--preview-port`, by default the API port + 1), and only previews. A different port is a different browser origin, so a previewed page can't read the daemon's token from `localStorage`. The daemon's token isn't accepted there.
+- **`/p/{workspace}/{port}/{path}`** forwards HTTP (streaming both ways) and WebSockets to `127.0.0.1:{port}`. Opening a grant link sets an `HttpOnly` cookie scoped to that path and removes the grant from the URL. Only the workspace's own ports can be reached (403 otherwise). Grants and cookies stop working when the daemon restarts.
+- **Previews share an origin with each other.** That origin is separate from the daemon's, but a page in one preview could fetch another preview on the same daemon, so only preview apps you trust alongside each other. Apps' cookies are rescoped to their own preview's path, so they don't collide.
+- **What's rewritten.** Redirects to `/path` or `http://localhost:{port}/path` stay inside the preview. A root-absolute request such as `/assets/app.js` is redirected back into its preview using the `Referer`. Paths are forwarded exactly as sent. Bantu's cookie and `Authorization` header aren't forwarded, and `Host` is set to `localhost:{port}`, since dev servers often reject other names. A WebSocket opened at a root path can't be redirected, so hot reload clients may need their dev server's base path set to `$BANTU_PREVIEW_BASE` (set in workspace terminals to `/p/{workspace}/{BANTU_PORT}/`). URLs an app builds from its own host, and third-party sign-in callbacks, may still need the app configured for its preview address.
+
+## Web Push
+
+The daemon sends alerts itself, with no server of ours in the path. It sends one when an agent asks for approval, sends a notice or question, or finishes.
+
+- **Key**: an ES256 VAPID key generated on first start and stored in `<home>/vapid-key` (mode 0600).
+- **Encryption**: RFC 8291 (`aes128gcm`), so the browser's push service only sees ciphertext. Payloads are JSON: `{ title, body, tag }`.
+- **Sending**: a `POST` to the subscription's endpoint, using the system `curl`. Subscriptions that answer 404 or 410 are removed.
+- **Subscribing**: fetch `GET /v1/push/key`, call `pushManager.subscribe`, then send `push.subscribe`. Web Push needs an installed PWA on iOS, and HTTPS everywhere except `localhost`.
 
 ## Agent sessions
 
@@ -303,6 +419,68 @@ claude -p --output-format stream-json --verbose --include-partial-messages \
 - **Checkpoints.** Before each turn the daemon snapshots the worktree to `refs/bantu/cp/<session>/<turn>`: tracked and untracked (non-ignored) files, as a commit whose parent is `HEAD`. It uses a temporary index, so the user's index, branch and files are untouched. It's skipped while a merge or rebase is in progress.
 - **Rewind.** `session.rewind` resets the branch to the checkpoint's parent, restores the snapshot's files (ignored files such as `node_modules` are left alone), and adds a `rewound` item. Claude can't rewind part of a conversation, so the next message is prefixed with a note telling the agent which turn the files went back to.
 
+### Automatic review
+
+With `[review] auto = true`, a chat that finishes work gets reviewed by a different agent, in a read-only chat titled "Automatic review". `Workspace.review_state` follows along.
+
+1. **It starts** when a chat has no queued work left, isn't in plan mode, its last turn succeeded, the repo's `check` passed (if it has one), and the files differ from where the branch started. Identical work isn't reviewed twice.
+2. **The reviewer** ends its reply with `VERDICT: APPROVED` or `VERDICT: CHANGES_REQUESTED`. Only the last line counts.
+3. **Approved** sets `approved`, which means the work is ready.
+4. **Changes requested** sets `changes_requested` and sends the findings to the author's chat. After 2 rounds it stops and sends an inbox notice instead, so two agents can't spend your quota arguing. A message from you starts the count again.
+5. **No verdict**, for example because the reviewer's CLI isn't installed, clears the state and notes it in the workspace log.
+
+Any new message to a chat clears `review_state`, because the review no longer describes the work.
+
+### Forking a chat
+
+`session.fork` creates a chat with a copy of the parent's transcript, settings and checkpoints, so rewinding to an earlier turn still works. The parent is untouched.
+
+- **Claude** forks the real conversation: the fork's first turn runs `claude --resume <parent> --fork-session --session-id <fork>`.
+- **Other agents** can't fork a conversation, so the fork starts a new one and its first message includes the last 20,000 characters of the transcript.
+
+### Loadouts
+
+`preferences.loadouts` is a saved list of `Loadout`: `{ name, agent, model, effort, fast, permission_mode }`. Clients offer these when starting a chat and pass the values to `session.create`. `preferences.update` replaces the whole list.
+
+### Bantu's MCP tools
+
+Every turn gets Bantu's MCP server (`POST /v1/mcp?session=<id>`, authenticated with the hook token). Tools act only on the caller's repository.
+
+| Tool | What it does |
+|---|---|
+| `list_workspaces`, `workspace_status`, `wait_for_workspace` | See and wait for this repo's workspaces |
+| `create_workspace`, `send_message`, `get_diff` | Start, message and review other workspaces' agents |
+| `integrate_workspaces` | Merge the workspaces this one started into its branch |
+| `list_terminals`, `get_terminal_output` | Read a workspace's terminals, such as dev server logs (ANSI codes stripped, last 2,000 lines at most) |
+| `list_diff_comments`, `add_diff_comment` | Read review comments, and add draft ones for the user to send |
+| `notify_user` | Send a notice to the inbox without waiting |
+| `ask_user` | Ask a question and block until it's answered, dismissed or stopped, or the timeout passes (10–1800 s, default 600) |
+
+A chat in plan mode can't use `create_workspace`, `send_message` or `integrate_workspaces`. A chat that doesn't bypass permissions can't `send_message` to one that does.
+
+### Chat and terminal on one conversation
+
+`session.open_terminal` runs `claude --resume <id>` (or `--session-id` before the first turn) or `codex resume <id>` in a PTY, with the same workspace context, model and permission mode as the chat. Bantu's MCP server stays available; the permission hook doesn't apply, because the agent's terminal UI asks for itself.
+
+While that terminal runs, `session.send` returns 409, because two processes must not write to one conversation. When it ends, the chat gets a new turn:
+
+- **Claude**: new entries in its transcript (`<CLAUDE_CONFIG_DIR>/projects/*/<id>.jsonl`) are added as chat items, then a `terminal_session` item. Subagent work and injected context are skipped, and the transcript carries no per-turn cost.
+- **Codex**: only the `terminal_session` item is added, but the conversation resumes normally, because Codex keeps it.
+- **ACP agents** can't reopen a conversation in a terminal yet (400). Run their CLI with `terminal.open` and a `command`; that's a separate conversation.
+
+### ACP agents (OpenCode, Gemini CLI, Cursor)
+
+These agents speak the [Agent Client Protocol](https://agentclientprotocol.com): JSON-RPC 2.0 over stdio. Each turn is one process running `initialize`, then `session/new` (or `session/load` to resume), then `session/prompt`.
+
+- **Commands**: `opencode acp`, `gemini --acp` and `agent acp`. Override the binaries with `BANTU_OPENCODE_BIN`, `BANTU_GEMINI_BIN` and `BANTU_CURSOR_BIN`.
+- **Client capabilities**: Bantu advertises neither `fs` nor `terminal`, so agents use their own file and shell tools inside the worktree.
+- **Bantu's MCP server** is passed to agents that advertise `mcpCapabilities.http`. The token travels over stdin, never in argv.
+- **Workspace context** is prepended to the first prompt, because ACP has no system prompt.
+- **Permission modes** are enforced in the client on `session/request_permission`: `bypass_permissions` allows everything; `plan` allows only `read`, `search`, `fetch` and `think` tools; `accept_edits` allows `edit` tools and asks about the rest; `auto` and `ask` always ask. If the agent advertises a matching mode (such as `plan`, `autoEdit` or `yolo`), it's selected with `session/set_mode` too. An agent decides for itself which tools need permission, so this can only restrict what it asks about.
+- **Models** are selected with `session/set_model` when the agent advertises `models`.
+- **Resuming**: an agent that can't load sessions, or has lost one, gets a new session whose first prompt includes the last 20,000 characters of the transcript.
+- **Handshake timeout**: a turn fails after 60 seconds if the agent hasn't reached `session/prompt`, showing whatever it printed to stderr.
+
 ## Events
 
 `Event = { seq: number, ts: string, data: EventData }`, where `data` is tagged by `type`:
@@ -319,6 +497,11 @@ claude -p --output-format stream-json --verbose --include-partial-messages \
 | `comment.deleted` | `comment_id`, `workspace_id` | |
 | `permission.requested` | `request` | An agent is waiting for approval |
 | `permission.resolved` | `request_id`, `session_id`, `workspace_id`, `allowed` | Answered, stopped or timed out |
+| `loop.updated` | `loop` | A loop was created or changed, including after a run (full object) |
+| `loop.deleted` | `loop_id` | |
+| `spotlight.updated` | `repo_id`, `spotlight` | A workspace entered or updated the main checkout; `spotlight` is `null` when it returned to its branch |
+| `inbox.added` | `item` | An agent sent a notice or question |
+| `inbox.removed` | `item_id`, `workspace_id` | It was answered, dismissed, timed out or released by a stop |
 | `terminal.updated` | `terminal` | A terminal opened or its process exited (full object) |
 | `terminal.closed` | `terminal_id`, `workspace_id` | Closed by the user, by archiving, or by a daemon restart |
 
@@ -335,7 +518,27 @@ run = "bun dev --port $BANTU_PORT"
 # command = "bun dev --port $BANTU_PORT"
 ```
 
-Bantu looks for settings first in the worktree (the branch's committed config), then in the main checkout. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.
+Repo-specific instructions can be added to Bantu's built-in prompts. Each one is appended to the prompt for that action, after the context Bantu fills in:
+
+```toml
+[prompts]
+review = "We care most about migrations. Ignore generated files."
+create_pr = "Use our template in .github/pull_request_template.md."
+fix_checks = "CI runs on Node 22; run `bun test` locally first."
+address_comments = "Reply on the PR when you disagree."
+resolve_conflicts = "Prefer rebasing over merge commits."
+rename_branch = "Branches look like team/short-description."
+```
+
+Automatic review by another agent is off by default, because it spends quota. It's described under [Automatic review](#automatic-review).
+
+```toml
+[review]
+auto = true
+agent = "codex"   # defaults to Codex for Claude's work, and Claude for everyone else's
+```
+
+Bantu looks for `setup` and `run` first in the worktree (the branch's committed config), then in the main checkout. Settings that make the daemon act on its own (`check`, `archive`, `[prompts]` and `[review]`) come only from the main checkout, because an agent allowed to edit files could otherwise run any command without a prompt, or turn off its own review. A branch's changes to them apply once they're merged. While Spotlight is active, those settings come from the base branch instead. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.
 
 Scripts run in the user's login shell (`$SHELL -lc`) in the workspace directory, with these environment variables:
 
@@ -345,8 +548,11 @@ Scripts run in the user's login shell (`$SHELL -lc`) in the workspace directory,
 | `BANTU_WORKSPACE_ID` | Workspace id |
 | `BANTU_WORKSPACE_NAME` | Workspace name |
 | `BANTU_WORKSPACE_PATH` | Worktree path |
+| `BANTU_PREVIEW_BASE` | `/p/{workspace}/{BANTU_PORT}/`, the preview's base path (terminals and the run script) |
 | `BANTU_ROOT_PATH` | Main checkout path (setup and archive scripts) |
 | `BANTU_BASE_REF` | e.g. `origin/main` (setup and archive scripts) |
+
+On Windows, scripts run in `$SHELL` if it's set (Git Bash and MSYS set it), and otherwise in PowerShell, where variables are written `$env:BANTU_PORT`.
 
 When `bantud` starts, it adopts the `PATH` of the user's login shell. A daemon started from the Dock therefore finds `claude`, `bun`, `node` and friends just like a terminal would. Set `BANTU_SKIP_SHELL_ENV=1` to skip this.
 
@@ -370,8 +576,5 @@ curl -N -H "$H" '127.0.0.1:47800/v1/events?since=0'
 
 ## Planned
 
-- More agents: Codex (`codex app-server`), ACP agents (OpenCode, Cursor, Gemini), any CLI in a terminal — M2
-- Checks view with CI failures forwarded to the agent; the Bantu MCP server — M2
-- Pairing codes for remote clients, Web Push — M3
 
 See [ROADMAP.md](ROADMAP.md).

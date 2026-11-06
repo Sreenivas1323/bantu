@@ -1,5 +1,7 @@
 //! End-to-end: a real daemon on a random port, a real git repo with an
-//! `origin`, driven purely through the HTTP API.
+//! `origin`, driven purely through the HTTP API. The fake agents are shell
+//! scripts, so this doesn't run on Windows.
+#![cfg(unix)]
 
 use std::path::Path;
 use std::process::Command as Proc;
@@ -15,6 +17,7 @@ use serde_json::{json, Value};
 /// Stands in for Claude Code (see the script for what each prompt does).
 const FAKE_CLAUDE: &str = include_str!("../../../scripts/fake-claude.sh");
 const FAKE_CODEX: &str = include_str!("../../../scripts/fake-codex.sh");
+const FAKE_ACP: &str = include_str!("../../../scripts/fake-acp.sh");
 
 struct Harness {
     base: String,
@@ -23,6 +26,7 @@ struct Harness {
     hook_token: String,
     /// Arguments of every fake `claude` invocation, one line each.
     claude_calls: std::path::PathBuf,
+    daemon: std::sync::Arc<bantud::Daemon>,
     http: reqwest::Client,
     _dirs: Vec<tempfile::TempDir>,
 }
@@ -60,6 +64,20 @@ impl Harness {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&codex_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
+        let acp_bin = home.path().join("fake-acp");
+        std::fs::write(
+            &acp_bin,
+            FAKE_ACP.replace(
+                "${BANTU_FAKE_ACP_LOG:-/dev/null}",
+                home.path().join("acp-calls.log").to_str().unwrap(),
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&acp_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         let config = bantud::Config {
             home: home.path().to_path_buf(),
             workspaces_dir: workspaces.path().to_path_buf(),
@@ -68,19 +86,32 @@ impl Harness {
             branch_prefix: "bantu/".into(),
             claude_bin,
             codex_bin,
+            claude_config_dir: home.path().join("claude-config"),
+            opencode_bin: acp_bin.clone(),
+            gemini_bin: acp_bin.clone(),
+            cursor_bin: acp_bin,
             allowed_hosts: vec!["box.tail1234.ts.net".into()],
+            preview_url: None,
         };
         let started = bantud::start(config, false).await.unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         started.daemon.set_listen_addr(addr);
+        let preview_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        started
+            .daemon
+            .set_preview_addr(preview_listener.local_addr().unwrap());
+        let preview_router = started.preview_router;
+        tokio::spawn(async move { axum::serve(preview_listener, preview_router).await.unwrap() });
         let hook_token = started.daemon.hook_token().to_string();
+        let daemon = started.daemon.clone();
         tokio::spawn(async move { axum::serve(listener, started.router).await.unwrap() });
         Self {
             base: format!("http://{addr}"),
             token: started.token,
             hook_token,
             claude_calls,
+            daemon,
             http: reqwest::Client::new(),
             _dirs: vec![home, workspaces],
         }
@@ -118,6 +149,46 @@ impl Harness {
             .lines()
             .map(str::to_string)
             .collect()
+    }
+
+    /// The agent's own conversation id, which `/v1/state` doesn't expose:
+    /// the fake records it on its command line.
+    async fn session_with_agent_id(&self, session_id: &str) -> (String, String) {
+        let terminal = self
+            .state()
+            .await
+            .terminals
+            .into_iter()
+            .find(|t| t.session_id.as_deref() == Some(session_id))
+            .unwrap();
+        let command = terminal.command.unwrap();
+        let id = command
+            .split_whitespace()
+            .skip_while(|w| *w != "--session-id" && *w != "--resume")
+            .nth(1)
+            .unwrap()
+            .to_string();
+        (terminal.id, id)
+    }
+
+    /// The status from the last finished `import.updated` after `since`.
+    async fn import_finished(&self, since: i64) -> Option<Value> {
+        let last = self.state().await.last_seq;
+        if last <= since {
+            return None;
+        }
+        let events = self.events(since, (last - since) as usize).await;
+        events.iter().rev().find_map(|e| match &e.data {
+            EventData::ImportUpdated { status } if !status.running => {
+                Some(serde_json::to_value(status).unwrap())
+            }
+            _ => None,
+        })
+    }
+
+    fn acp_calls(&self) -> String {
+        std::fs::read_to_string(self.claude_calls.with_file_name("acp-calls.log"))
+            .unwrap_or_default()
     }
 
     async fn history(&self, workspace_id: &str) -> Vec<Event> {
@@ -1627,6 +1698,13 @@ async fn mcp_orchestration_tools() {
             "workspace_status",
             "wait_for_workspace",
             "send_message",
+            "integrate_workspaces",
+            "list_terminals",
+            "get_terminal_output",
+            "list_diff_comments",
+            "add_diff_comment",
+            "notify_user",
+            "ask_user",
             "get_diff"
         ]
     );
@@ -1776,7 +1854,7 @@ async fn definition_of_done_check() {
     let path = Path::new(&ws.path);
     let set_check = |check: &str| {
         std::fs::write(
-            path.join(".bantu/settings.toml"),
+            clone.join(".bantu/settings.toml"),
             format!("[scripts]\ncheck = \"{check}\"\n"),
         )
         .unwrap()
@@ -1852,6 +1930,22 @@ async fn definition_of_done_check() {
         checks(&chat(&h.history(&ws.id).await, &session.id)),
         [false, true, false, false, false]
     );
+
+    // An agent can't choose what runs: the worktree's check is ignored.
+    set_check("true");
+    std::fs::write(
+        path.join(".bantu/settings.toml"),
+        "[scripts]\ncheck = \"touch written-by-the-agent\"\n",
+    )
+    .unwrap();
+    h.command(send("edit once more"), None).await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 7
+    })
+    .await;
+    assert!(!path.join("written-by-the-agent").exists());
+    let last = checks(&chat(&h.history(&ws.id).await, &session.id));
+    assert_eq!(last.last(), Some(&true), "the main checkout's check ran");
 }
 
 #[tokio::test]
@@ -1911,4 +2005,1981 @@ async fn agent_accounts_and_login() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     panic!("login terminal never exited");
+}
+
+#[tokio::test]
+async fn acp_sessions() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+
+    let (status, res) = h
+        .command(
+            json!({"type":"session.create","workspace_id":ws.id,"agent":"gemini"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let session: Session = serde_json::from_value(res["result"].clone()).unwrap();
+    assert_eq!(session.agent.as_str(), "gemini");
+    let (status, _) = h
+        .command(
+            json!({"type":"session.send","session_id":session.id,"text":"hello"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(
+        items
+            .iter()
+            .any(|i| matches!(i, ChatItem::ToolUse { name, .. } if name == "Bash")),
+        "{items:?}"
+    );
+    assert!(items
+        .iter()
+        .any(|i| matches!(i, ChatItem::ToolResult { content, .. } if content == "README.md")));
+    let answer = items
+        .iter()
+        .find_map(|i| match i {
+            ChatItem::Assistant { text } => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(answer.starts_with("acp: "), "{answer}");
+    assert!(answer.ends_with("hello"), "{answer}");
+    assert!(items.iter().any(|i| matches!(
+        i,
+        ChatItem::TurnEnd {
+            is_error: false,
+            ..
+        }
+    )));
+
+    // Bantu's MCP server is offered, and the token never reaches argv.
+    let calls = h.acp_calls();
+    assert!(calls.contains(r#""method":"session/new""#), "{calls}");
+    assert!(calls.contains("/v1/mcp?session="), "{calls}");
+
+    // The second turn reopens the conversation and ignores replayed history.
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"again"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    assert!(h.acp_calls().contains(r#""method":"session/load""#));
+    assert!(h.acp_calls().contains(r#""sessionId":"acp_fake""#));
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(!items
+        .iter()
+        .any(|i| matches!(i, ChatItem::Assistant { text } if text.contains("old history"))));
+
+    // Permission prompts appear as normal requests, and the answer goes back.
+    h.command(
+        json!({"type":"session.update","session_id":session.id,"permission_mode":"ask"}),
+        None,
+    )
+    .await;
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"needs permission"}),
+        None,
+    )
+    .await;
+    let request = loop {
+        if let Some(p) = h.state().await.permissions.into_iter().next() {
+            break p;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(request.tool_name, "Bash");
+    assert_eq!(request.tool_input["command"], "rm -rf build");
+    h.command(
+        json!({"type":"permission.respond","request_id":request.id,"allow":true}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 3
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(
+        items
+            .iter()
+            .any(|i| matches!(i, ChatItem::Assistant { text } if text == "acp: decision allow")),
+        "{items:?}"
+    );
+
+    // Plan mode rejects risky tools without bothering the user.
+    h.command(
+        json!({"type":"session.update","session_id":session.id,"permission_mode":"plan"}),
+        None,
+    )
+    .await;
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"permission please"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 4
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(
+        items
+            .iter()
+            .any(|i| matches!(i, ChatItem::Assistant { text } if text == "acp: decision deny")),
+        "{items:?}"
+    );
+}
+
+#[tokio::test]
+async fn chat_continues_in_a_terminal() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+
+    let (status, res) = h
+        .command(
+            json!({"type":"session.open_terminal","session_id":session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["kind"], "agent");
+    assert_eq!(res["result"]["session_id"], json!(session.id));
+    let command = res["result"]["command"].as_str().unwrap();
+    assert!(command.contains("--session-id"), "{command}");
+    let terminal_id = res["result"]["id"].as_str().unwrap().to_string();
+
+    // Opening again returns the same terminal, and the chat can't take turns.
+    let (_, again) = h
+        .command(
+            json!({"type":"session.open_terminal","session_id":session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(again["result"]["id"], json!(terminal_id));
+    let (status, _) = h
+        .command(
+            json!({"type":"session.send","session_id":session.id,"text":"hi"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 409);
+
+    // What happened in the terminal is read back when it closes.
+    let (_, full) = h.session_with_agent_id(&session.id).await;
+    let project = h
+        .claude_calls
+        .with_file_name("claude-config/projects/-workspace");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(
+        project.join(format!("{full}.jsonl")),
+        concat!(
+            r#"{"type":"user","message":{"content":"typed in the terminal"}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"answered there"}]}}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    let (status, _) = h
+        .command(
+            json!({"type":"terminal.close","terminal_id":terminal_id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_session(&session.id, |s| s.turns == 1).await;
+    let mut items = Vec::new();
+    for _ in 0..100 {
+        items = chat(&h.history(&ws.id).await, &session.id);
+        if items
+            .iter()
+            .any(|i| matches!(i, ChatItem::TerminalSession { .. }))
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        items,
+        vec![
+            ChatItem::User {
+                text: "typed in the terminal".into()
+            },
+            ChatItem::Assistant {
+                text: "answered there".into()
+            },
+            ChatItem::TerminalSession { imported: 2 },
+        ]
+    );
+
+    // The next chat turn resumes the same conversation.
+    let (status, _) = h
+        .command(
+            json!({"type":"session.send","session_id":session.id,"text":"back in chat"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let calls = std::fs::read_to_string(&h.claude_calls).unwrap();
+    assert!(
+        calls.lines().last().unwrap().contains("--resume"),
+        "{calls}"
+    );
+
+    // Any other CLI can run in a terminal too.
+    let (status, res) = h
+        .command(
+            json!({"type":"terminal.open","workspace_id":ws.id,"command":"echo hello"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["title"], "echo");
+    assert_eq!(res["result"]["kind"], "agent");
+    assert_eq!(res["result"]["session_id"], Value::Null);
+}
+
+#[tokio::test]
+async fn repo_prompts_and_branch_renames() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    // Prompts come from the main checkout, so an agent can't rewrite them.
+    std::fs::write(
+        repo_path.join(".bantu/settings.toml"),
+        "[prompts]\nrename_branch = \"Use the team/ prefix.\"\ncreate_pr = \"Fill in our template.\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        Path::new(&ws.path).join(".bantu/settings.toml"),
+        "[prompts]\nrename_branch = \"Written by the agent.\"\n",
+    )
+    .unwrap();
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+
+    let (status, _) = h
+        .command(
+            json!({"type":"workspace.rename_branch","workspace_id":ws.id,"session_id":session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    let prompt = items
+        .iter()
+        .find_map(|i| match i {
+            ChatItem::User { text } => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(prompt.contains("git branch -m"), "{prompt}");
+    assert!(
+        prompt.ends_with("Instructions for this repository:\nUse the team/ prefix."),
+        "{prompt}"
+    );
+
+    // A branch renamed outside Bantu's own naming is noticed after the next turn.
+    sh(Path::new(&ws.path), &["branch", "-m", "team/renamed"]);
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"continue"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let mut branch = String::new();
+    for _ in 0..50 {
+        branch = h.state().await.workspaces[0].branch.clone();
+        if branch == "team/renamed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(branch, "team/renamed");
+
+    // No conflicts means there's nothing to resolve.
+    let (status, _) = h
+        .command(
+            json!({"type":"workspace.resolve_conflicts","workspace_id":ws.id,"session_id":session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400);
+
+    // No remote PR: the Checks tab still answers, with empty sections.
+    let res = h
+        .http
+        .get(format!("{}/v1/workspaces/{}/checks", h.base, ws.id))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let checks: Value = res.json().await.unwrap();
+    assert_eq!(checks["pull_request"], Value::Null);
+    assert_eq!(checks["checks"], json!([]));
+}
+
+#[tokio::test]
+async fn mcp_terminals_comments_and_inbox() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let call = |name: &'static str, args: Value| {
+        let (http, url, token) = (
+            h.http.clone(),
+            format!("{}/v1/mcp?session={}", h.base, session.id),
+            h.hook_token.clone(),
+        );
+        async move {
+            let res: Value = http
+                .post(url)
+                .bearer_auth(token)
+                .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+                    "params":{"name":name,"arguments":args}}))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            res["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+
+    // Terminal output, with escape codes removed.
+    assert!(call("list_terminals", json!({}))
+        .await
+        .contains("no terminals"));
+    let (status, _) = h
+        .command(
+            json!({"type":"terminal.open","workspace_id":ws.id,
+                   "command":"printf '\\033[32mserver ready\\033[0m\\n'; sleep 30"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    let mut output = String::new();
+    for _ in 0..100 {
+        output = call("get_terminal_output", json!({})).await;
+        if output.contains("server ready") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(output.contains("server ready"), "{output}");
+    assert!(!output.contains('\u{1b}'), "{output:?}");
+    assert!(call("list_terminals", json!({})).await.contains("running"));
+    assert!(call("get_terminal_output", json!({"terminal":"nope"}))
+        .await
+        .contains("no terminal"));
+
+    // Comments are drafts for the user to send.
+    call(
+        "add_diff_comment",
+        json!({"path":"a.rs","line":3,"body":"check this"}),
+    )
+    .await;
+    let listed = call("list_diff_comments", json!({})).await;
+    assert!(listed.contains("`a.rs:3`: check this"), "{listed}");
+    assert!(h.state().await.comments[0].sent_at.is_none());
+
+    // Notices wait for nobody.
+    call(
+        "notify_user",
+        json!({"title":"Build finished","body":"All green"}),
+    )
+    .await;
+    let inbox = h.state().await.inbox;
+    assert_eq!(inbox.len(), 1);
+    assert_eq!(inbox[0].title, "Build finished");
+    let (status, _) = h
+        .command(json!({"type":"inbox.dismiss","item_id":inbox[0].id}), None)
+        .await;
+    assert_eq!(status, 200);
+    assert!(h.state().await.inbox.is_empty());
+
+    // A question blocks until it's answered.
+    let asking = tokio::spawn(call(
+        "ask_user",
+        json!({"question":"Which database?","options":["sqlite","postgres"]}),
+    ));
+    let item = loop {
+        if let Some(i) = h.state().await.inbox.into_iter().next() {
+            break i;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    assert_eq!(item.options, ["sqlite", "postgres"]);
+    assert!(!asking.is_finished());
+    let (status, _) = h
+        .command(
+            json!({"type":"inbox.respond","item_id":item.id,"answer":"postgres"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(asking.await.unwrap(), "The user answered: postgres");
+    let (status, _) = h
+        .command(
+            json!({"type":"inbox.respond","item_id":item.id,"answer":"again"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 404);
+
+    // Stopping the agent releases its question.
+    let asking = tokio::spawn(call("ask_user", json!({"question":"Still there?"})));
+    while h.state().await.inbox.is_empty() {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    h.command(
+        json!({"type":"session.cancel","session_id":session.id}),
+        None,
+    )
+    .await;
+    assert_eq!(asking.await.unwrap(), "The user stopped this agent.");
+    assert!(h.state().await.inbox.is_empty());
+}
+
+#[tokio::test]
+async fn effort_fast_mode_and_forks() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let calls = || std::fs::read_to_string(&h.claude_calls).unwrap_or_default();
+
+    let (status, _) = h
+        .command(
+            json!({"type":"session.update","session_id":session.id,"effort":"ludicrous"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400);
+    let (status, res) = h
+        .command(
+            json!({"type":"session.update","session_id":session.id,"effort":"high","fast":true}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["effort"], "high");
+    assert_eq!(res["result"]["fast"], true);
+
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"edit something"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let first = calls();
+    assert!(first.contains("--effort high"), "{first}");
+    assert!(first.contains(r#""fastMode":true"#), "{first}");
+
+    // Changes made during a turn survive the end of that turn.
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"a slow one"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| s.status == SessionStatus::Running)
+        .await;
+    h.command(
+        json!({"type":"session.update","session_id":session.id,"effort":"low"}),
+        None,
+    )
+    .await;
+    let done = h
+        .wait_session(&session.id, |s| {
+            s.status == SessionStatus::Idle && s.turns == 2
+        })
+        .await;
+    assert_eq!(done.effort.as_deref(), Some("low"));
+
+    // Clearing goes back to the default.
+    h.command(
+        json!({"type":"session.update","session_id":session.id,"effort":"","fast":false}),
+        None,
+    )
+    .await;
+
+    // The fork copies the transcript and forks the real conversation.
+    let (status, res) = h
+        .command(json!({"type":"session.fork","session_id":session.id}), None)
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let fork: Session = serde_json::from_value(res["result"].clone()).unwrap();
+    assert_eq!(fork.forked_from.as_deref(), Some(session.id.as_str()));
+    assert!(fork.title.starts_with("Fork of "), "{}", fork.title);
+    assert_eq!(fork.turns, 2);
+    assert_eq!(fork.total_cost_usd, 0.0);
+    let history = h.history(&ws.id).await;
+    assert_eq!(chat(&history, &fork.id), chat(&history, &session.id));
+
+    h.command(
+        json!({"type":"session.send","session_id":fork.id,"text":"try another way"}),
+        None,
+    )
+    .await;
+    h.wait_session(&fork.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 3
+    })
+    .await;
+    let line = calls().lines().last().unwrap().to_string();
+    assert!(line.contains("--fork-session"), "{line}");
+    assert!(line.contains("--resume"), "{line}");
+    assert!(line.contains("--session-id"), "{line}");
+
+    // After that it resumes its own conversation like any other chat.
+    h.command(
+        json!({"type":"session.send","session_id":fork.id,"text":"and again"}),
+        None,
+    )
+    .await;
+    h.wait_session(&fork.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 4
+    })
+    .await;
+    let line = calls().lines().last().unwrap().to_string();
+    assert!(!line.contains("--fork-session"), "{line}");
+    assert!(line.contains("--resume"), "{line}");
+
+    // It can rewind to a turn from before the fork.
+    let (status, res) = h
+        .command(
+            json!({"type":"session.rewind","session_id":fork.id,"turn":1}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+
+    // Agents that can't fork get the transcript with the first message.
+    let (_, res) = h
+        .command(
+            json!({"type":"session.create","workspace_id":ws.id,"agent":"codex"}),
+            None,
+        )
+        .await;
+    let codex: Session = serde_json::from_value(res["result"].clone()).unwrap();
+    h.command(
+        json!({"type":"session.send","session_id":codex.id,"text":"remember the plan"}),
+        None,
+    )
+    .await;
+    h.wait_session(&codex.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let (_, res) = h
+        .command(json!({"type":"session.fork","session_id":codex.id}), None)
+        .await;
+    let fork: Session = serde_json::from_value(res["result"].clone()).unwrap();
+    h.command(
+        json!({"type":"session.send","session_id":fork.id,"text":"new direction"}),
+        None,
+    )
+    .await;
+    h.wait_session(&fork.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &fork.id);
+    let sent = items
+        .iter()
+        .rev()
+        .find_map(|i| match i {
+            ChatItem::User { text } => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(sent.contains("User: remember the plan"), "{sent}");
+    assert!(sent.ends_with("new direction"), "{sent}");
+    let last_call = h.codex_calls().last().unwrap().clone();
+    assert!(!last_call.contains("resume"), "{last_call}");
+
+    // Loadouts are saved with the preferences.
+    let (status, res) = h
+        .command(
+            json!({"type":"preferences.update","loadouts":[{"name":"Deep","agent":"claude",
+                "model":"opus","effort":"max","fast":false,"permission_mode":"plan"}]}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(h.state().await.preferences.loadouts[0].name, "Deep");
+}
+
+#[tokio::test]
+async fn spotlight_shows_a_workspace_in_the_main_checkout() {
+    let (_dir, root) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":root}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let head = |dir: &Path| {
+        let out = Proc::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let branch = head(&root);
+    assert_ne!(branch, "HEAD");
+
+    // Uncommitted work in the workspace reaches the main checkout.
+    std::fs::write(Path::new(&ws.path).join("draft.txt"), "work in progress").unwrap();
+    let (status, res) = h
+        .command(
+            json!({"type":"workspace.spotlight","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["restore_to"], json!(branch));
+    assert_eq!(
+        std::fs::read_to_string(root.join("draft.txt")).unwrap(),
+        "work in progress"
+    );
+    assert_eq!(head(&root), "HEAD", "detached, so the branch isn't touched");
+    assert_eq!(h.state().await.spotlights.len(), 1);
+
+    // It follows the agent's turns.
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"edit the readme"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    for _ in 0..100 {
+        if root.join("agent-file.txt").exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        root.join("agent-file.txt").exists(),
+        "the turn should have synced"
+    );
+
+    // It records where it left the checkout just after moving it.
+    for _ in 0..100 {
+        let at = Proc::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        let at = String::from_utf8_lossy(&at.stdout).trim().to_string();
+        if h.state().await.spotlights[0].commit == at {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    // Changes the user makes in the main checkout are never overwritten.
+    let readme = root.join("README.md");
+    let edited = format!("{}my own edit\n", std::fs::read_to_string(&readme).unwrap());
+    std::fs::write(&readme, &edited).unwrap();
+    let (status, res) = h
+        .command(
+            json!({"type":"repo.spotlight_stop","repo_id":repo.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 409, "{res}");
+    assert!(res["error"]
+        .as_str()
+        .unwrap()
+        .contains("uncommitted changes"));
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"edit it again"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    assert_eq!(std::fs::read_to_string(&readme).unwrap(), edited);
+    let mut logged = false;
+    for _ in 0..100 {
+        logged = h.history(&ws.id).await.iter().any(|e| {
+            matches!(&e.data, EventData::WorkspaceLog { line, .. } if line.starts_with("Spotlight didn't update"))
+        });
+        if logged {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(logged, "a skipped sync should say why");
+
+    // Once that's cleaned up, the main checkout goes back to its branch.
+    sh(&root, &["checkout", "--", "README.md"]);
+    let (status, res) = h
+        .command(
+            json!({"type":"repo.spotlight_stop","repo_id":repo.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(head(&root), branch);
+    assert!(!root.join("draft.txt").exists());
+    assert!(h.state().await.spotlights.is_empty());
+    let (status, _) = h
+        .command(
+            json!({"type":"repo.spotlight_stop","repo_id":repo.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 404);
+
+    // If the user switches branch, Spotlight never moves them back.
+    let (status, res) = h
+        .command(
+            json!({"type":"workspace.spotlight","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    sh(&root, &["checkout", "-q", &branch]);
+    sh(&root, &["checkout", "-q", "-b", "my-own-work"]);
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"edit it a third time"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 3
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        head(&root),
+        "my-own-work",
+        "an agent's turn didn't move them"
+    );
+    let (status, res) = h
+        .command(
+            json!({"type":"repo.spotlight_stop","repo_id":repo.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(
+        head(&root),
+        "my-own-work",
+        "stopping didn't move them either"
+    );
+    sh(&root, &["checkout", "-q", &branch]);
+
+    // A dirty main checkout refuses to start, and archiving ends the spotlight.
+    std::fs::write(&readme, "dirty").unwrap();
+    let (status, _) = h
+        .command(
+            json!({"type":"workspace.spotlight","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 409);
+    sh(&root, &["checkout", "--", "README.md"]);
+    let (status, _) = h
+        .command(
+            json!({"type":"workspace.spotlight","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    let (status, res) = h
+        .command(
+            json!({"type":"workspace.archive","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(head(&root), branch);
+    assert!(h.state().await.spotlights.is_empty());
+}
+
+#[tokio::test]
+async fn web_push_alerts() {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+    use base64::Engine;
+    use p256::elliptic_curve::sec1::ToEncodedPoint;
+
+    // A push service that records what it gets, then says the browser is gone.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(axum::http::HeaderMap, Vec<u8>)>(8);
+    let gone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let is_gone = gone.clone();
+    let app = axum::Router::new().route(
+        "/push/abc",
+        axum::routing::post(
+            move |headers: axum::http::HeaderMap, body: axum::body::Bytes| {
+                let (tx, is_gone) = (tx.clone(), is_gone.clone());
+                async move {
+                    tx.send((headers, body.to_vec())).await.unwrap();
+                    if is_gone.load(std::sync::atomic::Ordering::SeqCst) {
+                        axum::http::StatusCode::GONE
+                    } else {
+                        axum::http::StatusCode::CREATED
+                    }
+                }
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let service = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let key: Value = h
+        .http
+        .get(format!("{}/v1/push/key", h.base))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let daemon_key = key["public_key"].as_str().unwrap().to_string();
+    assert_eq!(B64.decode(&daemon_key).unwrap().len(), 65);
+
+    // The browser's side of the subscription.
+    let browser = p256::SecretKey::from_slice(&[9u8; 32]).unwrap();
+    let auth = [5u8; 16];
+    let p256dh = B64.encode(browser.public_key().to_encoded_point(false).as_bytes());
+    let (status, _) = h
+        .command(
+            json!({"type":"push.subscribe","endpoint":"http://evil.example/x",
+                   "p256dh":p256dh,"auth":B64.encode(auth)}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400);
+    let (status, res) = h
+        .command(
+            json!({"type":"push.subscribe","endpoint":format!("http://{service}/push/abc"),
+                   "p256dh":p256dh,"auth":B64.encode(auth)}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(
+            json!({"type":"workspace.create","repo_id":repo.id,"name":"lisbon"}),
+            None,
+        )
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+
+    // A finished turn sends an alert only the browser can read.
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"say hello"}),
+        None,
+    )
+    .await;
+    let (headers, body) = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+        .await
+        .expect("no alert arrived")
+        .unwrap();
+    assert_eq!(headers["content-encoding"], "aes128gcm");
+    assert_eq!(headers["ttl"], "86400");
+    let authorization = headers["authorization"].to_str().unwrap();
+    assert!(authorization.starts_with("vapid t="), "{authorization}");
+    assert!(
+        authorization.ends_with(&format!("k={daemon_key}")),
+        "{authorization}"
+    );
+    let plain = bantud::push::decrypt(&body, &browser, &auth).unwrap();
+    let alert: Value = serde_json::from_slice(&plain).unwrap();
+    assert_eq!(alert["title"], "lisbon is done");
+    assert_eq!(alert["body"], "say hello");
+
+    // A subscription the browser dropped is removed after one more attempt.
+    gone.store(true, std::sync::atomic::Ordering::SeqCst);
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"again"}),
+        None,
+    )
+    .await;
+    tokio::time::timeout(Duration::from_secs(10), rx.recv())
+        .await
+        .expect("no second alert")
+        .unwrap();
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"once more"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 3
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        rx.try_recv().is_err(),
+        "the dead subscription should be gone"
+    );
+}
+
+#[tokio::test]
+async fn port_forwarding() {
+    use axum::extract::ws::{Message, WebSocketUpgrade};
+    use axum::routing::{any, get};
+    use futures::SinkExt;
+
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+
+    // Parallel tests' workspaces share a port range, so use a high offset.
+    let port = ws.port_base + 7;
+    let app = axum::Router::new()
+        .route(
+            "/hello",
+            any(|method: axum::http::Method, headers: axum::http::HeaderMap, body: String| async move {
+                let header = |name: &str| {
+                    headers.get(name).and_then(|h| h.to_str().ok()).unwrap_or("").to_string()
+                };
+                axum::Json(json!({
+                    "method": method.as_str(),
+                    "body": body,
+                    "host": header("host"),
+                    "cookie": header("cookie"),
+                    "authorization": header("authorization"),
+                }))
+            }),
+        )
+        .route(
+            "/go",
+            get(|| async { axum::response::Redirect::temporary("/hello") }),
+        )
+        .route(
+            "/cookie",
+            get(|| async { ([("set-cookie", "sid=1; Path=/; HttpOnly")], "ok") }),
+        )
+        .fallback(|uri: axum::http::Uri| async move { uri.to_string() })
+        .route(
+            "/ws",
+            get(|up: WebSocketUpgrade| async move {
+                up.on_upgrade(|mut socket| async move {
+                    while let Some(Ok(Message::Text(text))) = socket.recv().await {
+                        let reply = format!("echo {}", text.as_str());
+                        if socket.send(Message::text(reply)).await.is_err() {
+                            break;
+                        }
+                    }
+                })
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+        .await
+        .unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let ports: Vec<Value> = h
+        .http
+        .get(format!("{}/v1/workspaces/{}/ports", h.base, ws.id))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let forwarded = ports
+        .iter()
+        .find(|p| p["port"] == port)
+        .expect("the port is listed");
+    let link = forwarded["url"].as_str().unwrap().to_string();
+    assert!(link.contains("bantu_grant="), "{link}");
+    assert!(
+        !link.contains(&h.token),
+        "the daemon token stays off this origin"
+    );
+    let origin = link.split("/p/").next().unwrap().to_string();
+    assert_ne!(origin, h.base, "previews get their own origin");
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let prefix = format!("{origin}/p/{}/{port}", ws.id);
+
+    // Nothing without a grant or cookie, and the daemon's own token doesn't help.
+    let res = client.get(format!("{prefix}/hello")).send().await.unwrap();
+    assert_eq!(res.status(), 401);
+    let res = client
+        .get(format!("{prefix}/hello"))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+    let res = client
+        .get(format!("{prefix}/?bantu_grant=9999999999.forged"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+    // The preview listener doesn't serve the daemon's API.
+    let res = client
+        .get(format!("{origin}/v1/state"))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 404);
+
+    // The grant becomes a cookie scoped to this port, and leaves the URL.
+    let res = client.get(&link).send().await.unwrap();
+    assert_eq!(res.status(), 302);
+    let set_cookie = res.headers()["set-cookie"].to_str().unwrap().to_string();
+    assert!(set_cookie.contains("HttpOnly"), "{set_cookie}");
+    assert!(
+        set_cookie.contains(&format!("Path=/p/{}/{port}", ws.id)),
+        "{set_cookie}"
+    );
+    assert!(!res.headers()["location"]
+        .to_str()
+        .unwrap()
+        .contains("bantu_grant"));
+    let cookie = set_cookie.split(';').next().unwrap().to_string();
+
+    // Requests go through, without our credentials, and bodies survive.
+    let res: Value = client
+        .post(format!("{prefix}/hello"))
+        .header("cookie", format!("{cookie}; theme=dark"))
+        .bearer_auth("must-not-reach-the-app")
+        .body("payload")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(res["method"], "POST");
+    assert_eq!(res["body"], "payload");
+    assert_eq!(res["host"], format!("localhost:{port}"));
+    assert_eq!(res["cookie"], "theme=dark");
+    assert_eq!(res["authorization"], "");
+
+    // Paths arrive exactly as sent, and app cookies stay inside this preview.
+    let echoed = client
+        .get(format!("{prefix}/a%2Fb%3Fc?x=%2F"))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert_eq!(echoed, "/a%2Fb%3Fc?x=%2F");
+    let res = client
+        .get(format!("{prefix}/cookie"))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        res.headers()["set-cookie"],
+        format!("sid=1; Path=/p/{}/{port}; HttpOnly", ws.id)
+    );
+
+    // Redirects stay inside the preview.
+    let res = client
+        .get(format!("{prefix}/go"))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 307);
+    assert_eq!(
+        res.headers()["location"],
+        format!("/p/{}/{port}/hello", ws.id)
+    );
+
+    // Root-absolute URLs in a page find their way back through the Referer.
+    let res = client
+        .get(format!("{origin}/assets/app.js?v=1"))
+        .header("referer", format!("{prefix}/index.html"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 307);
+    assert_eq!(
+        res.headers()["location"],
+        format!("/p/{}/{port}/assets/app.js?v=1", ws.id)
+    );
+    let res = client
+        .get(format!("{origin}/assets/app.js"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 404);
+
+    // A port outside the workspace's range is refused, even with a valid cookie.
+    let other = ws.port_base + 10;
+    let res = client
+        .get(format!("{origin}/p/{}/{other}/", ws.id))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+
+    // WebSockets go through too, for hot reload.
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let ws_url = format!("{}/ws", prefix.replacen("http://", "ws://", 1));
+    let mut request = ws_url.into_client_request().unwrap();
+    request
+        .headers_mut()
+        .insert("cookie", cookie.parse().unwrap());
+    let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+    socket
+        .send(tokio_tungstenite::tungstenite::Message::text("hi"))
+        .await
+        .unwrap();
+    let reply = socket.next().await.unwrap().unwrap();
+    assert_eq!(reply.to_text().unwrap(), "echo hi");
+}
+
+#[tokio::test]
+async fn orchestrator_board_and_integration() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(
+            json!({"type":"workspace.create","repo_id":repo.id,"name":"lead"}),
+            None,
+        )
+        .await;
+    let lead: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let lead = h.wait_for(&lead.id, WorkspaceState::Ready).await;
+    let lead_session = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == lead.id)
+        {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let tool = |name: &'static str, args: Value| {
+        let (http, url, token) = (
+            h.http.clone(),
+            format!("{}/v1/mcp?session={}", h.base, lead_session.id),
+            h.hook_token.clone(),
+        );
+        async move {
+            let res: Value = http
+                .post(url)
+                .bearer_auth(token)
+                .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+                    "params":{"name":name,"arguments":args}}))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            res["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+    let children = || async {
+        h.http
+            .get(format!("{}/v1/workspaces/{}/children", h.base, lead.id))
+            .bearer_auth(&h.token)
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()
+    };
+    assert_eq!(children().await, json!([]));
+
+    // Agents' children are recorded, and appear on the board.
+    tool("create_workspace", json!({"task":"say hi","name":"alpha"})).await;
+    tool("create_workspace", json!({"task":"say hi","name":"beta"})).await;
+    tool("create_workspace", json!({"task":"say hi","name":"gamma"})).await;
+    let state = h.state().await;
+    let find = |name: &str| {
+        state
+            .workspaces
+            .iter()
+            .find(|w| w.name == name)
+            .unwrap()
+            .clone()
+    };
+    let (alpha, beta, gamma) = (find("alpha"), find("beta"), find("gamma"));
+    assert_eq!(alpha.parent_id.as_deref(), Some(lead.id.as_str()));
+    assert_eq!(lead.parent_id, None);
+    for s in &state.sessions {
+        h.wait_session(&s.id, |s| s.status == SessionStatus::Idle)
+            .await;
+    }
+    let board = children().await;
+    assert_eq!(board.as_array().unwrap().len(), 3);
+    assert_eq!(board[0]["status"], "idle");
+    assert_eq!(board[0]["title"], "say hi");
+    assert!(board[0]["last_reply"].as_str().unwrap().contains("say hi"));
+
+    let commit = |ws: &Workspace, file: &str, text: &str| {
+        std::fs::write(Path::new(&ws.path).join(file), text).unwrap();
+        sh(Path::new(&ws.path), &["add", "-A"]);
+        sh(Path::new(&ws.path), &["commit", "-qm", file]);
+    };
+    commit(&alpha, "alpha.txt", "from alpha");
+    commit(&beta, "beta.txt", "from beta");
+    // Gamma has work it hasn't committed, so it can't merge yet.
+    std::fs::write(Path::new(&gamma.path).join("gamma.txt"), "draft").unwrap();
+
+    let integrate = json!({"type":"workspace.integrate","workspace_id":lead.id});
+    let (status, res) = h.command(integrate.clone(), None).await;
+    assert_eq!(status, 200, "{res}");
+    let result = &res["result"];
+    assert_eq!(result["merged"], json!(["alpha", "beta"]));
+    assert_eq!(result["conflict"], Value::Null);
+    assert_eq!(result["skipped"][0]["workspace"], "gamma");
+    assert!(result["skipped"][0]["reason"]
+        .as_str()
+        .unwrap()
+        .contains("uncommitted"));
+    assert!(Path::new(&lead.path).join("alpha.txt").exists());
+    assert!(Path::new(&lead.path).join("beta.txt").exists());
+
+    // Running it again finds nothing new.
+    let (_, res) = h.command(integrate.clone(), None).await;
+    assert_eq!(res["result"]["merged"], json!([]));
+
+    // A conflict is aborted cleanly, and later children aren't attempted.
+    commit(&gamma, "shared.txt", "gamma's version");
+    let conflict_with = |ws: &Workspace| commit(ws, "shared.txt", "lead's version");
+    conflict_with(&lead);
+    let (status, res) = h
+        .command(
+            json!({"type":"workspace.integrate","workspace_id":lead.id,"session_id":lead_session.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["conflict"], "gamma");
+    assert_eq!(res["result"]["sent_to_agent"], true);
+    assert_eq!(
+        std::fs::read_to_string(Path::new(&lead.path).join("shared.txt")).unwrap(),
+        "lead's version",
+        "the merge was aborted"
+    );
+    let git_dir = Proc::new("git")
+        .arg("-C")
+        .arg(&lead.path)
+        .args(["rev-parse", "--git-dir"])
+        .output()
+        .unwrap();
+    let git_dir = String::from_utf8_lossy(&git_dir.stdout).trim().to_string();
+    assert!(!Path::new(&git_dir).join("MERGE_HEAD").exists());
+    // The lead's agent was asked to finish it.
+    h.wait_session(&lead_session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let items = chat(&h.history(&lead.id).await, &lead_session.id);
+    assert!(
+        items.iter().any(|i| matches!(i, ChatItem::User { text } if text.contains("git merge") && text.contains("shared.txt"))),
+        "{items:?}"
+    );
+
+    // A dirty lead is refused rather than risked.
+    std::fs::write(Path::new(&lead.path).join("README.md"), "dirty").unwrap();
+    let (status, _) = h.command(integrate, None).await;
+    assert_eq!(status, 409);
+    sh(Path::new(&lead.path), &["checkout", "--", "README.md"]);
+
+    // Agents can do it too.
+    let text = tool("integrate_workspaces", json!({})).await;
+    assert!(text.contains("gamma conflicts"), "{text}");
+
+    // A restricted agent can't reach past its limits through another chat.
+    let alpha_session = h
+        .state()
+        .await
+        .sessions
+        .into_iter()
+        .find(|s| s.workspace_id == alpha.id)
+        .unwrap();
+    h.command(
+        json!({"type":"session.update","session_id":alpha_session.id,"permission_mode":"bypass_permissions"}),
+        None,
+    )
+    .await;
+    let text = tool("send_message", json!({"workspace":"alpha","text":"rm -rf"})).await;
+    assert!(text.contains("bypasses permissions"), "{text}");
+
+    // And a read-only chat stays read-only.
+    h.command(
+        json!({"type":"session.update","session_id":lead_session.id,"permission_mode":"plan"}),
+        None,
+    )
+    .await;
+    for (name, args) in [
+        ("integrate_workspaces", json!({})),
+        ("create_workspace", json!({"task":"x"})),
+        ("send_message", json!({"workspace":"beta","text":"x"})),
+    ] {
+        let text = tool(name, args).await;
+        assert!(text.contains("plan mode"), "{name}: {text}");
+    }
+    assert!(tool("list_workspaces", json!({})).await.contains("alpha"));
+}
+
+#[tokio::test]
+async fn automatic_cross_agent_review() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let path = Path::new(&ws.path).to_path_buf();
+    let author = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let review_state = || async {
+        h.state().await.workspaces[0]
+            .review_state
+            .map(|r| r.as_str().to_string())
+    };
+    let (hr, rs) = (&h, &review_state);
+    let settle = move |want: Option<&'static str>| async move {
+        for _ in 0..200 {
+            let busy = hr
+                .state()
+                .await
+                .sessions
+                .iter()
+                .any(|s| s.status == SessionStatus::Running);
+            if !busy && rs().await.as_deref() == want {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("review state stayed {:?}, wanted {want:?}", rs().await);
+    };
+    let reviews = || async {
+        h.state()
+            .await
+            .sessions
+            .iter()
+            .filter(|s| s.title == "Automatic review")
+            .count()
+    };
+
+    // Off by default: finished work isn't reviewed.
+    h.command(
+        json!({"type":"session.send","session_id":author.id,"text":"edit the first file"}),
+        None,
+    )
+    .await;
+    h.wait_session(&author.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(reviews().await, 0);
+    assert_eq!(review_state().await, None);
+
+    // Turned on, a different agent reviews in read-only mode and approves.
+    std::fs::write(
+        repo_path.join(".bantu/settings.toml"),
+        "[review]\nauto = true\n",
+    )
+    .unwrap();
+    // New work is needed for a review to have something new to look at.
+    h.command(
+        json!({"type":"session.send","session_id":author.id,"text":"edit it again"}),
+        None,
+    )
+    .await;
+    settle(Some("approved")).await;
+    assert_eq!(reviews().await, 1);
+    let state = h.state().await;
+    let reviewer = state
+        .sessions
+        .iter()
+        .find(|s| s.title == "Automatic review")
+        .unwrap();
+    assert_eq!(reviewer.agent.as_str(), "codex");
+    assert_eq!(reviewer.permission_mode.as_str(), "plan");
+
+    // A question that changes nothing keeps the verdict, with no new review.
+    h.command(
+        json!({"type":"session.send","session_id":author.id,"text":"what did you do?"}),
+        None,
+    )
+    .await;
+    settle(Some("approved")).await;
+    assert_eq!(reviews().await, 1);
+
+    // Findings go back to the author, whose fix gets reviewed and approved.
+    std::fs::write(path.join("review-fails.txt"), "x").unwrap();
+    h.command(
+        json!({"type":"session.send","session_id":author.id,"text":"edit once more"}),
+        None,
+    )
+    .await;
+    settle(Some("approved")).await;
+    assert_eq!(reviews().await, 3);
+    let items = chat(&h.history(&ws.id).await, &author.id);
+    assert!(
+        items.iter().any(|i| matches!(i, ChatItem::User { text } if text.contains("automatic review") && text.contains("a.rs:1 is broken"))),
+        "{items:?}"
+    );
+    assert!(!path.join("review-fails.txt").exists());
+
+    // Two agents can't argue forever: after two rounds a person decides.
+    std::fs::write(path.join("review-fails.txt"), "x").unwrap();
+    std::fs::write(path.join("review-stubborn.txt"), "").unwrap();
+    h.command(
+        json!({"type":"session.send","session_id":author.id,"text":"edit yet again"}),
+        None,
+    )
+    .await;
+    let mut notices = Vec::new();
+    for _ in 0..300 {
+        notices = h.state().await.inbox;
+        if !notices.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(notices[0].title, "Automatic review still has concerns");
+    settle(Some("changes_requested")).await;
+    assert_eq!(reviews().await, 6, "the first review plus two rounds");
+    let fixes = std::fs::read_to_string(path.join("review-stubborn.txt")).unwrap();
+    assert_eq!(fixes.lines().count(), 2, "findings went back exactly twice");
+}
+
+#[tokio::test]
+async fn loops_run_in_fresh_workspaces() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+
+    let create = |trigger: Value, prompt: &str| json!({"type":"loop.create","repo_id":repo.id,"name":"Nightly","trigger":trigger,"prompt":prompt});
+    let (status, _) = h
+        .command(
+            create(json!({"kind":"cron","schedule":"not a schedule"}), "x"),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400);
+    let (status, _) = h
+        .command(create(json!({"kind":"github_issue","label":""}), "x"), None)
+        .await;
+    assert_eq!(status, 400);
+
+    let (status, res) = h
+        .command(
+            create(
+                json!({"kind":"cron","schedule":"0 3 * * *"}),
+                "check for typos",
+            ),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let id = res["result"]["id"].as_str().unwrap().to_string();
+    assert!(res["result"]["next_run_at"].is_string(), "{res}");
+    assert_eq!(h.state().await.loops.len(), 1);
+
+    // A run that changes nothing archives its own workspace.
+    let (status, res) = h
+        .command(json!({"type":"loop.run","loop_id":id}), None)
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    assert_eq!(ws.loop_id.as_deref(), Some(id.as_str()));
+    h.wait_for(&ws.id, WorkspaceState::Archived).await;
+    let done = &h.state().await.loops[0];
+    assert_eq!(done.last_workspace_id.as_deref(), Some(ws.id.as_str()));
+    let result = done.last_result.clone().unwrap();
+    assert!(result.contains("No changes"), "{result}");
+    let items = chat(
+        &h.history(&ws.id).await,
+        &h.state()
+            .await
+            .sessions
+            .iter()
+            .find(|s| s.workspace_id == ws.id)
+            .unwrap()
+            .id,
+    );
+    assert!(items
+        .iter()
+        .any(|i| matches!(i, ChatItem::User { text } if text == "check for typos")));
+
+    // One that changes files is kept for review.
+    let (status, _) = h
+        .command(
+            json!({"type":"loop.update","loop_id":id,"prompt":"edit the readme"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    let (_, res) = h
+        .command(json!({"type":"loop.run","loop_id":id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let mut result = String::new();
+    for _ in 0..200 {
+        result = h.state().await.loops[0].last_result.clone().unwrap();
+        if result.starts_with("Changes ready") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(result.starts_with("Changes ready"), "{result}");
+    assert_eq!(
+        h.wait_for(&ws.id, WorkspaceState::Ready).await.state,
+        WorkspaceState::Ready
+    );
+
+    // Following up in a kept run never archives it, even if that changes nothing.
+    sh(Path::new(&ws.path), &["checkout", "--", "README.md"]);
+    std::fs::remove_file(Path::new(&ws.path).join("agent-file.txt")).unwrap();
+    let session_id = h
+        .state()
+        .await
+        .sessions
+        .iter()
+        .find(|s| s.workspace_id == ws.id)
+        .unwrap()
+        .id
+        .clone();
+    h.command(
+        json!({"type":"session.send","session_id":session_id,"text":"what happened?"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session_id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        h.state()
+            .await
+            .workspaces
+            .iter()
+            .find(|w| w.id == ws.id)
+            .unwrap()
+            .state,
+        WorkspaceState::Ready
+    );
+
+    // Paused loops don't run, and their next run is cleared.
+    let (_, res) = h
+        .command(
+            json!({"type":"loop.update","loop_id":id,"enabled":false}),
+            None,
+        )
+        .await;
+    assert_eq!(res["result"]["next_run_at"], Value::Null);
+    let far_future = chrono::Utc::now() + chrono::Duration::days(3);
+    h.daemon.run_due_loops(far_future).await;
+    let count = |h_state: &StateSnapshot| h_state.workspaces.len();
+    assert_eq!(count(&h.state().await), 2);
+
+    // A due loop runs once, and its next run moves on.
+    let (_, res) = h
+        .command(
+            json!({"type":"loop.update","loop_id":id,"enabled":true}),
+            None,
+        )
+        .await;
+    let first_next = res["result"]["next_run_at"].as_str().unwrap().to_string();
+    h.daemon.run_due_loops(far_future).await;
+    let state = h.state().await;
+    assert_eq!(count(&state), 3);
+    assert_ne!(
+        state.loops[0].next_run_at.as_deref(),
+        Some(first_next.as_str())
+    );
+    h.daemon.run_due_loops(chrono::Utc::now()).await;
+    assert_eq!(count(&h.state().await), 3);
+
+    // Deleting a loop keeps its runs' workspaces.
+    let (status, _) = h
+        .command(json!({"type":"loop.delete","loop_id":id}), None)
+        .await;
+    assert_eq!(status, 200);
+    let state = h.state().await;
+    assert!(state.loops.is_empty());
+    assert_eq!(count(&state), 3);
+}
+
+#[tokio::test]
+async fn imports_from_conductor_and_pane() {
+    let (dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let worktree = dir.path().join("other-tool/ashgabat");
+    sh(
+        &repo_path,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "their/branch",
+            worktree.to_str().unwrap(),
+        ],
+    );
+    let gone = dir.path().join("other-tool/deleted");
+    let wrong_repo = dir.path().join("elsewhere");
+    std::fs::create_dir_all(&wrong_repo).unwrap();
+    sh(&wrong_repo, &["init", "-q"]);
+
+    let db = dir.path().join("conductor.db");
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&db)
+        .create_if_missing(true);
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+    for statement in [
+        "CREATE TABLE repos (id TEXT, root_path TEXT, default_branch TEXT)",
+        "CREATE TABLE workspaces (local_id TEXT, repository_id TEXT, state TEXT, workspace_path TEXT,
+            workspace_name TEXT, directory_name TEXT, intended_target_branch TEXT, initialization_parent_branch TEXT)",
+        "CREATE TABLE sessions (id TEXT, workspace_id TEXT, claude_session_id TEXT, agent_type,
+            title TEXT, model TEXT, permission_mode TEXT, created_at TEXT, is_hidden INTEGER)",
+        "CREATE TABLE session_messages (id TEXT, session_id TEXT, role TEXT, content TEXT, cancelled_at TEXT)",
+    ] {
+        sqlx::query(statement).execute(&pool).await.unwrap();
+    }
+    sqlx::query("INSERT INTO repos VALUES ('r1', ?, 'main')")
+        .bind(repo_path.to_str().unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+    for (id, state, path) in [
+        ("w1", "ready", worktree.to_str().unwrap()),
+        ("w2", "archived", worktree.to_str().unwrap()),
+        ("w3", "ready", gone.to_str().unwrap()),
+        ("w4", "ready", wrong_repo.to_str().unwrap()),
+    ] {
+        sqlx::query(
+            "INSERT INTO workspaces VALUES (?, 'r1', ?, ?, 'Ashgabat', 'ashgabat', 'main', NULL)",
+        )
+        .bind(id)
+        .bind(state)
+        .bind(path)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let conversation = "11111111-1111-4111-8111-111111111111";
+    for (id, agent, conv, hidden) in [
+        ("s1", "claude", Some(conversation), 0),
+        ("s2", "acp", Some("x"), 0),
+        ("s3", "claude", None, 0),
+        ("s4", "claude", Some("y"), 1),
+    ] {
+        sqlx::query("INSERT INTO sessions VALUES (?, 'w1', ?, ?, 'Fix login', 'opus', 'plan', '2026-01-01', ?)")
+            .bind(id)
+            .bind(conv)
+            .bind(agent)
+            .bind(hidden)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let answer = json!({"type":"assistant","message":{"content":[{"type":"text","text":"Done"}]}})
+        .to_string();
+    for (role, content, cancelled) in [
+        ("user", "fix the login", None),
+        ("assistant", answer.as_str(), None),
+        ("user", "never sent", Some("2026-01-02")),
+    ] {
+        sqlx::query("INSERT INTO session_messages VALUES ('m', 's1', ?, ?, ?)")
+            .bind(role)
+            .bind(content)
+            .bind(cancelled)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    pool.close().await;
+    let before = std::fs::read(&db).unwrap();
+
+    let path = db.to_str().unwrap();
+    let (status, res) = h
+        .command(
+            json!({"type":"import.scan","source":"conductor","path":path}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["found"], true);
+    assert_eq!(res["result"]["workspaces"], 2);
+    assert_eq!(res["result"]["missing_worktrees"], 1);
+
+    let (status, res) = h
+        .command(
+            json!({"type":"import.scan","source":"pane","path":"/not/here.db"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["found"], false);
+    let (status, _) = h
+        .command(
+            json!({"type":"import.run","source":"pane","path":"/not/here.db"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 404);
+
+    let run_import = || async {
+        let since = h.state().await.last_seq;
+        let (status, res) = h
+            .command(
+                json!({"type":"import.run","source":"conductor","path":path}),
+                None,
+            )
+            .await;
+        assert_eq!(status, 200, "{res}");
+        for _ in 0..200 {
+            if let Some(done) = h.import_finished(since).await {
+                return done;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the import never finished");
+    };
+    let done = run_import().await;
+    assert_eq!(done["workspaces"], 1, "{done}");
+    assert_eq!(done["chats"], 1, "{done}");
+    assert_eq!(done["items"], 2, "{done}");
+    assert_eq!(done["skipped"], 2, "{done}");
+    assert_eq!(done["error"], Value::Null, "{done}");
+    assert_eq!(
+        std::fs::read(&db).unwrap(),
+        before,
+        "the source wasn't changed"
+    );
+
+    let state = h.state().await;
+    let ws = &state.workspaces[0];
+    assert_eq!(state.workspaces.len(), 1);
+    assert!(ws.external);
+    assert_eq!(ws.name, "ashgabat");
+    assert_eq!(ws.branch, "their/branch");
+    assert_eq!(ws.state, WorkspaceState::Ready);
+    let session = &state.sessions[0];
+    assert_eq!(state.sessions.len(), 1);
+    assert_eq!(session.title, "Fix login");
+    assert_eq!(session.model.as_deref(), Some("opus"));
+    assert_eq!(session.permission_mode.as_str(), "plan");
+    assert_eq!(session.turns, 1);
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert_eq!(
+        items[0],
+        ChatItem::User {
+            text: "fix the login".into()
+        }
+    );
+    assert_eq!(
+        items[1],
+        ChatItem::Assistant {
+            text: "Done".into()
+        }
+    );
+
+    // Importing again changes nothing.
+    let done = run_import().await;
+    assert_eq!(done["workspaces"], 0, "{done}");
+    assert_eq!(h.state().await.workspaces.len(), 1);
+
+    // The chat carries on with its own conversation.
+    let (status, _) = h
+        .command(
+            json!({"type":"session.send","session_id":session.id,"text":"carry on"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    let calls = std::fs::read_to_string(&h.claude_calls).unwrap();
+    assert!(
+        calls.contains(&format!("--resume {conversation}")),
+        "{calls}"
+    );
+
+    // Archiving forgets the workspace, and the other tool's files stay.
+    let marker = worktree.join("their-file.txt");
+    std::fs::write(&marker, "keep me").unwrap();
+    let (status, _) = h
+        .command(
+            json!({"type":"workspace.archive","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    h.wait_for(&ws.id, WorkspaceState::Archived).await;
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "keep me");
+    assert!(worktree.join(".git").exists());
 }

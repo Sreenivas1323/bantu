@@ -19,9 +19,9 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, Notify};
 
-use crate::codex;
 use crate::ops::{new_id, CommandError, Daemon};
 use crate::store::now;
+use crate::{acp, codex, platform};
 
 /// Tool output beyond this is cut; the agent already saw the full text.
 const MAX_TOOL_RESULT_CHARS: usize = 20_000;
@@ -30,12 +30,13 @@ const DEFAULT_TITLE: &str = "New chat";
 const MAX_AUTO_FIXES: u32 = 2;
 const CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20 * 60);
 const CHECK_OUTPUT_CHARS: usize = 6_000;
+pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 /// In-memory state for sessions with a turn in flight.
 pub struct Running {
     turns: Mutex<HashMap<String, RunningSession>>,
     /// Live text fragments; never persisted.
-    deltas: tokio::sync::broadcast::Sender<StreamDelta>,
+    pub(crate) deltas: tokio::sync::broadcast::Sender<StreamDelta>,
 }
 
 impl Default for Running {
@@ -77,6 +78,9 @@ impl Daemon {
             title: DEFAULT_TITLE.into(),
             model: model.filter(|m| !m.trim().is_empty()),
             permission_mode: permission_mode.unwrap_or_default(),
+            effort: None,
+            fast: false,
+            forked_from: None,
             status: SessionStatus::Idle,
             queued: 0,
             turns: 0,
@@ -114,6 +118,126 @@ impl Daemon {
         Ok(s)
     }
 
+    /// Changes how hard and how fast the agent works. An empty effort goes
+    /// back to the agent's default.
+    pub async fn tune_session(
+        &self,
+        session_id: &str,
+        effort: Option<String>,
+        fast: Option<bool>,
+    ) -> CmdResult<Session> {
+        let (mut s, agent_id) = self.require_session(session_id).await?;
+        if effort.is_none() && fast.is_none() {
+            return Ok(s);
+        }
+        if let Some(effort) = effort {
+            let effort = effort.trim().to_string();
+            if !effort.is_empty() && !EFFORTS.contains(&effort.as_str()) {
+                return Err(CommandError::BadRequest(format!(
+                    "unknown effort {effort:?}; use {}",
+                    EFFORTS.join(", ")
+                )));
+            }
+            s.effort = Some(effort).filter(|e| !e.is_empty());
+        }
+        if let Some(fast) = fast {
+            s.fast = fast;
+        }
+        self.store.upsert_session(&s, &agent_id).await?;
+        Ok(s)
+    }
+
+    /// A new chat with the same transcript and settings, which continues from
+    /// here. Claude forks the real conversation. Other agents start a new one
+    /// and get the transcript with the first message.
+    pub async fn fork_session(&self, session_id: &str) -> CmdResult<Session> {
+        let (parent, parent_agent_id) = self.require_session(session_id).await?;
+        if parent.status == SessionStatus::Running {
+            return Err(CommandError::Conflict(
+                "wait for the agent's turn to finish before forking".into(),
+            ));
+        }
+        let ws = self.ready_workspace(&parent.workspace_id).await?;
+        let session = Session {
+            id: new_id(),
+            title: format!("Fork of {}", parent.title),
+            status: SessionStatus::Idle,
+            queued: 0,
+            total_cost_usd: 0.0,
+            forked_from: Some(parent.id.clone()),
+            created_at: now(),
+            ..parent.clone()
+        };
+        let agent_session_id = uuid::Uuid::new_v4().to_string();
+        self.store
+            .upsert_session(&session, &agent_session_id)
+            .await?;
+        // A parent with no conversation yet leaves nothing to continue from.
+        if self.store.session_has_agent_output(&parent.id).await? {
+            self.store
+                .set_fork_source(&session.id, Some(&parent_agent_id))
+                .await?;
+        }
+        for (turn, item) in self.store.session_items(&parent.id).await? {
+            self.store.session_item(&session, turn, item).await?;
+        }
+        // Rewinding to a turn from before the fork needs its checkpoint.
+        let path = std::path::Path::new(&ws.path);
+        let prefix = format!("refs/bantu/cp/{}/", parent.id);
+        let refs = git::git(
+            path,
+            &["for-each-ref", "--format=%(refname) %(objectname)", &prefix],
+        )
+        .await
+        .map_err(anyhow::Error::from)?;
+        for line in refs.lines() {
+            if let Some((name, sha)) = line.split_once(' ') {
+                let turn = name.rsplit('/').next().unwrap_or_default();
+                let target = format!("refs/bantu/cp/{}/{turn}", session.id);
+                git::update_ref(path, &target, sha)
+                    .await
+                    .map_err(anyhow::Error::from)?;
+            }
+        }
+        Ok(session)
+    }
+
+    /// Whether the agent's conversation for this chat exists and can be resumed.
+    /// Settings that make the daemon act on its own: the `check` script, the
+    /// `archive` script, automatic review and prompts. These come from the main
+    /// checkout rather than the worktree, because an agent allowed to edit files
+    /// could otherwise run any command without a prompt, or switch off its own
+    /// review. A branch's changes to them apply once they're merged.
+    pub(crate) async fn trusted_settings(
+        &self,
+        ws: &Workspace,
+    ) -> anyhow::Result<crate::settings::Settings> {
+        let repo = self
+            .store
+            .repo(&ws.repo_id)
+            .await?
+            .context("repository is gone")?;
+        let root = std::path::Path::new(&repo.root_path);
+        // Spotlight fills the main checkout with a workspace's files, so its
+        // tracked settings can't be trusted then; the base branch's can.
+        if self.store.spotlight(&repo.id).await?.is_some() {
+            for rel in crate::settings::CANDIDATES {
+                let spec = format!("{}:{rel}", ws.base_ref);
+                if let Some(text) = git::git_opt(root, &["show", &spec]).await? {
+                    return crate::settings::parse(&text).map_err(|e| anyhow!(e));
+                }
+            }
+            return Ok(Default::default());
+        }
+        crate::settings::load(&[root]).map_err(|e| anyhow!(e))
+    }
+
+    pub(crate) async fn can_resume(&self, session_id: &str) -> anyhow::Result<bool> {
+        // A fork's copied transcript doesn't mean its conversation exists yet.
+        Ok(self.store.fork_source(session_id).await?.is_none()
+            && self.store.session_has_agent_output(session_id).await?)
+    }
+
     pub async fn send_message(
         self: &Arc<Self>,
         session_id: &str,
@@ -130,6 +254,12 @@ impl Daemon {
                 "workspace is {}, not ready",
                 ws.state.as_str()
             )));
+        }
+
+        if self.session_terminal(&s.id).await.is_some() {
+            return Err(CommandError::Conflict(
+                "this chat is open in a terminal; close the terminal to continue here".into(),
+            ));
         }
 
         let mut running = self.running.turns.lock().await;
@@ -150,12 +280,42 @@ impl Daemon {
         );
         drop(running);
 
+        // Nothing is running yet, so a failure here mustn't leave the chat
+        // looking busy, with later messages queued forever.
+        let started = self.start_turns(s, agent_id, ws, text, stop).await;
+        if started.is_err() {
+            self.running.turns.lock().await.remove(session_id);
+        }
+        started
+    }
+
+    async fn start_turns(
+        self: &Arc<Self>,
+        mut s: Session,
+        agent_id: String,
+        ws: Workspace,
+        text: String,
+        stop: Arc<Notify>,
+    ) -> CmdResult<Session> {
+        // New work means the last review no longer applies.
+        if ws.review_state.is_some() && !self.is_reviewer(&s.id).await {
+            self.set_review_state(&ws.id, None).await;
+        }
+        let ws = self.require_workspace(&s.workspace_id).await?;
+
         if s.title == DEFAULT_TITLE {
             s.title = title_from(&text);
             if let Err(e) = self.name_branch(&ws, &text).await {
                 tracing::warn!("couldn't rename branch for {}: {e:#}", ws.id);
             }
         }
+        // Only Claude can fork a conversation; others get the transcript.
+        let fork_context =
+            if s.agent != AgentKind::Claude && self.store.fork_source(&s.id).await?.is_some() {
+                Some(self.earlier_conversation(&s, false).await)
+            } else {
+                None
+            };
         let text = match self.store.last_session_item(&s.id).await? {
             Some(ChatItem::Rewound { to_turn }) => format!(
                 "[Bantu] The user restored the workspace files to how they were before turn \
@@ -163,6 +323,13 @@ impl Daemon {
                  relying on earlier edits.\n\n{text}"
             ),
             _ => text,
+        };
+        let text = match fork_context {
+            Some(earlier) => format!(
+                "[Bantu] This chat was forked from an earlier conversation. Here's what was \
+                 said:\n\n{earlier}\n\n[Bantu] The new message:\n\n{text}"
+            ),
+            None => text,
         };
         s.status = SessionStatus::Running;
         self.store.upsert_session(&s, &agent_id).await?;
@@ -174,6 +341,7 @@ impl Daemon {
         let (mut s, agent_id) = self.require_session(session_id).await?;
         // A turn blocked on a permission prompt must be released to stop.
         self.deny_session_permissions(session_id).await;
+        self.drop_session_questions(session_id).await;
         if let Some(r) = self.running.turns.lock().await.get_mut(session_id) {
             r.stopped = true;
             r.queue.clear();
@@ -245,15 +413,28 @@ impl Daemon {
         Ok(())
     }
 
+    /// Agents can rename the branch or check out another one, and PRs, diffs
+    /// and the radar all need the current name. A detached HEAD keeps the old one.
+    pub(crate) async fn sync_branch_name(&self, ws: &Workspace) {
+        let path = std::path::Path::new(&ws.path);
+        let current = git::git_opt(path, &["symbolic-ref", "--short", "HEAD"]).await;
+        if let Ok(Some(branch)) = current {
+            if branch != ws.branch {
+                let mut ws = ws.clone();
+                ws.branch = branch;
+                if let Err(e) = self.store.upsert_workspace(&ws).await {
+                    tracing::warn!("couldn't record the branch of {}: {e:#}", ws.id);
+                }
+            }
+        }
+    }
+
     /// Runs the repo's `check` script if this turn changed files. Returns a
     /// message for the agent when it fails.
     async fn run_done_check(&self, s: &Session, turn: u32) -> Option<String> {
         let ws = self.require_workspace(&s.workspace_id).await.ok()?;
-        let repo = self.store.repo(&ws.repo_id).await.ok()??;
         let path = std::path::Path::new(&ws.path);
-        let settings =
-            crate::settings::load(&[path, std::path::Path::new(&repo.root_path)]).ok()?;
-        let command = settings.scripts.check?;
+        let command = self.trusted_settings(&ws).await.ok()?.scripts.check?;
 
         // Skip turns that didn't touch the worktree (questions, plans, reviews).
         let before = git::git_opt(
@@ -277,10 +458,9 @@ impl Daemon {
         }
 
         let started = std::time::Instant::now();
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+        let (shell, shell_args) = platform::shell_command(&platform::with_merged_output(&command));
         let run = tokio::process::Command::new(&shell)
-            .arg("-lc")
-            .arg(format!("{{ {command}\n}} 2>&1"))
+            .args(&shell_args)
             .current_dir(&ws.path)
             .env("BANTU_PORT", ws.port_base.to_string())
             .env("BANTU_WORKSPACE_PATH", &ws.path)
@@ -404,6 +584,10 @@ impl Daemon {
             let turn_ok = match self.run_turn(&s, &agent_id, turn, &text, &stop).await {
                 Ok(cost) => {
                     s.total_cost_usd += cost;
+                    // The fork now has its own conversation to resume.
+                    if s.forked_from.is_some() {
+                        let _ = self.store.set_fork_source(&s.id, None).await;
+                    }
                     true
                 }
                 Err(e) => {
@@ -453,6 +637,8 @@ impl Daemon {
                 s.title = fresh.title;
                 s.model = fresh.model;
                 s.permission_mode = fresh.permission_mode;
+                s.effort = fresh.effort;
+                s.fast = fresh.fast;
             }
             match next {
                 Some(n) => {
@@ -461,36 +647,39 @@ impl Daemon {
                 }
                 None => {
                     running.remove(&s.id);
-                    // The agent may have changed files other workspaces touch.
-                    if let Ok(ws) = self.require_workspace(&s.workspace_id).await {
-                        self.rescan_conflicts(&ws.repo_id);
-                    }
                     s.status = SessionStatus::Idle;
                     s.queued = 0;
                     if let Err(e) = self.store.upsert_session(&s, &agent_id).await {
                         tracing::error!("session {}: {e:#}", s.id);
                     }
+                    drop(running);
+                    tokio::spawn(self.clone().after_turns(s));
                     return;
                 }
             }
         }
     }
 
-    /// One `claude -p` invocation. Returns the turn's cost in USD.
+    /// One agent process. Returns the turn's cost in USD.
     async fn run_turn(
-        &self,
+        self: &Arc<Self>,
         s: &Session,
         agent_id: &str,
         turn: u32,
         text: &str,
         stop: &Notify,
     ) -> anyhow::Result<f64> {
+        if acp::command(&self.config, s.agent).is_some() {
+            return self.run_acp_turn(s, agent_id, turn, text, stop).await;
+        }
         let ws = self.require_workspace(&s.workspace_id).await?;
-        let resume = self.store.session_has_agent_output(&s.id).await?;
+        let resume = self.can_resume(&s.id).await?;
+        let fork_source = self.store.fork_source(&s.id).await?;
 
         let (bin, mut cmd, prompt) = match s.agent {
             AgentKind::Claude => {
-                let mut cmd = tokio::process::Command::new(&self.config.claude_bin);
+                let mut cmd =
+                    tokio::process::Command::new(platform::program(&self.config.claude_bin));
                 cmd.args(["-p", "--output-format", "stream-json", "--verbose"])
                     .arg("--include-partial-messages")
                     .args(["--permission-prompts", "none"])
@@ -498,10 +687,24 @@ impl Daemon {
                         "--permission-mode",
                         claude_permission_mode(s.permission_mode),
                     ])
-                    .args([if resume { "--resume" } else { "--session-id" }, agent_id])
                     .args(["--append-system-prompt", &workspace_context(&ws)]);
+                if let Some(source) = &fork_source {
+                    // A copy of the parent's conversation, under this chat's id.
+                    cmd.args([
+                        "--resume",
+                        source,
+                        "--fork-session",
+                        "--session-id",
+                        agent_id,
+                    ]);
+                } else {
+                    cmd.args([if resume { "--resume" } else { "--session-id" }, agent_id]);
+                }
                 if let Some(m) = &s.model {
                     cmd.args(["--model", m]);
+                }
+                if let Some(effort) = &s.effort {
+                    cmd.args(["--effort", effort]);
                 }
                 if !self.store.preferences().await?.claude_user_setup {
                     // Skip the user's global plugins, hooks, skills and MCP
@@ -510,9 +713,12 @@ impl Daemon {
                     cmd.args(["--setting-sources", "project,local"])
                         .arg("--strict-mcp-config");
                 }
-                if let Some(settings) = self.permission_hook_settings(&s.id) {
-                    cmd.args(["--settings", &settings])
-                        .env("BANTU_HOOK_TOKEN", &self.permissions.hook_token);
+                let settings = self.permission_hook_settings(&s.id);
+                if settings.is_some() {
+                    cmd.env("BANTU_HOOK_TOKEN", &self.permissions.hook_token);
+                }
+                if let Some(settings) = with_fast_mode(settings, s.fast) {
+                    cmd.args(["--settings", &settings]);
                 }
                 if let Some(mcp) = self.mcp_config(&s.id) {
                     // Bantu's own tools are always allowed; they only act on
@@ -523,10 +729,12 @@ impl Daemon {
                 (&self.config.claude_bin, cmd, text.to_string())
             }
             AgentKind::Codex => {
-                let mut cmd = tokio::process::Command::new(&self.config.codex_bin);
+                let mut cmd =
+                    tokio::process::Command::new(platform::program(&self.config.codex_bin));
                 cmd.args(codex::args(
                     s.permission_mode,
                     s.model.as_deref(),
+                    s.effort.as_deref(),
                     resume.then_some(agent_id),
                 ));
                 // Codex has no system-prompt flag; brief it on the first turn.
@@ -536,6 +744,9 @@ impl Daemon {
                     format!("{}\n\n{text}", workspace_context(&ws))
                 };
                 (&self.config.codex_bin, cmd, prompt)
+            }
+            AgentKind::Opencode | AgentKind::Gemini | AgentKind::Cursor => {
+                unreachable!("ACP agents return above")
             }
         };
         let mut child = cmd
@@ -602,6 +813,7 @@ impl Daemon {
                             }
                             items
                         }
+                        AgentKind::Opencode | AgentKind::Gemini | AgentKind::Cursor => vec![],
                     };
                     for item in items {
                         if let ChatItem::TurnEnd { cost_usd, .. } = &item {
@@ -657,7 +869,19 @@ pub fn checkpoint_ref(session_id: &str, turn: u32) -> String {
     format!("refs/bantu/cp/{session_id}/{turn}")
 }
 
-fn claude_permission_mode(m: PermissionMode) -> &'static str {
+/// Adds Claude's fast mode to a `--settings` JSON string.
+pub(crate) fn with_fast_mode(settings: Option<String>, fast: bool) -> Option<String> {
+    if !fast {
+        return settings;
+    }
+    let mut value: Value = settings
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    value["fastMode"] = Value::Bool(true);
+    Some(value.to_string())
+}
+
+pub(crate) fn claude_permission_mode(m: PermissionMode) -> &'static str {
     match m {
         PermissionMode::Auto => "auto",
         PermissionMode::Ask => "default",
@@ -667,7 +891,7 @@ fn claude_permission_mode(m: PermissionMode) -> &'static str {
     }
 }
 
-fn workspace_context(ws: &Workspace) -> String {
+pub(crate) fn workspace_context(ws: &Workspace) -> String {
     format!(
         "You are running inside Bantu, in an isolated git worktree created for this task.\n\
          - Workspace: {name}. Branch: {branch} (created from {base}). Commit work to this branch; \
@@ -825,7 +1049,7 @@ fn tail_chars(s: &str, n: usize) -> String {
     format!("…{}", tail.trim_end())
 }
 
-fn truncate(s: String) -> String {
+pub(crate) fn truncate(s: String) -> String {
     if s.chars().count() <= MAX_TOOL_RESULT_CHARS {
         return s;
     }
@@ -885,6 +1109,23 @@ mod tests {
         let sub = json!({"type":"stream_event","parent_tool_use_id":"toolu_1",
             "event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"x"}}});
         assert_eq!(text_delta(&sub), None);
+    }
+
+    #[test]
+    fn fast_mode_joins_the_settings() {
+        assert_eq!(with_fast_mode(None, false), None);
+        assert_eq!(
+            with_fast_mode(Some("{}".into()), false).as_deref(),
+            Some("{}")
+        );
+        let merged = with_fast_mode(Some(r#"{"hooks":{}}"#.into()), true).unwrap();
+        let merged: Value = serde_json::from_str(&merged).unwrap();
+        assert_eq!(merged["fastMode"], true);
+        assert!(merged["hooks"].is_object());
+        assert_eq!(
+            with_fast_mode(None, true).as_deref(),
+            Some(r#"{"fastMode":true}"#)
+        );
     }
 
     #[test]

@@ -5,6 +5,8 @@ import tailwindcss from "@tailwindcss/vite";
 const daemon = process.env.BANTU_DAEMON_URL ?? "http://127.0.0.1:47800";
 
 export default defineConfig({
+  // Relative paths, so the build works from any folder of any static host.
+  base: "./",
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,

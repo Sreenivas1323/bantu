@@ -16,15 +16,15 @@ see [README.md](README.md).
 | One workspace = one git worktree + branch | ✓ | ✓ | have | M0 |
 | Fetch origin and branch from `origin/<base>` | ✓ | ✓ | have | M0 |
 | City-name default workspace names | ✓ | — | have | M0 |
-| Agent renames branch from first message | ✓ (descriptive names 0.89.0) | — | planned | M1 |
+| Agent renames branch from first message | ✓ (descriptive names 0.89.0) | — | have | M1 |
 | Workspace numbers | 0.89.0 | — | planned | M1 |
-| Create workspace from branch | ✓ | ✓ | planned | M2 |
-| Create workspace from PR | 0.15.2 | — | planned | M2 |
-| Create workspace from GitHub issue | 0.32.0 / 0.66.0 | — | planned | M2 |
+| Create workspace from branch | ✓ | ✓ | have | M2 |
+| Create workspace from PR | 0.15.2 | — | have | M2 |
+| Create workspace from GitHub issue | 0.32.0 / 0.66.0 | — | have | M2 |
 | Create workspace from Linear issue | 0.15.0 | — | planned | later |
 | Fork a workspace | 0.25.6 | — | planned | M2 |
 | Dispatcher create screen (⌘N, "create more") | 0.63.0 | — | planned | M1 |
-| Adopt an existing worktree | — | 2.4.96 | planned | M2 |
+| Adopt an existing worktree | — | 2.4.96 | have | M2 |
 | Spare-worktree pool for instant creation | — | ✓ | planned | M2 |
 | Branch can only be checked out in one workspace | ✓ | ✓ (git rule) | have | M0 |
 | Copy gitignored files via `.worktreeinclude` | ✓ | — | have | M0 |
@@ -57,35 +57,35 @@ see [README.md](README.md).
 | Feature | Conductor | Pane | Bantu | Milestone |
 |---|---|---|---|---|
 | Claude Code | ✓ (Agent SDK, *inferred*) | ✓ (terminal; ACP chat experimental) | planned (SDK + terminal) | M1 |
-| Codex | 0.18.0 (app-server, *inferred*) | ✓ (terminal; app-server chat 2.4.194+) | planned | M2 |
-| Cursor | 0.63.0 | ✓ | planned (ACP) | M2 |
-| OpenCode | 0.69.0 (2.0 in 0.87.0) | 2.4.170 | planned (ACP) | M2 |
-| Any CLI as agent | — | ✓ | planned (terminal driver) | M2 |
+| Codex | 0.18.0 (app-server, *inferred*) | ✓ (terminal; app-server chat 2.4.194+) | have | M2 |
+| Cursor | 0.63.0 | ✓ | have | M2 |
+| OpenCode | 0.69.0 (2.0 in 0.87.0) | 2.4.170 | have | M2 |
+| Any CLI as agent | — | ✓ | have | M2 |
 | Bundled/pinned agent CLIs | ✓ | — | planned | M2 |
-| Structured chat (tool cards, turns) | ✓ (core) | experimental | planned | M1 |
-| Switch chat ⇄ terminal on same conversation | — | ✓ (2.4.194+) | planned | M2 |
-| Multiple chats per workspace | 0.17.0 (10 tabs 0.57.0) | ✓ (tabs) | planned | M2 |
+| Structured chat (tool cards, turns) | ✓ (core) | experimental | have | M1 |
+| Switch chat ⇄ terminal on same conversation | — | ✓ (2.4.194+) | have | M2 |
+| Multiple chats per workspace | 0.17.0 (10 tabs 0.57.0) | ✓ (tabs) | have | M2 |
 | Fork a chat mid-turn | 0.78.0 (experimental) | — | planned | M2 |
-| Plan mode with approval and feedback | 0.7.3 / 0.21.0 / 0.25.5 | — | planned | M1 |
-| Fast mode | 0.40.1 | — | planned | M2 |
-| Effort levels | 0.48.5 | — | planned | M2 |
+| Plan mode with approval and feedback | 0.7.3 / 0.21.0 / 0.25.5 | — | have | M1 |
+| Fast mode | 0.40.1 | — | have | M2 |
+| Effort levels | 0.48.5 | — | have | M2 |
 | Manual mode | 0.37.0 | — | planned | M2 |
-| Tool approval / permission prompts | 0.41.0 | ✓ (via Notify, 2.4.212) | planned | M1 |
+| Tool approval / permission prompts | 0.41.0 | ✓ (via Notify, 2.4.212) | have | M1 |
 | Steering (message during a turn) | 0.50.0 | — | planned | M1 |
-| Message queue | 0.1.0 / 0.54.0 | — | planned | M1 |
+| Message queue | 0.1.0 / 0.54.0 | — | have | M1 |
 | Background-task UI | 0.77.0 | — | planned | M2 |
 | Codex goals, personalities | 0.65.0 / 0.45.0 | — | planned | later |
-| Model picker | 0.85.0 | — | planned | M2 |
-| Saved and shareable loadouts | 0.85.0 / 0.86.0 | — | planned | M2 |
+| Model picker | 0.85.0 | — | have | M2 |
+| Saved and shareable loadouts | 0.85.0 / 0.86.0 | — | have | M2 |
 | Model search | 0.87.5 | — | planned | later |
 | Bedrock / Vertex / custom providers | 0.13.6 | — | planned | later |
 | Vercel AI Gateway keys | 0.79.0 | — | planned | later |
 | Sign in with ChatGPT | 0.89.0 | — | planned (uses Codex CLI login) | M2 |
 | Sync skills/commands/MCPs between Claude and Codex | 0.57.0 | — | planned | later |
-| Todos / task list display | 0.28.4 / 0.33.0 | — | planned | M1 |
-| Per-repo prompts (general, review, create PR, fix errors, conflicts, rename branch) | ✓ | — | planned | M2 |
+| Todos / task list display | 0.28.4 / 0.33.0 | — | have | M1 |
+| Per-repo prompts (general, review, create PR, fix errors, conflicts, rename branch) | ✓ | — | have | M2 |
 | Context-usage dial, compaction state | ✓ | — | planned | M1 |
-| Session resume after app restart | ✓ | ✓ | planned | M1 |
+| Session resume after app restart | ✓ | ✓ | have | M1 |
 | Agent status detection (working / idle / blocked) | ✓ (structured) | ✓ (screen heuristics) | planned (structured) | M1 |
 | Agent notes / memory | — | 2.4.169 (experimental) | planned | later |
 | Usage and cost views | 0.91.0 (team heatmap) | ✓ (+ leaderboard) | planned | M2 |
@@ -99,7 +99,7 @@ see [README.md](README.md).
 | Slash commands from `.claude/commands` | 0.1.1 / 0.25.0 | — | planned | M1 |
 | @file mentions | 0.46.0 | — | planned | M1 |
 | @terminal mentions (pull terminal scrollback into context) | 0.46.0 | ✓ (last 500 lines) | planned | M1 |
-| Thinking display | 0.15.1 | — | planned | M1 |
+| Thinking display | 0.15.1 | — | have | M1 |
 | Chat search, ⌘F find in chat | 0.31.0 / 0.90.0 | ✓ (⌘⇧P search 2.4.189+) | planned | M2 |
 | Chat summaries, chat outline | 0.34.2 / 0.92.0 | — | planned | later |
 | Markdown, LaTeX, Mermaid rendering | ✓ | — | planned | M1 (md) / later |
@@ -117,12 +117,12 @@ see [README.md](README.md).
 
 | Feature | Conductor | Pane | Bantu | Milestone |
 |---|---|---|---|---|
-| Diff viewer vs base (file list, unified/split) | 0.3.0 → 0.36.0 | ✓ | planned | M1 |
+| Diff viewer vs base (file list, unified/split) | 0.3.0 → 0.36.0 | ✓ | have | M1 |
 | Per-commit filter, historical diffs | 0.22.0 | — | planned | M2 |
 | Mark files viewed | 0.29.1 | — | planned | M1 |
-| Inline and multiline comments sent to the agent | 0.38.3 | — | planned | M1 |
-| Agent leaves comments on code | 0.29.0 | — | planned | M2 |
-| Review action with a custom review model | 0.10.0 / 0.22.6 | — | planned (cross-agent review) | M2 / M4 |
+| Inline and multiline comments sent to the agent | 0.38.3 | — | have | M1 |
+| Agent leaves comments on code | 0.29.0 | — | have | M2 |
+| Review action with a custom review model | 0.10.0 / 0.22.6 | — | have | M2 / M4 |
 | Edit files directly in the diff | 0.84.0 | ✓ (editor tab) | planned | M2 |
 | Cross-file search ⌘⇧F | 0.87.0 | ✓ | planned | M2 |
 | Revert a single file | ✓ | — | planned | M1 |
@@ -132,14 +132,14 @@ see [README.md](README.md).
 
 | Feature | Conductor | Pane | Bantu | Milestone |
 |---|---|---|---|---|
-| Create PR with agent-drafted title/body | ✓ (⌘⇧P) | ✓ (draft PR icon) | planned | M1 |
+| Create PR with agent-drafted title/body | ✓ (⌘⇧P) | ✓ (draft PR icon) | have | M1 |
 | Edit PR title/body before creating | 0.34.1 | — | planned | M1 |
 | PR page | 0.73.0 / 0.89.0 | — | planned | M2 |
-| Checks tab (git status, CI, deployments, comments, todos) | 0.31.1 | — | planned | M2 |
-| Forward failing checks to the agent | 0.12.0 | — | planned | M2 |
-| GitHub Actions logs | 0.33.2 | — | planned | M2 |
+| Checks tab (git status, CI, deployments, comments, todos) | 0.31.1 | — | have | M2 |
+| Forward failing checks to the agent | 0.12.0 | — | have | M2 |
+| GitHub Actions logs | 0.33.2 | — | have | M2 |
 | Vercel deploy status | 0.25.7 / 0.29.2 | — | planned | M2 |
-| Sync GitHub PR comments | 0.25.4 | — | planned | M2 |
+| Sync GitHub PR comments | 0.25.4 | — | have | M2 |
 | One-click approve | 0.83.0 | — | planned | later |
 | Change target branch | 0.28.7 | — | planned | M1 |
 | Automerge | 0.90.0 | — | planned | later |
@@ -149,18 +149,18 @@ see [README.md](README.md).
 
 | Feature | Conductor | Pane | Bantu | Milestone |
 |---|---|---|---|---|
-| Integrated terminal (pty) | ✓ | ✓ (core) | planned | M1 |
+| Integrated terminal (pty) | ✓ | ✓ (core) | have | M1 |
 | Terminal restored after app restart | ✓ (*inferred*) | ✓ (headless xterm) | planned | M1 |
 | Run scripts, several named actions | 0.70.0 / 0.92.0 | ✓ | planned | M1 |
 | Concurrent / non-concurrent run mode | ✓ | — | planned | M1 |
 | Stop = SIGTERM process group, SIGKILL after 5 s | ✓ | — | planned | M1 |
 | Layered settings (user / project / local / managed) | ✓ (`settings.toml`) | ✓ (`pane.json`) | have (project) / planned (layers) | M0 / M2 |
 | Read Conductor settings for migration | n/a | — | have (`.conductor/settings.toml` fallback) | M0 |
-| Spotlight (sync a workspace into the main checkout) | 0.55.0 | — | planned | M2 |
+| Spotlight (sync a workspace into the main checkout) | 0.55.0 | — | have | M2 |
 | Big terminal mode | 0.48.0 | ✓ (terminal-first) | planned | M2 |
-| Agent reads the terminal | 0.29.5 | ✓ (@-mention) | planned (MCP) | M2 |
+| Agent reads the terminal | 0.29.5 | ✓ (@-mention) | have | M2 |
 | direnv | 0.38.4 | — | planned | later |
-| Browser preview, named preview URLs | 0.62.0 / 0.63.0 | ✓ (2.4.206 live preview) | planned | M2 |
+| Browser preview, named preview URLs | 0.62.0 / 0.63.0 | ✓ (2.4.206 live preview) | have | M2 |
 | Per-process resource monitor | — | ✓ | planned | later |
 | Open in IDE / Finder | ✓ | ✓ | planned | M1 |
 
@@ -168,7 +168,7 @@ see [README.md](README.md).
 
 | Feature | Conductor | Pane | Bantu | Milestone |
 |---|---|---|---|---|
-| Per-turn checkpoint in private git refs | 0.19.0 | — | planned | M2 |
+| Per-turn checkpoint in private git refs | 0.19.0 | — | have | M2 |
 | Revert code + chat to a turn | 0.19.0 | — | planned | M2 |
 | Reset chat only | 0.83.0 | — | planned | M2 |
 
@@ -176,23 +176,23 @@ see [README.md](README.md).
 
 | Feature | Conductor | Pane | Bantu | Milestone |
 |---|---|---|---|---|
-| Orchestrator chat that spawns and drives workers | — | 2.4.106 / 2.4.138 (Sessions) | planned (orchestrator mode) | M4 |
+| Orchestrator chat that spawns and drives workers | — | 2.4.106 / 2.4.138 (Sessions) | have | M4 |
 | Typed worker reports, `submit --wait` | — | 2.4.187 | planned | M4 |
 | Named locks for shared resources | — | 2.4.187 | planned | M4 |
 | Mission Control grid / attention inbox | — | 2.4.172 (experimental) | planned (Notify inbox) | M1 / M3 |
-| Routines / loops (cron) | 0.85.0 | ✓ (at most hourly) | planned | M4 |
-| GitHub and webhook triggers | 0.85.0 / 0.87.0 | — | planned (polled; no webhook server) | M4 |
+| Routines / loops (cron) | 0.85.0 | ✓ (at most hourly) | have | M4 |
+| GitHub and webhook triggers | 0.85.0 / 0.87.0 | — | have | M4 |
 | Handoff session to another machine | — | 2.4.166 / 2.4.186 | planned | M3 |
-| Import sessions from other tools | — | 2.4.185 (incl. Conductor) | planned (Conductor + Pane) | M4 |
+| Import sessions from other tools | — | 2.4.185 (incl. Conductor) | have | M4 |
 
 ## Notifications
 
 | Feature | Conductor | Pane | Bantu | Milestone |
 |---|---|---|---|---|
-| `notify` tool with typed cards (options / approve / ask / info) | — | 2.4.204 | planned | M1 |
+| `notify` tool with typed cards (options / approve / ask / info) | — | 2.4.204 | have | M1 |
 | Overlay over any app, keyboard queue, undo, snooze | — | 2.4.204 | planned | M2 |
-| Answer Claude permission prompts remotely | — | 2.4.212 | planned | M3 |
-| Phone push with action buttons | ✓ (iOS app) | 2.4.205 | planned (Web Push from daemon) | M3 |
+| Answer Claude permission prompts remotely | — | 2.4.212 | have | M3 |
+| Phone push with action buttons | ✓ (iOS app) | 2.4.205 | have | M3 |
 | Push only for turns a human started | — | ✓ | planned | M3 |
 
 ## Remote, cloud and team

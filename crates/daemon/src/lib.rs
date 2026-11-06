@@ -1,20 +1,32 @@
 //! The Bantu daemon (`bantud`). See `docs/ARCHITECTURE.md`.
 
+pub mod acp;
 pub mod activity;
 pub mod agents;
+pub mod auto_review;
+pub mod checks;
 pub mod codex;
 pub mod discover;
 pub mod http;
+pub mod import;
+pub mod inbox;
+pub mod loops;
 pub mod mcp;
 pub mod names;
 pub mod ops;
+pub mod orchestrate;
 pub mod permissions;
+pub mod platform;
+pub mod preview;
+pub mod push;
 pub mod radar;
 pub mod review;
 pub mod service;
 pub mod sessions;
 pub mod settings;
+pub mod spotlight;
 pub mod store;
+pub mod terminal_driver;
 pub mod terminals;
 
 use std::path::{Path, PathBuf};
@@ -40,13 +52,24 @@ pub struct Config {
     pub claude_bin: PathBuf,
     /// The OpenAI Codex CLI used for agent sessions.
     pub codex_bin: PathBuf,
+    /// Where Claude Code keeps its data (`CLAUDE_CONFIG_DIR`, usually `~/.claude`).
+    /// Conversations continued in a terminal are read back from here.
+    pub claude_config_dir: PathBuf,
+    /// Agents driven over the Agent Client Protocol.
+    pub opencode_bin: PathBuf,
+    pub gemini_bin: PathBuf,
+    pub cursor_bin: PathBuf,
     /// Extra `Host` names to accept besides loopback, e.g. a Tailscale or
     /// CloudFront hostname that forwards to this daemon.
     pub allowed_hosts: Vec<String>,
+    /// The address remote clients use for port previews, if any.
+    pub preview_url: Option<String>,
 }
 
 pub struct Started {
     pub router: axum::Router,
+    /// Serves port previews. It belongs on a port of its own: see [`preview`].
+    pub preview_router: axum::Router,
     pub daemon: Arc<Daemon>,
     pub token: String,
 }
@@ -60,19 +83,25 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     let mut config = config;
     std::fs::create_dir_all(&config.workspaces_dir)
         .with_context(|| format!("creating {}", config.workspaces_dir.display()))?;
-    config.workspaces_dir = config.workspaces_dir.canonicalize()?;
+    config.workspaces_dir = platform::canonical(&config.workspaces_dir)?;
     let store = store::Store::open(&config.home.join("bantu.db")).await?;
     let daemon = Arc::new(Daemon::new(store, config));
     daemon.recover_interrupted().await?;
     daemon.recover_sessions().await?;
     daemon.recover_terminals().await?;
-    let router = http::router(AppState {
+    daemon.recover_reviews().await?;
+    daemon.start_push()?;
+    daemon.start_loops().await?;
+    let state = AppState {
         daemon: daemon.clone(),
         token_hash: http::hash_token(&token).into(),
         allow_remote,
-    });
+    };
+    let preview_router = preview::router(state.clone());
+    let router = http::router(state);
     Ok(Started {
         router,
+        preview_router,
         daemon,
         token,
     })
@@ -98,7 +127,7 @@ pub fn load_or_create_token(home: &Path) -> Result<String> {
 }
 
 #[cfg(unix)]
-fn write_private(path: &Path, contents: &str) -> Result<()> {
+pub(crate) fn write_private(path: &Path, contents: &str) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let mut f = std::fs::OpenOptions::new()
@@ -113,6 +142,6 @@ fn write_private(path: &Path, contents: &str) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-fn write_private(path: &Path, contents: &str) -> Result<()> {
+pub(crate) fn write_private(path: &Path, contents: &str) -> Result<()> {
     std::fs::write(path, contents).with_context(|| format!("writing {}", path.display()))
 }

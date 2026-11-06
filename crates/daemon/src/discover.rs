@@ -42,7 +42,7 @@ impl Daemon {
             .map(|r| r.root_path)
             .collect();
         let workspaces = self.config.workspaces_dir.clone();
-        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let home = crate::platform::home_dir();
         tokio::task::spawn_blocking(move || {
             let Some(home) = home else { return Ok(vec![]) };
             let mut found: Vec<(SystemTime, PathBuf)> = Vec::new();

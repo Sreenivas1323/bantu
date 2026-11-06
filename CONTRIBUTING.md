@@ -1,12 +1,12 @@
 # Contributing to Bantu
 
-Thanks for helping. Bantu is early (milestone M1), so the fastest way to help is to
+Thanks for helping. Bantu is early, so the fastest way to help is to
 try it, open issues, and pick up anything labelled `good first issue`.
 
 ## Setup
 
 You need [Rust](https://rustup.rs) (stable), [Bun](https://bun.sh) and `git`.
-macOS and Linux are supported; Windows comes later.
+macOS and Linux are supported. Windows is an early preview: see [ROADMAP.md](docs/ROADMAP.md).
 
 ```sh
 git clone https://github.com/Sreenivas1323/bantu && cd bantu
@@ -15,7 +15,8 @@ BANTU_CLAUDE_BIN=$PWD/scripts/fake-claude.sh cargo run -p bantud   # daemon on 1
 bun run dev:web                                                     # web UI with hot reload
 ```
 
-`scripts/fake-claude.sh` stands in for Claude Code so UI work costs nothing; drop
+`scripts/fake-claude.sh` stands in for Claude Code so UI work costs nothing
+(`fake-codex.sh` and `fake-acp.sh` do the same for the other agents); drop
 `BANTU_CLAUDE_BIN` to use your real `claude` CLI. `bantud --print-token` prints the local
 auth token the web UI asks for. The integration tests in `crates/daemon/tests/api.rs`
 use the same fake.

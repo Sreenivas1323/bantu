@@ -15,9 +15,15 @@ use serde_json::{json, Value};
 pub fn args(
     permission_mode: PermissionMode,
     model: Option<&str>,
+    effort: Option<&str>,
     thread_id: Option<&str>,
 ) -> Vec<String> {
     let mut a: Vec<String> = vec!["exec".into()];
+    if let Some(effort) = effort {
+        // Codex's scale stops one short of Claude's.
+        let effort = if effort == "max" { "xhigh" } else { effort };
+        a.extend(["-c".into(), format!("model_reasoning_effort=\"{effort}\"")]);
+    }
     if let Some(id) = thread_id {
         a.extend(["resume".into(), id.into()]);
     }
@@ -344,15 +350,20 @@ mod tests {
 
     #[test]
     fn args_by_mode() {
-        let a = args(PermissionMode::Auto, Some("gpt-5"), Some("th_1"));
+        let a = args(PermissionMode::Auto, Some("gpt-5"), None, Some("th_1"));
         assert_eq!(a[..4], ["exec", "resume", "th_1", "--json"]);
         assert!(a.windows(2).any(|w| w == ["--sandbox", "workspace-write"]));
         assert!(a.windows(2).any(|w| w == ["--model", "gpt-5"]));
         assert_eq!(a.last().map(String::as_str), Some("-"));
-        assert!(args(PermissionMode::Plan, None, None)
+        let tuned = args(PermissionMode::Auto, None, Some("max"), Some("th_1"));
+        assert_eq!(
+            tuned[..4],
+            ["exec", "-c", "model_reasoning_effort=\"xhigh\"", "resume"]
+        );
+        assert!(args(PermissionMode::Plan, None, None, None)
             .windows(2)
             .any(|w| w == ["--sandbox", "read-only"]));
-        assert!(args(PermissionMode::BypassPermissions, None, None)
+        assert!(args(PermissionMode::BypassPermissions, None, None, None)
             .contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
     }
 }

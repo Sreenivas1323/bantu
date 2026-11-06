@@ -49,38 +49,38 @@ Feature-by-feature status against Conductor and Pane lives in
 
 - [x] Per-turn checkpoints in private refs; rewind code (the agent is told; Claude has no partial-conversation rewind)
 - [x] Codex driver (`codex exec --json`, resumed by thread id; sandbox per permission mode) — not yet verified against the live service
-- [ ] Generic ACP driver (OpenCode, Cursor, Gemini)
-- [ ] Terminal driver; switch chat ⇄ terminal in the same conversation
+- [x] Generic ACP driver (OpenCode via `opencode acp`, Gemini via `gemini --acp`, Cursor via `agent acp`): streaming, tool cards, permission prompts, resume with `session/load` — tested with a fake agent; the handshake is verified against real Gemini CLI, but no full turn has run against a signed-in agent yet
+- [x] Terminal driver: any CLI in a PTY, and a Claude or Codex chat continued in its own terminal UI. Claude's transcript is read back into the chat when the terminal ends (Codex resumes correctly, but its terminal history isn't imported)
 - [x] Fix failing checks: `gh pr checks` + failed-step logs from GitHub Actions (cleaned, last 120 lines) sent to the agent in one click
-- [ ] Full checks tab (deployments, PR comments, todos)
-- [ ] Per-repo prompts: review, create PR, fix errors, resolve conflicts, rename branch
+- [x] Full checks tab: CI runs, deployments, PR comments (sent to the agent in one click) and todos from the agent and the PR description
+- [x] Per-repo prompts: `[prompts]` in `.bantu/settings.toml` adds instructions to review, create PR, fix checks, address comments, resolve conflicts and rename branch
 - [x] Bantu MCP server injected into every Claude session (`list_workspaces`, `create_workspace`, `workspace_status`, `wait_for_workspace`, `send_message`, `get_diff`)
-- [ ] More MCP tools: terminal output, diff comments, notify/ask the user
-- [ ] Model picker (done) and loadouts; effort/fast mode; several chats per workspace (done); fork a chat
-- [ ] Spotlight: sync a workspace into the main checkout for testing
+- [x] More MCP tools: `list_terminals`, `get_terminal_output`, `list_diff_comments`, `add_diff_comment`, `notify_user`, `ask_user`, plus an inbox in the UI
+- [x] Model picker, loadouts, effort and fast mode, several chats per workspace, and forking a chat (Claude forks the real conversation; other agents get the transcript)
+- [x] Spotlight: show a workspace's work in the main checkout as a detached snapshot that follows each agent turn; refuses to touch uncommitted changes there
 - [x] Create a workspace from a branch (local or origin), a PR (incl. forks via pull/N/head) or a GitHub issue (the agent starts on it)
 
 ## M3 — Anywhere (weeks 6–7)
 
 - [x] Release builds (macOS arm64/x64, Linux x64/arm64) + `install.sh` with checksums; launchd/systemd service
 - [x] Pairing by QR code (`bantud url --qr`, with `BANTU_PUBLIC_URL`)
-- [ ] Web/PWA client deployable as a static site; phone layout
-- [ ] Web Push from the daemon (VAPID) for the Notify inbox
+- [x] Web/PWA client: installable, deployable as a static site (`#daemon=…&token=…` pairing with `BANTU_APP_URL`), with a phone layout
+- [x] Web Push from the daemon (VAPID) for approvals, inbox items and finished turns — encryption matches the RFC 8291 test vector and delivery is tested with a local push server, but not yet against a real browser push service
 - [x] AWS template (Tailscale variant): EC2 t4g, no open ports, idle auto-stop via `/v1/activity`, Lambda wake link, Session Manager shell ([AWS.md](AWS.md)) — lint-checked, not yet deployed end to end
-- [ ] CloudFront variant (needs your own domain + certificate on the instance)
-- [ ] Launch Stack button (needs a public S3 copy of the template)
+- [x] CloudFront variant: your own domain, Caddy for the origin certificate, CloudFront-only access with a secret header, and a separate distribution for previews ([AWS.md](AWS.md)) — lint-checked and its routing tested with the real Caddy, not yet deployed end to end
+- [ ] Launch Stack button: the release can publish the templates to S3 and the link format is documented, but it needs a public bucket to exist first ([RELEASING.md](RELEASING.md))
 - [x] Guides: Tailscale Serve, Cloudflare Tunnel, SSH ([REMOTE.md](REMOTE.md)); `--allowed-host` instead of all-or-nothing
-- [ ] Port forwarding for dev-server previews on remote daemons
+- [x] Port forwarding for dev-server previews: HTTP and WebSockets through a separate origin, with short-lived per-port grants
 
 ## M4 — Beyond (weeks 8–10)
 
 - [x] Orchestration: any chat can split work into new workspaces with their own agents, wait for them and review their diffs (verified with real Claude); children inherit model and permission mode; max 10 active workspaces per repo
-- [ ] Orchestrator UI: a lead chat with a live board of its child workspaces; integrate results into one branch
+- [x] Orchestrator UI: a live board of a lead's child workspaces, nested in the sidebar, and one-click local merging into its branch (the agent takes over on a conflict); also an `integrate_workspaces` MCP tool
 - [x] Conflict radar: snapshots every ready workspace (uncommitted work included) and test-merges each pair and each against its base with `git merge-tree`; reruns after turns; ⚠ in the sidebar + banner
 - [x] Definition of done: `[scripts] check` runs after every agent turn that changed files (not in plan mode, not when the user queued a message); failures go back to the agent up to 2 times in a row
 - [x] Review: a fresh read-only (plan mode) chat reviews the workspace diff; Shift-click to review with Codex
-- [ ] Automatic cross-agent review before "Ready", findings sent back to the author chat
-- [ ] Loops / routines: cron, GitHub triggers
-- [ ] Vercel Sandbox burst runners
-- [ ] Import sessions from Conductor and Pane
-- [ ] Windows support
+- [x] Automatic cross-agent review (`[review] auto = true`): a different agent reviews finished work, findings go back to the author for up to 2 rounds, and approval marks the workspace ready
+- [x] Loops: cron schedules and GitHub triggers (issues and PRs by label, polled with `gh`), each run in a fresh workspace, archived automatically if it changes nothing — GitHub polling is unit-tested, not yet run against a real repo
+- [x] Vercel Sandbox burst runner ([VERCEL.md](VERCEL.md)): one microVM per task, with the API key held at the firewall and work returned as local branches — tested with a local stand-in for the VM, not yet run against Vercel
+- [x] Import from Conductor and Pane: active workspaces adopted in place (archiving only forgets them), chats with their recent history, read-only on the source
+- [ ] Windows support: the daemon compiles for Windows, uses PowerShell or `$SHELL`, finds npm-installed agents, and CI builds it on `windows-latest` without blocking. Still needed: running it on a real Windows machine, a background service, releases and the desktop app

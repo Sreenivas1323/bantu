@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import type { AgentKind, AgentStatus, Command, CommandResponse, PermissionRequest, Session, Workspace } from "@bantu/protocol";
+import type { AgentKind, AgentStatus, Command, CommandResponse, InboxItem, Loadout, PermissionRequest, Session, Terminal, Workspace } from "@bantu/protocol";
+import { QuestionCard } from "../InboxDialog.tsx";
 import type { ChatEntry, DaemonState } from "../../lib/store.ts";
+import { agentLabel, AGENT_KINDS } from "../../lib/useAgents.ts";
 import { Composer } from "./Composer.tsx";
 import { PermissionCard } from "./PermissionCard.tsx";
 import { Transcript } from "./Transcript.tsx";
@@ -15,8 +17,12 @@ export function ChatPanel({
   chat,
   streaming,
   permissions,
+  questions,
   agents,
   onOpenAccounts,
+  terminals,
+  onShowTerminal,
+  loadouts,
   run,
 }: {
   workspace: Workspace;
@@ -31,6 +37,11 @@ export function ChatPanel({
   onOpenAccounts: () => void;
   /** Pending permission requests for this workspace. */
   permissions: PermissionRequest[];
+  questions: InboxItem[];
+  /** This workspace's terminals, to find one continuing the active chat. */
+  terminals: Terminal[];
+  onShowTerminal: (terminalId: string) => void;
+  loadouts: Loadout[];
   run: Run;
 }) {
   // Jump to a chat the user just created once the daemon reports it.
@@ -44,9 +55,55 @@ export function ChatPanel({
 
   const ready = workspace.state === "ready";
   const newChat = async (agent: AgentKind) => {
-    const res = await run({ type: "session.create", workspace_id: workspace.id, agent, model: null, permission_mode: null });
+    const res = await run({ type: "session.create", workspace_id: workspace.id, agent, model: null, permission_mode: null, effort: null, fast: null });
     const created = res?.result as Session | undefined;
     if (created?.id) setPendingNew(created.id);
+  };
+  const newFromLoadout = async (l: Loadout) => {
+    const res = await run({
+      type: "session.create",
+      workspace_id: workspace.id,
+      agent: l.agent,
+      model: l.model,
+      permission_mode: l.permission_mode,
+      effort: l.effort,
+      fast: l.fast,
+    });
+    const created = res?.result as Session | undefined;
+    if (created?.id) setPendingNew(created.id);
+  };
+  const fork = async () => {
+    if (!active) return;
+    const res = await run({ type: "session.fork", session_id: active.id });
+    const created = res?.result as Session | undefined;
+    if (created?.id) setPendingNew(created.id);
+  };
+  const saveLoadout = async () => {
+    if (!active) return;
+    const name = window.prompt("Name this loadout", agentLabel(active.agent))?.trim();
+    if (!name) return;
+    const loadout: Loadout = {
+      name,
+      agent: active.agent,
+      model: active.model,
+      effort: active.effort,
+      fast: active.fast,
+      permission_mode: active.permission_mode,
+    };
+    await run({
+      type: "preferences.update",
+      claude_user_setup: null,
+      loadouts: [...loadouts.filter((l) => l.name !== name), loadout],
+    });
+  };
+
+  const liveTerminal = active && terminals.find((t) => t.session_id === active.id && !t.exited);
+  const canUseTerminal = active && (active.agent === "claude" || active.agent === "codex");
+  const openTerminal = async () => {
+    if (!active) return;
+    const res = await run({ type: "session.open_terminal", session_id: active.id, cols: null, rows: null });
+    const t = res?.result as Terminal | undefined;
+    if (t?.id) onShowTerminal(t.id);
   };
 
   if (!active) {
@@ -59,9 +116,11 @@ export function ChatPanel({
               <button type="button" onClick={() => void newChat("claude")} className="rounded-md bg-accent px-3 py-1.5 font-medium text-bg">
                 Start a Claude chat
               </button>
-              <button type="button" onClick={() => void newChat("codex")} className="rounded-md border border-line px-3 py-1.5 text-muted hover:text-fg">
-                Codex
-              </button>
+              {AGENT_KINDS.filter((a) => a !== "claude" && isInstalled(agents, a)).map((a) => (
+                <button key={a} type="button" onClick={() => void newChat(a)} className="rounded-md border border-line px-3 py-1.5 text-muted hover:text-fg">
+                  {agentLabel(a)}
+                </button>
+              ))}
             </div>
           </div>
         ) : (
@@ -74,7 +133,7 @@ export function ChatPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {(sessions.length > 1 || ready) && (
-        <div className="flex items-center gap-0.5 overflow-x-auto border-b border-line px-3" role="tablist" aria-label="Chats">
+        <div className="scroll-quiet flex items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-line px-3 max-md:px-1" role="tablist" aria-label="Chats">
           {sessions.length > 1 &&
             sessions.map((s) => (
               <button
@@ -93,25 +152,58 @@ export function ChatPanel({
                 ) : (
                   s.status === "running" && <span aria-label="running" className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
                 )}
-                {s.agent === "codex" && <span className="shrink-0 text-[10.5px] uppercase tracking-wide text-faint">codex</span>}
+                {s.agent !== "claude" && <span className="shrink-0 text-[10.5px] uppercase tracking-wide text-faint">{agentLabel(s.agent)}</span>}
                 <span className="truncate">{s.title}</span>
               </button>
             ))}
           {ready && (
             <span className="ml-1 flex shrink-0 items-center gap-0.5 text-muted">
               <span className="px-1">+ New chat:</span>
-              {(["claude", "codex"] as const).map((agent) => (
+              {AGENT_KINDS.filter((a) => a === "claude" || isInstalled(agents, a)).map((agent) => (
                 <button
                   key={agent}
                   type="button"
                   onClick={() => void newChat(agent)}
-                  className="rounded px-2 py-1 capitalize hover:bg-raised hover:text-fg"
-                  title={`New ${agent === "claude" ? "Claude Code" : "Codex"} chat in this workspace (uses your own ${agent} login)`}
+                  className="rounded px-2 py-1 hover:bg-raised hover:text-fg"
+                  title={`New ${agentLabel(agent)} chat in this workspace (uses your own login)`}
                 >
-                  {agent}
+                  {agentLabel(agent)}
+                </button>
+              ))}
+              {loadouts.map((l) => (
+                <button
+                  key={l.name}
+                  type="button"
+                  onClick={() => void newFromLoadout(l)}
+                  className="rounded border border-line px-2 py-0.5 hover:bg-raised hover:text-fg"
+                  title={`${agentLabel(l.agent)}${l.model ? ` · ${l.model}` : ""}${l.effort ? ` · ${l.effort} effort` : ""}${l.fast ? " · fast" : ""} · ${l.permission_mode}`}
+                >
+                  {l.name}
                 </button>
               ))}
             </span>
+          )}
+          {ready && (
+            <button
+              type="button"
+              disabled={active.status === "running"}
+              onClick={() => void fork()}
+              className="ml-auto shrink-0 rounded px-2 py-1 text-muted hover:bg-raised hover:text-fg disabled:opacity-40"
+              title="Start a new chat that continues from here; this one stays as it is"
+            >
+              Fork
+            </button>
+          )}
+          {ready && canUseTerminal && (
+            <button
+              type="button"
+              disabled={active.status === "running"}
+              onClick={() => void openTerminal()}
+              className="shrink-0 rounded px-2 py-1 text-muted hover:bg-raised hover:text-fg disabled:opacity-40"
+              title="Continue this conversation in the agent's own terminal UI"
+            >
+              Open in terminal
+            </button>
           )}
         </div>
       )}
@@ -124,6 +216,17 @@ export function ChatPanel({
           await run({ type: "session.rewind", session_id: active.id, turn });
         }}
       />
+      {liveTerminal && (
+        <div className="mx-auto w-full max-w-3xl px-5 pb-2">
+          <button
+            type="button"
+            onClick={() => onShowTerminal(liveTerminal.id)}
+            className="w-full rounded-md border border-line bg-panel px-3 py-2 text-left text-[12.5px] text-muted hover:text-fg"
+          >
+            This conversation is open in a terminal. Go to the terminal →
+          </button>
+        </div>
+      )}
       <AgentSetupNotice status={agents?.find((a) => a.agent === active.agent)} onOpenAccounts={onOpenAccounts} />
       {permissions.some((p) => p.session_id === active.id) && (
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-5 pb-2">
@@ -141,9 +244,20 @@ export function ChatPanel({
             ))}
         </div>
       )}
+      {questions.some((q) => q.session_id === active.id) && (
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-5 pb-2">
+          {questions
+            .filter((q) => q.session_id === active.id)
+            .map((q) => (
+              <QuestionCard key={q.id} item={q} run={run} />
+            ))}
+        </div>
+      )}
       <Composer
         session={active}
-        disabledReason={ready ? null : `Workspace is ${workspace.state}`}
+        disabledReason={
+          !ready ? `Workspace is ${workspace.state}` : liveTerminal ? "This chat is open in a terminal. Close it to continue here." : null
+        }
         onSend={async (text) => (await run({ type: "session.send", session_id: active.id, text })) !== null}
         onStop={async () => {
           await run({ type: "session.cancel", session_id: active.id });
@@ -155,17 +269,26 @@ export function ChatPanel({
             title: null,
             model: change.model ?? null,
             permission_mode: change.permission_mode ?? null,
+            effort: change.effort ?? null,
+            fast: change.fast ?? null,
           });
         }}
+        onSaveLoadout={() => void saveLoadout()}
       />
     </div>
   );
 }
 
+/** Codex stays visible while status is loading, as it was before more agents existed. */
+function isInstalled(agents: AgentStatus[] | null, agent: AgentKind) {
+  const status = agents?.find((a) => a.agent === agent);
+  return status ? status.installed : agent === "codex";
+}
+
 /** Shown when the chat's agent can't run: not installed or not signed in. */
 function AgentSetupNotice({ status, onOpenAccounts }: { status: AgentStatus | undefined; onOpenAccounts: () => void }) {
   if (!status || (status.installed && status.logged_in)) return null;
-  const name = status.agent === "claude" ? "Claude Code" : "Codex";
+  const name = status.agent === "claude" ? "Claude Code" : agentLabel(status.agent);
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-5 pb-2">
       <p className="flex-1 rounded-md border border-warn/40 bg-warn/5 px-3 py-2 text-[12.5px] text-warn">

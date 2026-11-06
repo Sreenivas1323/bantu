@@ -1,12 +1,15 @@
 import type {
   AgentStatus,
+  ChildWorkspace,
   Command,
   CommandResponse,
   Event,
+  ForwardedPort,
   Health,
   PullRequest,
   StateSnapshot,
   StreamDelta,
+  WorkspaceChecks,
   WorkspaceDiff,
 } from "@bantu/protocol";
 import type { Connection } from "./connection.ts";
@@ -64,6 +67,26 @@ export class DaemonClient {
   /** The workspace branch's pull request, or null when there isn't one (or `gh` can't tell). */
   pullRequest(workspaceId: string) {
     return this.request<PullRequest | null>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/pr`);
+  }
+
+  /** CI runs, deployments, PR comments and todos for the Checks tab. */
+  checks(workspaceId: string) {
+    return this.request<WorkspaceChecks>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/checks`);
+  }
+
+  /** The workspaces this one's agent started, for its board. */
+  children(workspaceId: string) {
+    return this.request<ChildWorkspace[]>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/children`);
+  }
+
+  /** Servers listening on a workspace's reserved ports, with links to open them. */
+  ports(workspaceId: string) {
+    return this.request<ForwardedPort[]>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/ports`);
+  }
+
+  /** The key a browser needs to subscribe to this daemon's Web Push alerts. */
+  pushKey() {
+    return this.request<{ public_key: string }>("/v1/push/key");
   }
 
   /** Agent CLIs on the daemon's machine and the accounts they're signed in to. */

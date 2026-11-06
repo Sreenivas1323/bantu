@@ -34,6 +34,15 @@ struct Args {
     /// OpenAI Codex CLI used for agent sessions.
     #[arg(long, env = "BANTU_CODEX_BIN", default_value = "codex")]
     codex_bin: PathBuf,
+    /// OpenCode CLI, driven over the Agent Client Protocol.
+    #[arg(long, env = "BANTU_OPENCODE_BIN", default_value = "opencode")]
+    opencode_bin: PathBuf,
+    /// Gemini CLI, driven over the Agent Client Protocol.
+    #[arg(long, env = "BANTU_GEMINI_BIN", default_value = "gemini")]
+    gemini_bin: PathBuf,
+    /// Cursor's CLI, driven over the Agent Client Protocol.
+    #[arg(long, env = "BANTU_CURSOR_BIN", default_value = "agent")]
+    cursor_bin: PathBuf,
     /// Accept non-loopback binds and any Host header. Prefer --allowed-host.
     #[arg(long)]
     allow_remote: bool,
@@ -49,6 +58,14 @@ struct Args {
     /// Its host is allowed automatically and `bantud url` prints it.
     #[arg(long, env = "BANTU_PUBLIC_URL")]
     public_url: Option<String>,
+    /// Port for previewing workspaces' dev servers. Defaults to the next port up.
+    /// It's separate so a previewed page can't reach the daemon's token.
+    #[arg(long, env = "BANTUD_PREVIEW_PORT")]
+    preview_port: Option<u16>,
+    /// URL other devices use to reach the preview port, e.g.
+    /// https://box.tail1234.ts.net:8443. Its host is allowed automatically.
+    #[arg(long, env = "BANTU_PREVIEW_URL")]
+    preview_url: Option<String>,
     /// Print the local access token and exit.
     #[arg(long)]
     print_token: bool,
@@ -70,6 +87,10 @@ enum Cmd {
         /// Also print a QR code to scan with a phone.
         #[arg(long)]
         qr: bool,
+        /// Where you host the web client, if not on this daemon
+        /// (e.g. https://bantu.example.com). The link then names the daemon too.
+        #[arg(long, env = "BANTU_APP_URL")]
+        app: Option<String>,
     },
 }
 
@@ -93,12 +114,11 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    if std::env::var_os("BANTU_SKIP_SHELL_ENV").is_none() {
+    // Windows apps get the full PATH from the system.
+    if cfg!(unix) && std::env::var_os("BANTU_SKIP_SHELL_ENV").is_none() {
         adopt_login_shell_path().await;
     }
-    let home_dir = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .context("HOME is not set")?;
+    let home_dir = bantud::platform::home_dir().context("HOME is not set")?;
     let home = args.home.unwrap_or_else(|| home_dir.join(".bantu"));
 
     match &args.command {
@@ -112,14 +132,14 @@ async fn main() -> Result<()> {
                 ServiceAction::Status => bantud::service::status(),
             };
         }
-        Some(Cmd::Url { open, qr }) => {
+        Some(Cmd::Url { open, qr, app }) => {
             std::fs::create_dir_all(&home)?;
             let token = bantud::load_or_create_token(&home)?;
             let base = args
                 .public_url
                 .clone()
                 .unwrap_or_else(|| format!("http://127.0.0.1:{}", args.port));
-            let url = format!("{}/#token={token}", base.trim_end_matches('/'));
+            let url = pairing_url(&base, app.as_deref(), &token);
             println!("{url}");
             if *qr {
                 println!("\n{}", qr_code(&url)?);
@@ -130,12 +150,7 @@ async fn main() -> Result<()> {
                 }
             }
             if *open {
-                let opener = if cfg!(target_os = "macos") {
-                    "open"
-                } else {
-                    "xdg-open"
-                };
-                let _ = std::process::Command::new(opener).arg(&url).status();
+                bantud::platform::open_url(&url);
             }
             return Ok(());
         }
@@ -156,7 +171,13 @@ async fn main() -> Result<()> {
             allowed_hosts.push(host);
         }
     }
+    if let Some(url) = &args.preview_url {
+        if let Some(host) = url_host(url) {
+            allowed_hosts.push(host);
+        }
+    }
     let config = Config {
+        preview_url: args.preview_url.clone(),
         home,
         workspaces_dir: args
             .workspaces_dir
@@ -168,6 +189,12 @@ async fn main() -> Result<()> {
         branch_prefix: args.branch_prefix,
         claude_bin: args.claude_bin,
         codex_bin: args.codex_bin,
+        claude_config_dir: std::env::var_os("CLAUDE_CONFIG_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home_dir.join(".claude")),
+        opencode_bin: args.opencode_bin,
+        gemini_bin: args.gemini_bin,
+        cursor_bin: args.cursor_bin,
         allowed_hosts,
     };
     let web_dir = config.web_dir.clone();
@@ -189,6 +216,26 @@ async fn main() -> Result<()> {
             started.token
         ),
         None => tracing::info!("no web app found; build apps/web or pass --web-dir"),
+    }
+
+    // Previews are a convenience: if the port is taken, the daemon still runs.
+    let preview_addr = SocketAddr::new(
+        args.host,
+        args.preview_port.unwrap_or(args.port.saturating_add(1)),
+    );
+    match tokio::net::TcpListener::bind(preview_addr).await {
+        Ok(preview_listener) => {
+            started
+                .daemon
+                .set_preview_addr(preview_listener.local_addr()?);
+            let preview_router = started.preview_router;
+            tokio::spawn(async move {
+                if let Err(e) = axum::serve(preview_listener, preview_router).await {
+                    tracing::warn!("the preview listener stopped: {e}");
+                }
+            });
+        }
+        Err(e) => tracing::warn!("no port previews: couldn't bind {preview_addr}: {e}"),
     }
 
     axum::serve(listener, started.router)
@@ -241,6 +288,16 @@ async fn adopt_login_shell_path() {
     }
 }
 
+/// The link that opens the app already connected. The token stays in the
+/// `#fragment`, which browsers never send to the server hosting the page.
+fn pairing_url(daemon: &str, app: Option<&str>, token: &str) -> String {
+    let daemon = daemon.trim_end_matches('/');
+    match app.map(|a| a.trim_end_matches('/')) {
+        Some(app) => format!("{app}/#daemon={daemon}&token={token}"),
+        None => format!("{daemon}/#token={token}"),
+    }
+}
+
 /// `https://box.example.ts.net:8443/x` → `box.example.ts.net`.
 fn url_host(url: &str) -> Option<String> {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
@@ -284,6 +341,18 @@ fn qr_code(text: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pairing_urls() {
+        assert_eq!(
+            pairing_url("https://box.ts.net/", None, "t"),
+            "https://box.ts.net/#token=t"
+        );
+        assert_eq!(
+            pairing_url("https://box.ts.net", Some("https://app.example.com/"), "t"),
+            "https://app.example.com/#daemon=https://box.ts.net&token=t"
+        );
+    }
 
     #[test]
     fn url_hosts() {

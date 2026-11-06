@@ -43,3 +43,15 @@ gh secret set APPLE_API_ISSUER -R $R    # the issuer ID shown above the keys lis
 ```
 
 The next tagged release is then signed and notarized.
+
+## Launch Stack templates (optional)
+
+The Launch Stack links in [AWS.md](AWS.md) need the CloudFormation templates in a public S3
+bucket. To publish them with each release:
+
+1. Create a bucket that allows public reads of `*.yaml`.
+2. Create an IAM role GitHub Actions can assume through OIDC, allowed to `s3:PutObject` on it.
+3. In the repository's Actions settings, set the variable `AWS_TEMPLATE_BUCKET` and the secret
+   `AWS_TEMPLATE_ROLE_ARN`. You can also set `AWS_TEMPLATE_REGION` (default `us-east-1`).
+
+Without the variable, the release skips this step.

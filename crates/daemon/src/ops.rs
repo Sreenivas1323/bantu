@@ -41,6 +41,10 @@ pub struct Daemon {
     pub(crate) running: crate::sessions::Running,
     pub(crate) terminals: crate::terminals::Terminals,
     pub(crate) permissions: crate::permissions::Permissions,
+    pub(crate) inbox: crate::inbox::Inbox,
+    pub(crate) push: crate::push::Push,
+    pub(crate) preview: crate::preview::Preview,
+    pub(crate) auto_review: crate::auto_review::AutoReview,
     pub(crate) radar: crate::radar::Radar,
     pub(crate) activity: crate::activity::Tracker,
 }
@@ -54,6 +58,10 @@ impl Daemon {
             running: Default::default(),
             terminals: Default::default(),
             permissions: Default::default(),
+            inbox: Default::default(),
+            push: Default::default(),
+            preview: Default::default(),
+            auto_review: Default::default(),
             radar: Default::default(),
             activity: Default::default(),
         }
@@ -73,7 +81,7 @@ impl Daemon {
                 base_ref,
                 from,
             } => serde_json::to_value(
-                self.create_workspace(&repo_id, name, base_ref, from)
+                self.create_workspace(&repo_id, name, base_ref, from, WorkspaceOrigin::default())
                     .await?,
             ),
             Command::WorkspaceArchive { workspace_id } => {
@@ -84,12 +92,21 @@ impl Daemon {
                 agent,
                 model,
                 permission_mode,
-            } => serde_json::to_value(
-                self.create_session(&workspace_id, agent, model, permission_mode)
-                    .await?,
-            ),
+                effort,
+                fast,
+            } => {
+                let session = self
+                    .create_session(&workspace_id, agent, model, permission_mode)
+                    .await?;
+                serde_json::to_value(self.tune_session(&session.id, effort, fast).await?)
+            }
+            Command::SessionFork { session_id } => {
+                serde_json::to_value(self.fork_session(&session_id).await?)
+            }
             Command::SessionSend { session_id, text } => {
-                serde_json::to_value(self.send_message(&session_id, text).await?)
+                let session = self.send_message(&session_id, text).await?;
+                self.reset_review_rounds(&session.workspace_id).await;
+                serde_json::to_value(session)
             }
             Command::SessionCancel { session_id } => {
                 serde_json::to_value(self.cancel_session(&session_id).await?)
@@ -97,10 +114,16 @@ impl Daemon {
             Command::SessionRewind { session_id, turn } => {
                 serde_json::to_value(self.rewind_session(&session_id, turn).await?)
             }
-            Command::PreferencesUpdate { claude_user_setup } => {
+            Command::PreferencesUpdate {
+                claude_user_setup,
+                loadouts,
+            } => {
                 let mut p = self.store.preferences().await?;
                 if let Some(v) = claude_user_setup {
                     p.claude_user_setup = v;
+                }
+                if let Some(v) = loadouts {
+                    p.loadouts = v;
                 }
                 self.store.set_preferences(&p).await?;
                 serde_json::to_value(p)
@@ -115,6 +138,71 @@ impl Daemon {
             } => {
                 self.respond_permission(&request_id, allow, message).await?;
                 Ok(serde_json::Value::Null)
+            }
+            Command::InboxRespond { item_id, answer } => {
+                self.respond_inbox(&item_id, answer).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::InboxDismiss { item_id } => {
+                self.dismiss_inbox(&item_id).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::PushSubscribe {
+                endpoint,
+                p256dh,
+                auth,
+            } => {
+                self.push_subscribe(endpoint, p256dh, auth).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::PushUnsubscribe { endpoint } => {
+                self.store.delete_push_subscription(&endpoint).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::LoopCreate {
+                repo_id,
+                name,
+                trigger,
+                prompt,
+                agent,
+                model,
+                permission_mode,
+            } => serde_json::to_value(
+                self.create_loop(bantu_protocol::Loop {
+                    id: String::new(),
+                    repo_id,
+                    name,
+                    trigger,
+                    prompt,
+                    agent: agent.unwrap_or(bantu_protocol::AgentKind::Claude),
+                    model: model.filter(|m| !m.trim().is_empty()),
+                    permission_mode: permission_mode.unwrap_or_default(),
+                    enabled: true,
+                    last_run_at: None,
+                    next_run_at: None,
+                    last_workspace_id: None,
+                    last_result: None,
+                    created_at: String::new(),
+                })
+                .await?,
+            ),
+            Command::LoopUpdate {
+                loop_id,
+                enabled,
+                prompt,
+            } => serde_json::to_value(self.update_loop(&loop_id, enabled, prompt).await?),
+            Command::LoopDelete { loop_id } => {
+                self.delete_loop(&loop_id).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::LoopRun { loop_id } => {
+                serde_json::to_value(self.run_loop(&loop_id, None, None).await?)
+            }
+            Command::ImportScan { source, path } => {
+                serde_json::to_value(self.import_scan(source, path).await?)
+            }
+            Command::ImportRun { source, path } => {
+                serde_json::to_value(self.import_run(source, path).await?)
             }
             Command::CommentAdd {
                 workspace_id,
@@ -134,7 +222,16 @@ impl Daemon {
                 workspace_id,
                 cols,
                 rows,
-            } => serde_json::to_value(self.open_terminal(&workspace_id, cols, rows).await?),
+                command,
+            } => serde_json::to_value(
+                self.open_terminal(&workspace_id, cols, rows, command)
+                    .await?,
+            ),
+            Command::SessionOpenTerminal {
+                session_id,
+                cols,
+                rows,
+            } => serde_json::to_value(self.open_session_terminal(&session_id, cols, rows).await?),
             Command::TerminalClose { terminal_id } => {
                 self.close_terminal(&terminal_id).await?;
                 Ok(serde_json::Value::Null)
@@ -146,10 +243,36 @@ impl Daemon {
                 workspace_id,
                 session_id,
             } => serde_json::to_value(self.fix_checks(&workspace_id, &session_id).await?),
+            Command::WorkspaceResolveConflicts {
+                workspace_id,
+                session_id,
+            } => serde_json::to_value(self.resolve_conflicts(&workspace_id, &session_id).await?),
+            Command::WorkspaceRenameBranch {
+                workspace_id,
+                session_id,
+            } => serde_json::to_value(self.rename_branch(&workspace_id, &session_id).await?),
+            Command::WorkspaceAddressComments {
+                workspace_id,
+                session_id,
+            } => serde_json::to_value(self.address_pr_comments(&workspace_id, &session_id).await?),
             Command::WorkspaceReview {
                 workspace_id,
                 agent,
             } => serde_json::to_value(self.review_workspace(&workspace_id, agent).await?),
+            Command::WorkspaceIntegrate {
+                workspace_id,
+                session_id,
+            } => serde_json::to_value(
+                self.integrate_children(&workspace_id, session_id.as_deref(), None)
+                    .await?,
+            ),
+            Command::WorkspaceSpotlight { workspace_id } => {
+                serde_json::to_value(self.start_spotlight(&workspace_id).await?)
+            }
+            Command::RepoSpotlightStop { repo_id } => {
+                self.stop_spotlight(&repo_id).await?;
+                Ok(serde_json::Value::Null)
+            }
             Command::WorkspaceCreatePr {
                 workspace_id,
                 session_id,
@@ -159,10 +282,13 @@ impl Daemon {
                 title,
                 model,
                 permission_mode,
-            } => serde_json::to_value(
+                effort,
+                fast,
+            } => {
                 self.update_session(&session_id, title, model, permission_mode)
-                    .await?,
-            ),
+                    .await?;
+                serde_json::to_value(self.tune_session(&session_id, effort, fast).await?)
+            }
         };
         value.map_err(|e| CommandError::Internal(e.into()))
     }
@@ -265,8 +391,54 @@ impl Daemon {
                 "archive the repository's {active} workspace(s) first"
             )));
         }
+        self.delete_repo_loops(repo_id).await?;
         self.store.delete_repo(repo_id).await?;
         Ok(())
+    }
+
+    /// Registers a repo found by an import.
+    pub(crate) async fn adopt_repo(&self, root: &str) -> CmdResult<Repo> {
+        self.add_repo(root).await
+    }
+
+    /// Records a worktree another tool made, without touching it. The name gets
+    /// a number if it's taken. Marked `external`, so archiving leaves the files.
+    pub(crate) async fn adopt_workspace(
+        &self,
+        repo: &Repo,
+        wanted_name: &str,
+        path: String,
+        branch: String,
+        base_ref: String,
+    ) -> CmdResult<Workspace> {
+        let _alloc = self.alloc_lock.lock().await;
+        let all = self.store.workspaces().await?;
+        let taken = |name: &str| all.iter().any(|w| w.repo_id == repo.id && w.name == name);
+        let mut name = wanted_name.to_string();
+        let mut n = 2;
+        while taken(&name) {
+            name = format!("{wanted_name}-{n}");
+            n += 1;
+        }
+        let ws = Workspace {
+            id: new_id(),
+            repo_id: repo.id.clone(),
+            name,
+            branch,
+            base_ref,
+            path,
+            port_base: free_port_base(&all),
+            state: WorkspaceState::Ready,
+            error: None,
+            archive_commit: None,
+            created_at: now(),
+            parent_id: None,
+            loop_id: None,
+            external: true,
+            review_state: None,
+        };
+        self.store.upsert_workspace(&ws).await?;
+        Ok(ws)
     }
 
     async fn require_repo(&self, repo_id: &str) -> CmdResult<Repo> {
@@ -278,12 +450,13 @@ impl Daemon {
 
     // ---- workspaces -------------------------------------------------------
 
-    async fn create_workspace(
+    pub(crate) async fn create_workspace(
         self: &Arc<Self>,
         repo_id: &str,
         name: Option<String>,
         base_ref: Option<String>,
         from: Option<WorkspaceSource>,
+        origin: WorkspaceOrigin,
     ) -> CmdResult<Workspace> {
         let repo = self.require_repo(repo_id).await?;
         let root = PathBuf::from(&repo.root_path);
@@ -336,15 +509,7 @@ impl Daemon {
                 path.display()
             )));
         }
-        let used_ports: Vec<u16> = all
-            .iter()
-            .filter(|w| w.state != WorkspaceState::Archived)
-            .map(|w| w.port_base)
-            .collect();
-        let port_base = (0..)
-            .map(|i| PORT_RANGE_START + i * PORTS_PER_WORKSPACE)
-            .find(|p| !used_ports.contains(p))
-            .expect("port range exhausted");
+        let port_base = free_port_base(&all);
 
         let base_ref = match base_ref.or(plan.base_ref.clone()) {
             Some(b) => b,
@@ -363,6 +528,10 @@ impl Daemon {
             error: None,
             archive_commit: None,
             created_at: now(),
+            parent_id: origin.parent_id,
+            loop_id: origin.loop_id,
+            external: false,
+            review_state: None,
         };
         self.store.upsert_workspace(&ws).await?;
         drop(_alloc);
@@ -601,8 +770,18 @@ impl Daemon {
             }
             Checkout::PullHead(number) => {
                 sys(format!("Fetching pull request #{number}")).await;
-                let refspec = format!("+pull/{number}/head:refs/heads/{}", ws.branch);
-                git::git(&root, &["fetch", "origin", &refspec]).await?;
+                // Fast-forward only: this branch stays after archiving, and may
+                // hold commits a force-update would lose.
+                let refspec = format!("pull/{number}/head:refs/heads/{}", ws.branch);
+                git::git(&root, &["fetch", "origin", &refspec])
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "branch {} has commits the pull request doesn't, or the pull \
+                             request was force-pushed; rename or delete the branch first",
+                            ws.branch
+                        )
+                    })?;
                 git::worktree_add_existing(&root, &path, &ws.branch).await?;
             }
         }
@@ -622,7 +801,7 @@ impl Daemon {
         Ok(())
     }
 
-    async fn archive_workspace(self: &Arc<Self>, id: &str) -> CmdResult<Workspace> {
+    pub(crate) async fn archive_workspace(self: &Arc<Self>, id: &str) -> CmdResult<Workspace> {
         let mut ws = self
             .store
             .workspace(id)
@@ -639,6 +818,16 @@ impl Daemon {
             WorkspaceState::Ready | WorkspaceState::Failed => {}
         }
         let repo = self.require_repo(&ws.repo_id).await?;
+        // Don't leave the main checkout on a workspace that's going away.
+        if let Some(s) = self.store.spotlight(&repo.id).await? {
+            if s.workspace_id == ws.id {
+                if let Err(e) = self.stop_spotlight(&repo.id).await {
+                    return Err(CommandError::Conflict(format!(
+                        "this workspace is in the spotlight, and returning the main checkout                          failed: {e}"
+                    )));
+                }
+            }
+        }
         self.cancel_workspace_sessions(&ws.id).await?;
         self.close_workspace_terminals(&ws.id).await?;
         ws.state = WorkspaceState::Archiving;
@@ -676,8 +865,15 @@ impl Daemon {
         let path = PathBuf::from(&ws.path);
         let sys = |line: String| self.store.log(&ws.id, LogStream::System, line);
 
-        if path.is_dir() {
-            let settings = settings::load(&[&path, &root]).map_err(|e| anyhow!(e))?;
+        if ws.external {
+            // Another tool owns this worktree: no scripts, nothing removed.
+            sys(format!(
+                "Forgot this workspace; {} is left as it is",
+                ws.path
+            ))
+            .await;
+        } else if path.is_dir() {
+            let settings = self.trusted_settings(ws).await?;
             if let Some(script) = settings.scripts.archive.as_deref() {
                 sys(format!("Running archive script: {script}")).await;
                 if let Err(e) = self.run_script(ws, repo, script).await {
@@ -692,8 +888,10 @@ impl Daemon {
                 ws.archive_commit = Some(sha);
             }
         }
-        sys("Removing worktree".into()).await;
-        git::worktree_remove(&root, &path).await?;
+        if !ws.external {
+            sys("Removing worktree".into()).await;
+            git::worktree_remove(&root, &path).await?;
+        }
         // Checkpoint refs only matter while the worktree exists.
         for s in self.store.sessions().await? {
             if s.workspace_id == ws.id {
@@ -711,10 +909,9 @@ impl Daemon {
     /// Runs `script` in the user's login shell inside the workspace, streaming
     /// output into the workspace log.
     async fn run_script(&self, ws: &Workspace, repo: &Repo, script: &str) -> anyhow::Result<()> {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+        let (shell, shell_args) = crate::platform::shell_command(script);
         let mut child = tokio::process::Command::new(&shell)
-            .arg("-lc")
-            .arg(script)
+            .args(&shell_args)
             .current_dir(&ws.path)
             .env("BANTU_PORT", ws.port_base.to_string())
             .env("BANTU_WORKSPACE_ID", &ws.id)
@@ -799,6 +996,8 @@ fn copy_recursive(from: &Path, to: &Path) -> std::io::Result<()> {
         let target = std::fs::read_link(from)?;
         #[cfg(unix)]
         std::os::unix::fs::symlink(target, to)?;
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(target, to)?;
     } else {
         if let Some(parent) = to.parent() {
             std::fs::create_dir_all(parent)?;
@@ -849,17 +1048,35 @@ fn repo_name_from_url(url: &str) -> Option<String> {
 }
 
 fn expand_home(path: &str) -> PathBuf {
-    match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
-        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
-        _ if path == "~" => std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default(),
+    let home = crate::platform::home_dir();
+    match (path.strip_prefix("~/"), home) {
+        (Some(rest), Some(home)) => home.join(rest),
+        (None, Some(home)) if path == "~" => home,
         _ => PathBuf::from(path),
     }
 }
 
+fn free_port_base(all: &[Workspace]) -> u16 {
+    let used: Vec<u16> = all
+        .iter()
+        .filter(|w| w.state != WorkspaceState::Archived)
+        .map(|w| w.port_base)
+        .collect();
+    (0..)
+        .map(|i| PORT_RANGE_START + i * PORTS_PER_WORKSPACE)
+        .find(|p| !used.contains(p))
+        .expect("port range exhausted")
+}
+
 pub fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
+}
+
+/// What started a workspace, when it wasn't the user directly.
+#[derive(Debug, Clone, Default)]
+pub struct WorkspaceOrigin {
+    pub parent_id: Option<String>,
+    pub loop_id: Option<String>,
 }
 
 /// How a new workspace gets its branch.
@@ -884,7 +1101,7 @@ pub struct SourcePlan {
     first_message: Option<String>,
 }
 
-async fn gh_json(dir: &Path, args: &[&str]) -> Option<serde_json::Value> {
+pub(crate) async fn gh_json(dir: &Path, args: &[&str]) -> Option<serde_json::Value> {
     let out = tokio::process::Command::new("gh")
         .args(args)
         .current_dir(dir)

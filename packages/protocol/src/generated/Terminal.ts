@@ -13,4 +13,8 @@ workspace_id: string | null, kind: TerminalKind, title: string,
 /**
  * The command for `run` terminals.
  */
-command: string | null, exited: boolean, exit_code: number | null, created_at: string, };
+command: string | null, 
+/**
+ * The chat this terminal continues. It can't take turns while this runs.
+ */
+session_id: string | null, exited: boolean, exit_code: number | null, created_at: string, };

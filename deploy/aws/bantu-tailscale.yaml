@@ -137,6 +137,8 @@ Resources:
           systemctl enable --now tailscaled
           tailscale up --authkey='${TailscaleAuthKey}' --hostname='${MachineName}'
           tailscale serve --bg 47800
+          # Previews need a port of their own, so pages can't reach the daemon's token.
+          tailscale serve --bg --https=8443 47801
           DNS=$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')
 
           # Claude Code and Bantu for the regular user.
@@ -153,11 +155,14 @@ Resources:
           Environment=HOME=$H
           Environment=PATH=$H/.local/bin:/usr/local/bin:/usr/bin:/bin
           Environment=BANTU_PUBLIC_URL=https://$DNS
+          Environment=BANTU_PREVIEW_URL=https://$DNS:8443
           ExecStart=$H/.local/bin/bantud
           Restart=on-failure
           [Install]
           WantedBy=multi-user.target
           UNIT
+          # So `bantud url --qr` in a shell prints the public address.
+          echo "export BANTU_PUBLIC_URL=https://$DNS" > /etc/profile.d/bantu.sh
 
           # Idle auto-stop: nothing running, nothing connected, nobody logged in.
           cat > /usr/local/bin/bantu-idle-stop <<'SCRIPT'

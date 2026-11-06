@@ -43,9 +43,13 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/activity", get(get_activity))
         .route("/v1/agents", get(get_agents))
         .route("/v1/repo-suggestions", get(get_repo_suggestions))
+        .route("/v1/push/key", get(get_push_key))
         .route("/v1/workspaces/{id}/history", get(get_history))
         .route("/v1/workspaces/{id}/diff", get(get_diff))
         .route("/v1/workspaces/{id}/pr", get(get_pr))
+        .route("/v1/workspaces/{id}/checks", get(get_checks))
+        .route("/v1/workspaces/{id}/ports", get(get_ports))
+        .route("/v1/workspaces/{id}/children", get(get_children))
         .route("/v1/repos/{id}/conflicts", post(scan_conflicts))
         .route("/v1/terminals/{id}/ws", get(terminal_ws))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
@@ -83,7 +87,11 @@ pub fn hash_token(token: &str) -> Vec<u8> {
 
 /// Rejects requests whose Host isn't loopback or explicitly allowed, blocking
 /// DNS-rebinding attacks from web pages. `--allow-remote` accepts any host.
-async fn check_host(State(state): State<AppState>, req: Request, next: Next) -> Response {
+pub(crate) async fn check_host(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Response {
     if !state.allow_remote {
         let host = req
             .headers()
@@ -152,6 +160,11 @@ async fn get_repo_suggestions(
     Ok(Json(state.daemon.suggest_repos().await?))
 }
 
+/// The public key browsers need to subscribe to this daemon's alerts.
+async fn get_push_key(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({"public_key": state.daemon.push_public_key()}))
+}
+
 async fn health() -> Json<Health> {
     Json(Health {
         ok: true,
@@ -174,7 +187,10 @@ async fn get_state(State(state): State<AppState>) -> Result<Json<StateSnapshot>,
         comments: store.comments().await?,
         terminals: state.daemon.terminals().await,
         permissions: state.daemon.pending_permissions().await,
+        inbox: state.daemon.inbox_items().await,
         conflicts: state.daemon.all_conflicts().await,
+        spotlights: store.spotlights().await?,
+        loops: store.loops().await?,
         preferences: store.preferences().await?,
     }))
 }
@@ -323,6 +339,41 @@ async fn scan_conflicts(
 async fn get_pr(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.daemon.pull_request(&id).await {
         Ok(pr) => Json(pr).into_response(),
+        Err(e) => command_error(e),
+    }
+}
+
+/// CI runs, deployments, PR comments and todos.
+async fn get_checks(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.daemon.workspace_checks(&id).await {
+        Ok(checks) => Json(checks).into_response(),
+        Err(e) => command_error(e),
+    }
+}
+
+/// Servers listening on a workspace's ports, with links to preview them.
+async fn get_ports(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let host = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or_default();
+    let via_loopback = ["127.0.0.1", "localhost", "[::1]"]
+        .iter()
+        .any(|local| host == *local || host.starts_with(&format!("{local}:")));
+    match state.daemon.forwarded_ports(&id, via_loopback).await {
+        Ok(ports) => Json(ports).into_response(),
+        Err(e) => command_error(e),
+    }
+}
+
+/// The workspaces this one's agent started, for its board.
+async fn get_children(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.daemon.workspace_children(&id).await {
+        Ok(children) => Json(children).into_response(),
         Err(e) => command_error(e),
     }
 }

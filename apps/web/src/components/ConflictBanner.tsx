@@ -5,10 +5,13 @@ export function ConflictBanner({
   conflicts,
   workspaces,
   onSelect,
+  onResolve,
 }: {
   conflicts: { other: string | null; base: string | null; files: string[] }[];
   workspaces: Record<string, Workspace>;
   onSelect: (workspaceId: string) => void;
+  /** Asks the agent to sort it out; missing when no chat can take it. */
+  onResolve?: () => Promise<void>;
 }) {
   if (conflicts.length === 0) return null;
   return (
@@ -28,6 +31,11 @@ export function ConflictBanner({
           {c.files.length > 4 && <span className="text-muted"> and {c.files.length - 4} more</span>}
         </p>
       ))}
+      {onResolve && (
+        <button type="button" onClick={() => void onResolve()} className="self-start font-medium text-warn underline underline-offset-2">
+          Ask the agent to resolve this
+        </button>
+      )}
     </div>
   );
 }

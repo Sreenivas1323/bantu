@@ -9,6 +9,9 @@ import { StatusBar } from "./StatusBar.tsx";
 import { RepoSuggestions } from "./RepoSuggestions.tsx";
 import type { DaemonClient } from "../lib/api.ts";
 import { AccountsDialog } from "./AccountsDialog.tsx";
+import { ImportDialog } from "./ImportDialog.tsx";
+import { InboxDialog } from "./InboxDialog.tsx";
+import { LoopsDialog } from "./LoopsDialog.tsx";
 import { useAgents } from "../lib/useAgents.ts";
 import { WorkspaceView } from "./WorkspaceView.tsx";
 
@@ -19,6 +22,11 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const [error, setError] = useState<string | null>(null);
   const { agents, refresh: refreshAgents } = useAgents(client);
   const [showAccounts, setShowAccounts] = useState(false);
+  const [showInbox, setShowInbox] = useState(false);
+  const [loopsRepoId, setLoopsRepoId] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  // Phones show one thing at a time: the workspace list slides over the page.
+  const [navOpen, setNavOpen] = useState(true);
 
   useEffect(() => {
     if (status === "unauthorized") onDisconnect("The daemon rejected this token. Paste a fresh one.");
@@ -28,7 +36,18 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const workspacesByRepo = useMemo(() => {
     const groups: Record<string, Workspace[]> = {};
     for (const w of Object.values(state.workspaces)) (groups[w.repo_id] ??= []).push(w);
-    for (const list of Object.values(groups)) list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    for (const [repoId, list] of Object.entries(groups)) {
+      list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      // Children sit right under the workspace that started them.
+      const ids = new Set(list.map((w) => w.id));
+      const nested: Workspace[] = [];
+      const place = (w: Workspace) => {
+        nested.push(w);
+        for (const child of list) if (child.parent_id === w.id) place(child);
+      };
+      for (const w of list) if (!w.parent_id || !ids.has(w.parent_id)) place(w);
+      groups[repoId] = nested;
+    }
     return groups;
   }, [state.workspaces]);
 
@@ -62,8 +81,14 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
 
   // Workspaces where an agent is blocked on the user.
   const waitingWorkspaces = useMemo(
-    () => new Set(Object.values(state.permissions).map((p) => p.workspace_id)),
-    [state.permissions],
+    () =>
+      new Set([
+        ...Object.values(state.permissions).map((p) => p.workspace_id),
+        ...Object.values(state.inbox)
+          .filter((i) => i.kind === "question")
+          .map((i) => i.workspace_id),
+      ]),
+    [state.permissions, state.inbox],
   );
   const conflictedWorkspaces = useMemo(() => {
     const ids = new Set<string>();
@@ -79,8 +104,18 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const selected = selectedId ? state.workspaces[selectedId] : undefined;
 
   return (
-    <div className="grid h-full grid-cols-[264px_minmax(0,1fr)] grid-rows-[1fr_auto]">
+    <div className="relative grid h-full grid-cols-1 grid-rows-[1fr_auto] md:grid-cols-[264px_minmax(0,1fr)]">
+      {navOpen && (
+        <button
+          type="button"
+          aria-label="Close the workspace list"
+          onClick={() => setNavOpen(false)}
+          className="absolute inset-0 z-20 bg-black/50 md:hidden"
+        />
+      )}
       <Sidebar
+        open={navOpen}
+        onClose={() => setNavOpen(false)}
         repos={repos}
         workspacesByRepo={workspacesByRepo}
         sessionsByWorkspace={sessionsByWorkspace}
@@ -89,7 +124,10 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
         selectedId={selectedId}
         showArchived={showArchived}
         onToggleArchived={() => setShowArchived((v) => !v)}
-        onSelect={setSelectedId}
+        onSelect={(id) => {
+          setSelectedId(id);
+          setNavOpen(false);
+        }}
         client={client}
         onAddRepo={async (path) => {
           await run({ type: "repo.add", path });
@@ -102,8 +140,27 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
         onRemoveRepo={async (repoId) => {
           await run({ type: "repo.remove", repo_id: repoId });
         }}
+        onOpenLoops={setLoopsRepoId}
+        onOpenImport={() => setShowImport(true)}
       />
-      <main className="min-h-0 min-w-0 overflow-hidden">
+      <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-line bg-panel px-2 py-1.5 md:hidden">
+          <button
+            type="button"
+            onClick={() => setNavOpen(true)}
+            aria-label="Open the workspace list"
+            className="flex size-9 items-center justify-center rounded-md text-lg text-muted hover:bg-raised hover:text-fg"
+          >
+            ☰
+          </button>
+          <span className="min-w-0 flex-1 truncate font-medium">{selected?.name ?? "Bantu"}</span>
+          {waitingWorkspaces.size > 0 && (
+            <button type="button" onClick={() => setShowInbox(true)} className="shrink-0 rounded-full bg-warn/15 px-2 py-0.5 text-[12px] font-medium text-warn">
+              {waitingWorkspaces.size} waiting
+            </button>
+          )}
+        </div>
+        <div className="min-h-0 flex-1">
         {selected ? (
           <WorkspaceView
             workspace={selected}
@@ -114,11 +171,14 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             streaming={state.streaming}
             comments={Object.values(state.comments).filter((c) => c.workspace_id === selected.id)}
             permissions={Object.values(state.permissions).filter((p) => p.workspace_id === selected.id)}
+            questions={Object.values(state.inbox).filter((i) => i.workspace_id === selected.id && i.kind === "question")}
             conflicts={conflictsFor(state, selected.id)}
             agents={agents}
             onOpenAccounts={() => setShowAccounts(true)}
             allWorkspaces={state.workspaces}
             onSelectWorkspace={setSelectedId}
+            loadouts={state.preferences.loadouts}
+            spotlight={state.spotlights[selected.repo_id]}
             terminals={Object.values(state.terminals)
               .filter((t) => t.workspace_id === selected.id)
               .sort((a, b) => a.created_at.localeCompare(b.created_at))}
@@ -137,6 +197,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             }}
           />
         )}
+        </div>
       </main>
       {showAccounts && (
         <AccountsDialog
@@ -149,7 +210,40 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
           onClose={() => setShowAccounts(false)}
         />
       )}
+      {loopsRepoId && state.repos[loopsRepoId] && (
+        <LoopsDialog
+          repo={state.repos[loopsRepoId]}
+          loops={Object.values(state.loops).filter((l) => l.repo_id === loopsRepoId)}
+          workspaces={state.workspaces}
+          agents={agents}
+          run={run}
+          onSelectWorkspace={(id) => {
+            setSelectedId(id);
+            setLoopsRepoId(null);
+            setNavOpen(false);
+          }}
+          onClose={() => setLoopsRepoId(null)}
+        />
+      )}
+      {showImport && <ImportDialog status={state.imports} run={run} onClose={() => setShowImport(false)} />}
+      {showInbox && (
+        <InboxDialog
+          inbox={Object.values(state.inbox)}
+          permissions={Object.values(state.permissions)}
+          workspaces={state.workspaces}
+          run={run}
+          onSelectWorkspace={(id) => {
+            setSelectedId(id);
+            setShowInbox(false);
+          }}
+          onClose={() => setShowInbox(false)}
+        />
+      )}
       <StatusBar
+        inboxCount={Object.keys(state.inbox).length + Object.keys(state.permissions).length}
+        onOpenInbox={() => setShowInbox(true)}
+        client={client}
+        onError={setError}
         agents={agents}
         onOpenAccounts={() => setShowAccounts(true)}
         status={status}
