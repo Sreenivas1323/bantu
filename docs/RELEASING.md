@@ -44,10 +44,19 @@ gh secret set APPLE_API_ISSUER -R $R    # the issuer ID shown above the keys lis
 
 The next tagged release is then signed and notarized.
 
-## Launch Stack templates (optional)
+## Launch Stack templates
 
-The Launch Stack links in [AWS.md](AWS.md) need the CloudFormation templates in a public S3
-bucket. To publish them with each release:
+The Launch Stack links in [AWS.md](AWS.md) point at copies of the templates in the public
+bucket `bantu-templates-050451378836` (us-east-1), which allows anonymous reads of `*.yaml`
+only. When a template under `deploy/aws/` changes, update the copies:
+
+```sh
+for f in deploy/aws/*.yaml; do
+  aws s3 cp --content-type text/yaml "$f" "s3://bantu-templates-050451378836/$(basename "$f")"
+done
+```
+
+To have each release do this instead:
 
 1. Create a bucket that allows public reads of `*.yaml`.
 2. Create an IAM role GitHub Actions can assume through OIDC, allowed to `s3:PutObject` on it.

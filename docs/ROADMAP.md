@@ -68,7 +68,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Web Push from the daemon (VAPID) for approvals, inbox items and finished turns — encryption matches the RFC 8291 test vector and delivery is tested with a local push server, but not yet against a real browser push service
 - [x] AWS template (Tailscale variant): EC2 t4g, no open ports, idle auto-stop via `/v1/activity`, Lambda wake link, Session Manager shell ([AWS.md](AWS.md)) — lint-checked, not yet deployed end to end
 - [x] CloudFront variant: your own domain, Caddy for the origin certificate, CloudFront-only access with a secret header, and a separate distribution for previews ([AWS.md](AWS.md)) — lint-checked and its routing tested with the real Caddy, not yet deployed end to end
-- [ ] Launch Stack button: the release can publish the templates to S3 and the link format is documented, but it needs a public bucket to exist first ([RELEASING.md](RELEASING.md))
+- [x] Launch Stack links for both AWS templates ([AWS.md](AWS.md#launch-stack)), from a public S3 bucket; CloudFormation validates both from there
 - [x] Guides: Tailscale Serve, Cloudflare Tunnel, SSH ([REMOTE.md](REMOTE.md)); `--allowed-host` instead of all-or-nothing
 - [x] Port forwarding for dev-server previews: HTTP and WebSockets through a separate origin, with short-lived per-port grants
 
@@ -81,6 +81,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Review: a fresh read-only (plan mode) chat reviews the workspace diff; Shift-click to review with Codex
 - [x] Automatic cross-agent review (`[review] auto = true`): a different agent reviews finished work, findings go back to the author for up to 2 rounds, and approval marks the workspace ready
 - [x] Loops: cron schedules and GitHub triggers (issues and PRs by label, polled with `gh`), each run in a fresh workspace, archived automatically if it changes nothing — GitHub polling is unit-tested, not yet run against a real repo
+- [x] Cloudflare: a setup script for Tunnel and Access, and the daemon verifies Access sign-ins itself ([CLOUDFLARE.md](CLOUDFLARE.md)); burst runs on Cloudflare Containers with the API key held in the Worker ([CLOUDFLARE-BURST.md](CLOUDFLARE-BURST.md)) — neither has run against a real Cloudflare account yet
 - [x] Vercel Sandbox burst runner ([VERCEL.md](VERCEL.md)): one microVM per task, with the API key held at the firewall and work returned as local branches — tested with a local stand-in for the VM, not yet run against Vercel
 - [x] Import from Conductor and Pane: active workspaces adopted in place (archiving only forgets them), chats with their recent history, read-only on the source
 - [ ] Windows support: the daemon compiles for Windows, uses PowerShell or `$SHELL`, finds npm-installed agents, and CI builds it on `windows-latest` without blocking. Still needed: running it on a real Windows machine, a background service, releases and the desktop app
