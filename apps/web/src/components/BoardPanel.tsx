@@ -80,7 +80,7 @@ export function BoardPanel({
             disabled={busy || finished === 0}
             onClick={() => void integrate()}
             title="Merge finished workspaces into this branch. Nothing is pushed."
-            className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-bg disabled:opacity-40"
+            className="pressable shrink-0 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-bg disabled:opacity-40"
           >
             {busy ? "Merging…" : `Merge finished${finished > 0 ? ` (${finished})` : ""}`}
           </button>
@@ -90,7 +90,7 @@ export function BoardPanel({
         {children?.length === 0 && <p className="rounded-md border border-line bg-panel px-3 py-6 text-center text-muted">This workspace hasn't started any others.</p>}
         <ul className="flex flex-col gap-2">
           {children?.map((c) => (
-            <li key={c.workspace.id} className="rounded-md border border-line bg-panel p-3">
+            <li key={c.workspace.id} className="enter-rise rounded-md border border-line bg-panel p-3">
               <div className="flex items-center gap-2">
                 <span aria-hidden className={`size-2 shrink-0 rounded-full ${STATUS[c.status].dot}`} />
                 <button type="button" onClick={() => onOpen(c.workspace.id)} className="min-w-0 truncate font-medium underline-offset-2 hover:underline">
@@ -108,7 +108,7 @@ export function BoardPanel({
                 <span className="font-mono">{c.workspace.branch}</span> · {c.ahead} commit{c.ahead === 1 ? "" : "s"}
                 {c.uncommitted > 0 && <span className="text-warn"> · {c.uncommitted} uncommitted, so it can't merge yet</span>}
               </p>
-              {c.last_reply && <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap [overflow-wrap:anywhere] text-[12.5px] text-muted">{c.last_reply}</p>}
+              {c.last_reply && <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap [overflow-wrap:anywhere] text-[12.5px] text-muted">{plainText(c.last_reply)}</p>}
             </li>
           ))}
         </ul>
@@ -119,7 +119,7 @@ export function BoardPanel({
 
 function Outcome({ result }: { result: IntegrationResult }) {
   return (
-    <div role="status" className="rounded-md border border-line bg-panel px-3 py-2 text-[12.5px]">
+    <div role="status" className="enter-rise rounded-md border border-line bg-panel px-3 py-2 text-[12.5px]">
       {result.merged.length > 0 && <p className="text-ok">Merged {result.merged.join(", ")}.</p>}
       {result.conflict && (
         <p className="text-warn">
@@ -135,4 +135,16 @@ function Outcome({ result }: { result: IntegrationResult }) {
       {result.merged.length === 0 && !result.conflict && result.skipped.length === 0 && <p className="text-muted">Nothing to merge.</p>}
     </div>
   );
+}
+
+/** A reply's words without its markdown, for a short preview. */
+function plainText(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/(\*\*|__|\*|_)(\S[^*_]*?)\1/g, "$2")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(#+|[-*+]|\d+\.)\s+/gm, "")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
 }

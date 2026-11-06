@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Command, CommandResponse, ImportPreview, ImportSource, ImportStatus } from "@bantu/protocol";
+import { afterExit } from "../lib/motion.ts";
 
 const LABEL: Record<ImportSource, string> = { conductor: "Conductor", pane: "Pane" };
 
@@ -38,7 +39,7 @@ export function ImportDialog({
   return (
     <dialog
       ref={dialog}
-      onClose={onClose}
+      onClose={() => afterExit(onClose)}
       className="m-auto max-h-[85dvh] w-[min(560px,calc(100vw-2rem))] rounded-lg border border-line bg-panel p-0 text-fg backdrop:bg-black/60"
     >
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -65,7 +66,7 @@ export function ImportDialog({
                     type="button"
                     disabled={current?.running || p.workspaces === 0}
                     onClick={() => void run({ type: "import.run", source: p.source, path: null })}
-                    className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-bg disabled:opacity-40"
+                    className="pressable rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-bg disabled:opacity-40"
                   >
                     {current?.running ? "Importing…" : "Import"}
                   </button>

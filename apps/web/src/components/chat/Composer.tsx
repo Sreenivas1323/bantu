@@ -193,7 +193,7 @@ export function Composer({
               type="button"
               onClick={() => void submit()}
               disabled={disabled || sending || !text.trim()}
-              className="rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-bg disabled:opacity-40"
+              className="pressable rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-bg disabled:opacity-40"
             >
               {running ? "Queue" : "Send"}
             </button>

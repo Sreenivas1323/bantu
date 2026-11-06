@@ -115,7 +115,7 @@ export function ChangesPanel({
                 setSending(false);
               }
             }}
-            className="ml-auto rounded-md bg-accent px-3 py-1 font-medium text-bg disabled:opacity-40"
+            className="pressable ml-auto rounded-md bg-accent px-3 py-1 font-medium text-bg disabled:opacity-40"
           >
             Send {drafts.length} {drafts.length === 1 ? "comment" : "comments"} to agent
           </button>

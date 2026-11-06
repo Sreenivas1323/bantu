@@ -66,6 +66,18 @@ struct Args {
     /// https://box.tail1234.ts.net:8443. Its host is allowed automatically.
     #[arg(long, env = "BANTU_PREVIEW_URL")]
     preview_url: Option<String>,
+    /// Cloudflare Access team (`myteam` or `myteam.cloudflareaccess.com`). With it,
+    /// requests for a public hostname need a valid Access sign-in as well as the token.
+    #[arg(long, env = "BANTU_CF_ACCESS_TEAM", requires = "cf_access_aud")]
+    cf_access_team: Option<String>,
+    /// The Access applications' audience (AUD) tags: the app's and the previews'.
+    #[arg(
+        long,
+        env = "BANTU_CF_ACCESS_AUD",
+        value_delimiter = ',',
+        requires = "cf_access_team"
+    )]
+    cf_access_aud: Vec<String>,
     /// Print the local access token and exit.
     #[arg(long)]
     print_token: bool,
@@ -176,7 +188,15 @@ async fn main() -> Result<()> {
             allowed_hosts.push(host);
         }
     }
+    let cf_access = match &args.cf_access_team {
+        Some(team) => Some(bantud::access::AccessConfig::new(
+            team,
+            args.cf_access_aud.clone(),
+        )?),
+        None => None,
+    };
     let config = Config {
+        cf_access,
         preview_url: args.preview_url.clone(),
         home,
         workspaces_dir: args

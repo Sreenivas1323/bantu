@@ -115,6 +115,7 @@ run `bantud` somewhere you control:
 | T2 AWS one-click | CloudFormation "Launch Stack": EC2 t4g.medium (Graviton) + 30 GB gp3 + Elastic IP. A CloudFront distribution (free tier: 1 TB, 10M requests) gives HTTPS + SSE/WebSocket with no load balancer. The security group only allows CloudFront's origin prefix list. The daemon stops its own instance when idle, and a Lambda Function URL "wake" endpoint (free tier) starts it from any client. | ≈ $6 idle floor (IPv4 $3.65 + EBS $2.40) + ≈ $0.034 per running hour → **≈ $10/mo at 4 h/day** |
 | T2b AWS + Tailscale | The same, without the Elastic IP or CloudFront; the daemon joins your tailnet | ≈ $5/mo at 4 h/day |
 | T3 Vercel Sandbox bursts | Per-task Firecracker microVMs in your Vercel account: clone → the agent runs → commits come back as local branches → stop ([VERCEL.md](VERCEL.md)) | Hobby: 5 CPU-h free, 45-min sessions; Pro: ≈ $0.13/CPU-h + $0.02/GB-h |
+| T3b Cloudflare Containers bursts | The same per-task flow in your Cloudflare account, through a small Worker that holds the API key ([CLOUDFLARE-BURST.md](CLOUDFLARE-BURST.md)) | Workers Paid $5/mo, then a few cents a task |
 
 What each provider is for:
 - **CloudFront** is a front door and CDN, not compute.

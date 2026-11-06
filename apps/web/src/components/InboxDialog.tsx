@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Command, CommandResponse, InboxItem, PermissionRequest, Workspace } from "@bantu/protocol";
+import { afterExit } from "../lib/motion.ts";
 
 type Run = (command: Command) => Promise<CommandResponse | null>;
 
@@ -38,7 +39,7 @@ export function InboxDialog({
   return (
     <dialog
       ref={dialog}
-      onClose={onClose}
+      onClose={() => afterExit(onClose)}
       className="m-auto max-h-[80dvh] w-[min(560px,calc(100vw-2rem))] rounded-lg border border-line bg-panel p-0 text-fg backdrop:bg-black/60"
     >
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -90,7 +91,7 @@ export function QuestionCard({ item, run }: { item: InboxItem; run: Run }) {
   const answer = (value: string) => run({ type: "inbox.respond", item_id: item.id, answer: value });
   return (
     <form
-      className="flex flex-col gap-2 rounded-md border border-accent/40 bg-accent/5 px-3 py-2"
+      className="enter-rise flex flex-col gap-2 rounded-md border border-accent/40 bg-accent/5 px-3 py-2"
       onSubmit={(e) => {
         e.preventDefault();
         if (text.trim()) void answer(text);
@@ -114,7 +115,7 @@ export function QuestionCard({ item, run }: { item: InboxItem; run: Run }) {
           aria-label="Answer"
           className="min-w-0 flex-1 rounded-md border border-line bg-bg px-2 py-1 text-[16px] sm:text-[13px]"
         />
-        <button type="submit" disabled={!text.trim()} className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-bg disabled:opacity-40">
+        <button type="submit" disabled={!text.trim()} className="pressable rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-bg disabled:opacity-40">
           Answer
         </button>
         <button type="button" onClick={() => void run({ type: "inbox.dismiss", item_id: item.id })} className="rounded-md px-2 py-1 text-[12px] text-muted hover:bg-raised hover:text-fg">

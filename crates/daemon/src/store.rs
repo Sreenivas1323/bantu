@@ -40,7 +40,12 @@ impl Store {
             .connect_with(opts)
             .await
             .with_context(|| format!("opening {}", db_path.display()))?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        // Migrations only ever add, so a daemon that's older than its database
+        // (after a downgrade, or the desktop app beside a newer service) can
+        // still open it rather than refusing to start.
+        let mut migrator = sqlx::migrate!("./migrations");
+        migrator.set_ignore_missing(true);
+        migrator.run(&pool).await?;
         let (events_tx, _) = broadcast::channel(1024);
         Ok(Self {
             pool,
@@ -808,5 +813,28 @@ fn comment_from_row(r: &SqliteRow) -> DiffComment {
         body: r.get("body"),
         created_at: r.get("created_at"),
         sent_at: r.get("sent_at"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn opens_a_database_from_a_newer_daemon() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("bantu.db");
+        let store = Store::open(&db).await.unwrap();
+        // As if a newer daemon had applied a migration this one doesn't have.
+        sqlx::query(
+            "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+             VALUES (9999, 'from the future', 1, x'00', 0)",
+        )
+        .execute(&store.pool)
+        .await
+        .unwrap();
+        store.pool.close().await;
+        let reopened = Store::open(&db).await;
+        assert!(reopened.is_ok(), "{:?}", reopened.err());
     }
 }

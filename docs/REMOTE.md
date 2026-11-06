@@ -32,7 +32,8 @@ BANTU_PUBLIC_URL=https://bantu.example.com bantud service install
 ```
 
 Protect the hostname with Cloudflare Access (email login) as a second lock in front of
-the token.
+the token. [CLOUDFLARE.md](CLOUDFLARE.md) has a script that sets up the tunnel, both
+hostnames and Access in one go, and has the daemon check the Access sign-in too.
 
 ## SSH (no extra software)
 

@@ -1,13 +1,16 @@
 #!/usr/bin/env bun
 // Burst runner: run many coding agents at once in Firecracker microVMs in your
-// own Vercel account, and bring their work back as local branches.
+// own Vercel account, or in Cloudflare Containers behind your own Worker, and
+// bring their work back as local branches.
 //
 //   bun run burst.ts --task "Add a health check" --task "Fix the login redirect" --yes
+//   bun run burst.ts --provider cloudflare --task "Add a health check" --yes
 //
 // Each task gets a throwaway VM with an egress allowlist. The model API key is
-// injected by the firewall, so it never enters the VM, and work comes back as a
-// git bundle, so the VM needs no push access. Nothing is spent without --yes.
-// See docs/VERCEL.md.
+// added on the way out (by Vercel's firewall, or by the Worker), so it never
+// enters the VM, and work comes back as a git bundle, so the VM needs no push
+// access. Nothing is spent without --yes. See docs/VERCEL.md and
+// docs/CLOUDFLARE-BURST.md.
 
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -23,6 +26,29 @@ const PROMPT = ".git/bantu-prompt.txt";
 const WORK_REF = "bantu-burst-work";
 /** The firewall replaces this, so the VM never holds the real key. */
 const PLACEHOLDER_KEY = "injected-by-the-sandbox-firewall";
+/**
+ * On Cloudflare the key is a Worker secret, so the script never has it. This stands in for it
+ * in the egress policy, whose header transforms the Cloudflare client doesn't send anyway.
+ */
+export const WORKER_HELD_KEY = "held-by-the-worker";
+
+export type Provider = "vercel" | "cloudflare";
+
+/**
+ * Cloudflare Containers list prices on Workers Paid ($5/month). CPU is billed while active;
+ * memory and disk while the container runs. The plan includes 375 vCPU-minutes, 25 GiB-hours
+ * of memory and 200 GB-hours of disk each month.
+ */
+export const CLOUDFLARE = {
+  usdPerVcpuSecond: 0.00002,
+  usdPerGibSecond: 0.0000025,
+  usdPerGbSecond: 0.00000007,
+  includedVcpuSeconds: 375 * 60,
+  includedGibSeconds: 25 * 3600,
+  includedGbSeconds: 200 * 3600,
+  /** What the Worker's INSTANCE_TYPE defaults to. */
+  instance: { name: "standard-2", vcpus: 1, memoryGib: 6, diskGb: 12 },
+};
 
 export type RunResult = { exitCode: number; stdout: string; stderr: string };
 
@@ -105,10 +131,29 @@ export function slug(text: string): string {
   return words.join("-").slice(0, 40).replace(/-+$/, "") || "task";
 }
 
-export function estimate(o: Pick<Options, "tasks" | "vcpus" | "minutes" | "concurrency">): string {
+export function estimate(o: Pick<Options, "tasks" | "vcpus" | "minutes" | "concurrency">, provider: Provider = "vercel"): string {
+  if (provider === "cloudflare") return cloudflareEstimate(o);
   const vcpuHours = (o.tasks.length * o.vcpus * o.minutes) / 60;
   const cost = (vcpuHours * USD_PER_VCPU_HOUR).toFixed(2);
   return `${o.tasks.length} VM(s) with ${o.vcpus} vCPU, at most ${o.minutes} min each and ${o.concurrency} at a time: at most ${vcpuHours.toFixed(1)} vCPU-hours (≈ $${cost} on Vercel Pro), plus model usage on your API key.`;
+}
+
+/** The most a run can cost: every container busy for its whole time limit. */
+function cloudflareEstimate(o: Pick<Options, "tasks" | "minutes" | "concurrency">): string {
+  const c = CLOUDFLARE;
+  const seconds = o.tasks.length * o.minutes * 60;
+  const vcpuS = seconds * c.instance.vcpus;
+  const gibS = seconds * c.instance.memoryGib;
+  const gbS = seconds * c.instance.diskGb;
+  const price = (v: number, g: number, d: number) => v * c.usdPerVcpuSecond + g * c.usdPerGibSecond + d * c.usdPerGbSecond;
+  const list = price(vcpuS, gibS, gbS);
+  const afterAllowance = price(
+    Math.max(0, vcpuS - c.includedVcpuSeconds),
+    Math.max(0, gibS - c.includedGibSeconds),
+    Math.max(0, gbS - c.includedGbSeconds),
+  );
+  const i = c.instance;
+  return `${o.tasks.length} container(s) on ${i.name} (${i.vcpus} vCPU, ${i.memoryGib} GiB, ${i.diskGb} GB), at most ${o.minutes} min each and ${o.concurrency} at a time: at most ${(vcpuS / 3600).toFixed(1)} vCPU-hours (≈ $${list.toFixed(2)} at Cloudflare's list price, or $${afterAllowance.toFixed(2)} if this month's Workers Paid allowance is still unused; CPU is billed only while busy, so usually less), plus the $5/month Workers Paid plan and model usage on the Worker's API key.`;
 }
 
 function git(repo: string, args: string[]): { ok: boolean; out: string; err: string } {
@@ -317,31 +362,142 @@ export async function vercelBox(r: BoxRequest): Promise<Box> {
   };
 }
 
-const USAGE = `Run coding agents in parallel in your own Vercel account.
+/** Where the Worker from deploy/cloudflare-sandbox is, and the bearer secret it checks. */
+export type WorkerConfig = { url: string; secret: string };
+
+export function workerFromEnv(): WorkerConfig {
+  const url = process.env.BANTU_BURST_URL;
+  const secret = process.env.BANTU_BURST_SECRET;
+  if (!url || !secret) throw new Error("BANTU_BURST_URL and BANTU_BURST_SECRET must both be set");
+  return { url, secret };
+}
+
+/** The secret goes in a header, so only send it over HTTPS, or to this machine for tests. */
+function workerBase(url: string): string {
+  if (!/^https:\/\//.test(url) && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/.test(url)) {
+    throw new Error(`BANTU_BURST_URL must be an https:// URL, not ${url}`);
+  }
+  return url.replace(/\/+$/, "");
+}
+
+/**
+ * A container in your Cloudflare account, through the Worker in deploy/cloudflare-sandbox.
+ * The Worker holds the model key and adds it on the way out, so neither this script nor the
+ * container has it. Only the allowlist's hostnames are sent, not the policy's header values.
+ */
+export async function cloudflareBox(r: BoxRequest, worker: WorkerConfig = workerFromEnv()): Promise<Box> {
+  const base = workerBase(worker.url);
+  const call = (path: string, init: RequestInit = {}) =>
+    fetch(`${base}${path}`, { ...init, headers: { authorization: `Bearer ${worker.secret}`, ...init.headers } });
+  const failure = async (res: Response, what: string) => {
+    const detail = (await res.text().catch(() => "")).trim().slice(0, 500);
+    if (res.status === 401) return new Error(`${what}: the Worker rejected BANTU_BURST_SECRET (401)`);
+    return new Error(`${what}: the Worker answered ${res.status}${detail ? `: ${detail}` : ""}`);
+  };
+
+  const created = await call("/sandboxes", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      url: r.url,
+      revision: r.revision,
+      ...(r.token ? { token: r.token } : {}),
+      allow: Object.keys(r.policy.allow),
+      env: r.env,
+      timeoutMs: r.timeoutMs,
+    }),
+  });
+  if (!created.ok) throw await failure(created, "couldn't start a container");
+  const { id } = (await created.json()) as { id: string };
+  const at = `/sandboxes/${encodeURIComponent(id)}`;
+  const file = (path: string) => `${at}/files?path=${encodeURIComponent(path)}`;
+
+  return {
+    // The container runs as root, so `sudo` needs nothing.
+    async run(script, options) {
+      const res = await call(`${at}/run`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ script }),
+      });
+      if (!res.ok || !res.body) throw await failure(res, "couldn't run a command");
+      let stdout = "";
+      let stderr = "";
+      let exitCode: number | undefined;
+      const handle = (line: string) => {
+        if (!line.trim()) return;
+        const v = JSON.parse(line) as { stdout?: string; stderr?: string; exitCode?: number; error?: string };
+        if (typeof v.stdout === "string") {
+          stdout += v.stdout;
+          options?.onOutput?.(v.stdout);
+        }
+        if (typeof v.stderr === "string") stderr += v.stderr;
+        if (typeof v.exitCode === "number") exitCode = v.exitCode;
+        if (typeof v.error === "string") throw new Error(`the command's output stream failed: ${v.error}`);
+      };
+      const decoder = new TextDecoder();
+      let buffered = "";
+      for await (const chunk of res.body) {
+        buffered += decoder.decode(chunk, { stream: true });
+        const lines = buffered.split("\n");
+        buffered = lines.pop() ?? "";
+        for (const line of lines) handle(line);
+      }
+      handle(buffered + decoder.decode());
+      if (exitCode === undefined) throw new Error("the connection to the Worker ended before the command finished");
+      return { exitCode, stdout, stderr };
+    },
+    async write(path, content) {
+      const res = await call(file(path), { method: "PUT", body: new Uint8Array(content) });
+      if (!res.ok) throw await failure(res, `couldn't write ${path}`);
+    },
+    async read(path) {
+      const res = await call(file(path));
+      if (res.status === 404) return null;
+      if (!res.ok) throw await failure(res, `couldn't read ${path}`);
+      return Buffer.from(await res.arrayBuffer());
+    },
+    async stop() {
+      const res = await call(at, { method: "DELETE" });
+      // 410: it had already stopped.
+      if (!res.ok && res.status !== 410) throw await failure(res, "couldn't stop the container");
+    },
+  };
+}
+
+const USAGE = `Run coding agents in parallel in your own Vercel or Cloudflare account.
 
   bun run burst.ts --task "..." [--task "..."] [options]
 
   --task <text>      A task; repeat for more (required)
+  --provider <name>  vercel (default) or cloudflare
   --repo <path>      The local repository (default: current directory)
   --base <branch>    Branch to start from, as it is on origin (default: main)
-  --vcpus <n>        vCPUs per VM (default: 2)
-  --minutes <n>      Time limit per VM (default: 30; Hobby allows up to 45)
+  --vcpus <n>        vCPUs per VM on Vercel (default: 2). On Cloudflare, the Worker's
+                     INSTANCE_TYPE sets the size (default standard-2: 1 vCPU, 6 GiB).
+  --minutes <n>      Time limit per VM (default: 30; Vercel Hobby allows up to 45)
   --concurrency <n>  VMs at once (default: 4)
   --setup <command>  Run before the agent, e.g. "bun install"
   --model <name>     Model for the agent
   --allow <domain>   Another domain the VM can reach; repeatable, "*.example.com" works
   --yes              Actually run. Without it, this only prints the plan and cost.
 
-Needs ANTHROPIC_API_KEY, and Vercel credentials: VERCEL_TOKEN, VERCEL_TEAM_ID and
-VERCEL_PROJECT_ID, or VERCEL_OIDC_TOKEN. GITHUB_TOKEN is needed for private repos.`;
+Vercel needs ANTHROPIC_API_KEY, and VERCEL_TOKEN, VERCEL_TEAM_ID and VERCEL_PROJECT_ID,
+or VERCEL_OIDC_TOKEN.
+
+Cloudflare needs BANTU_BURST_URL and BANTU_BURST_SECRET for the Worker you deployed from
+deploy/cloudflare-sandbox. The API key is a secret on that Worker, so it isn't read here.
+
+GITHUB_TOKEN is needed for private repos, and is used only to clone.`;
 
 async function main(): Promise<number> {
   const { values } = parseArgs({
     options: {
       task: { type: "string", multiple: true },
+      provider: { type: "string", default: "vercel" },
       repo: { type: "string", default: "." },
       base: { type: "string", default: "main" },
-      vcpus: { type: "string", default: "2" },
+      vcpus: { type: "string" },
       minutes: { type: "string", default: "30" },
       concurrency: { type: "string", default: "4" },
       setup: { type: "string" },
@@ -355,32 +511,57 @@ async function main(): Promise<number> {
     console.log(USAGE);
     return values.help ? 0 : 1;
   }
+  const provider = values.provider;
+  if (provider !== "vercel" && provider !== "cloudflare") {
+    console.error(`--provider must be vercel or cloudflare, not ${provider}`);
+    return 1;
+  }
+  if (provider === "cloudflare" && values.vcpus !== undefined) {
+    console.log("--vcpus doesn't apply on Cloudflare; set INSTANCE_TYPE in the Worker's wrangler.jsonc instead.");
+  }
   const o: Options = {
     repo: values.repo!,
     base: values.base!,
     tasks: values.task.map((prompt, index) => ({ index, prompt })),
-    vcpus: Number(values.vcpus),
+    vcpus: provider === "cloudflare" ? CLOUDFLARE.instance.vcpus : Number(values.vcpus ?? "2"),
     minutes: Number(values.minutes),
     concurrency: Number(values.concurrency),
     setup: values.setup,
     model: values.model,
     allow: values.allow ?? [],
   };
-  console.log(estimate(o));
+  console.log(estimate(o, provider));
   if (!values.yes) {
     console.log("Nothing was started. Add --yes to run this.");
     return 0;
   }
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.error("ANTHROPIC_API_KEY isn't set. A Claude subscription can't sign in inside a VM, so this needs an API key.");
-    return 1;
+  let makeBox: (request: BoxRequest) => Promise<Box>;
+  let apiKey: string;
+  if (provider === "cloudflare") {
+    let worker: WorkerConfig;
+    try {
+      worker = workerFromEnv();
+      workerBase(worker.url);
+    } catch (err) {
+      console.error(`${err instanceof Error ? err.message : String(err)}. Deploy deploy/cloudflare-sandbox first; see docs/CLOUDFLARE-BURST.md.`);
+      return 1;
+    }
+    makeBox = (request) => cloudflareBox(request, worker);
+    apiKey = WORKER_HELD_KEY;
+  } else {
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) {
+      console.error("ANTHROPIC_API_KEY isn't set. A Claude subscription can't sign in inside a VM, so this needs an API key.");
+      return 1;
+    }
+    if (!process.env.VERCEL_OIDC_TOKEN && !(process.env.VERCEL_TOKEN && process.env.VERCEL_TEAM_ID && process.env.VERCEL_PROJECT_ID)) {
+      console.error("Set VERCEL_TOKEN, VERCEL_TEAM_ID and VERCEL_PROJECT_ID, or VERCEL_OIDC_TOKEN (vercel env pull).");
+      return 1;
+    }
+    makeBox = vercelBox;
+    apiKey = key;
   }
-  if (!process.env.VERCEL_OIDC_TOKEN && !(process.env.VERCEL_TOKEN && process.env.VERCEL_TEAM_ID && process.env.VERCEL_PROJECT_ID)) {
-    console.error("Set VERCEL_TOKEN, VERCEL_TEAM_ID and VERCEL_PROJECT_ID, or VERCEL_OIDC_TOKEN (vercel env pull).");
-    return 1;
-  }
-  const outcomes = await runAll(o, vercelBox, apiKey, (task, line) => console.log(`[${task.index + 1}] ${line}`));
+  const outcomes = await runAll(o, makeBox, apiKey, (task, line) => console.log(`[${task.index + 1}] ${line}`));
   console.log("");
   for (const r of outcomes) {
     const name = `${r.task.index + 1}. ${r.task.prompt.split("\n")[0].slice(0, 60)}`;

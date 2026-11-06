@@ -30,12 +30,12 @@ export function ToolCard({ use, result, workspacePath }: { use: ToolUse; result?
         <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted" title={summary}>
           {summary}
         </span>
-        <span aria-hidden className={`shrink-0 text-faint transition-transform ${open ? "rotate-90" : ""}`}>
+        <span aria-hidden className={`shrink-0 text-faint transition-transform duration-200 ease-[var(--ease-out-ui)] ${open ? "rotate-90" : ""}`}>
           ›
         </span>
       </button>
       {open && (
-        <div className="space-y-2 border-t border-line px-2.5 py-2">
+        <div className="reveal space-y-2 border-t border-line px-2.5 py-2">
           <Block label="Input" text={JSON.stringify(use.input, null, 2)} />
           {result ? (
             <Block label={failed ? "Error" : "Result"} text={result.content || "(no output)"} tone={failed ? "bad" : undefined} />

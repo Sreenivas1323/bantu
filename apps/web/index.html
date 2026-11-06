@@ -8,7 +8,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Bantu" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <link rel="manifest" href="./manifest.webmanifest" />
+    <!-- With credentials, so a sign-in in front of the daemon (Cloudflare Access) covers it. -->
+    <link rel="manifest" href="./manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./icon-192.png" />
     <title>Bantu</title>

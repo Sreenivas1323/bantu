@@ -123,16 +123,16 @@ while stopped too, and $0.50 for the hosted zone. CloudFront's free tier (1 TB o
 requests) covers normal use. While the machine is stopped, the address shows a CloudFront
 error page; open the wake link first.
 
-## Launch Stack button
+## Launch Stack
 
-The AWS console can open either template from a link, which saves using the CLI:
+Instead of the CLI, open a template straight in the AWS console. Pick your region at the top
+right first; it opens on the review page, where you fill in the same parameters.
 
-```
-https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=https://<bucket>.s3.amazonaws.com/bantu-tailscale.yaml&stackName=bantu
-```
+- [Launch with Tailscale](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=https://bantu-templates-050451378836.s3.amazonaws.com/bantu-tailscale.yaml&stackName=bantu)
+- [Launch with CloudFront and your own domain](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=https://bantu-templates-050451378836.s3.amazonaws.com/bantu-cloudfront.yaml&stackName=bantu)
 
-CloudFormation only accepts templates from S3, so this needs a public copy. See
-[RELEASING.md](RELEASING.md) to publish one with each release.
+These copies of the templates are kept in sync by hand when the templates change; see
+[RELEASING.md](RELEASING.md).
 
 ## Why Tailscale by default?
 

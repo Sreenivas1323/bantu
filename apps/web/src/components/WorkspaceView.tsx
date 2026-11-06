@@ -81,7 +81,7 @@ export function WorkspaceView({
 }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<Tab>("chat");
+  const [selectedTab, setTab] = useState<Tab>("chat");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<string | null>(null);
   useEffect(() => setConfirming(false), [workspace.id]);
@@ -93,6 +93,8 @@ export function WorkspaceView({
 
   const canArchive = workspace.state === "ready" || workspace.state === "failed";
   const childCount = Object.values(allWorkspaces).filter((w) => w.parent_id === workspace.id && w.state !== "archived").length;
+  // The Board tab only exists while there are children to show.
+  const tab = selectedTab === "board" && childCount === 0 ? "chat" : selectedTab;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">

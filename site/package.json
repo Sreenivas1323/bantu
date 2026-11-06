@@ -1,0 +1,10 @@
+{
+  "name": "@bantu/site",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun ./index.html",
+    "build": "rm -rf dist && bun build ./index.html --outdir dist --minify && mkdir -p dist/assets && cp assets/og.png dist/assets/ && cp .nojekyll dist/"
+  }
+}

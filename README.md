@@ -4,6 +4,7 @@
 or in your own cloud. Free and open source.**
 
 *Bantu* is Telugu for the faithful helper who does the work while you direct it.
+See it at **[pay-out.me/bantu](http://pay-out.me/bantu/)**.
 
 > Status: **alpha**. You can run Claude Code and Codex agents in parallel workspaces, approve
 > their actions, review diffs, fix CI and open PRs. Expect rough edges. Codex hasn't been tested
@@ -125,7 +126,8 @@ in Bantu chats** in the accounts dialog. This is on `main` and isn't in v0.1.0-a
 | Port forwarding for dev-server previews | ✅ |
 | Web Push alerts from the daemon | ✅ (tested with a local push server, not a real browser service yet) |
 | AWS template with CloudFront and your own domain | ✅ (lint-checked, not yet deployed end to end) |
-| Launch Stack button | Needs a public bucket for the templates |
+| Launch Stack links for both AWS templates ([AWS.md](docs/AWS.md#launch-stack)) | ✅ |
+| Cloudflare Tunnel and Access set up by one script; the daemon checks Access sign-ins | ✅ (not yet run against a real account) |
 | Orchestration: a chat starts, watches and reviews other workspaces via Bantu's MCP tools | ✅ |
 | Conflict radar: warns when workspaces (or a workspace and its base) will conflict | ✅ |
 | Definition of done: a repo `check` runs after agent edits; failures go back to the agent | ✅ |
@@ -134,7 +136,7 @@ in Bantu chats** in the accounts dialog. This is on `main` and isn't in v0.1.0-a
 | Automatic cross-agent review before "Ready" (opt-in) | ✅ |
 | Loops: agents on a schedule or from GitHub labels | ✅ (GitHub polling not yet run against a real repo) |
 | Import workspaces and chats from Conductor and Pane | ✅ |
-| Vercel Sandbox burst runs | ✅ (not yet run against Vercel) |
+| Burst runs on Vercel Sandbox or Cloudflare Containers | ✅ (not yet run against either service) |
 | Windows | Preview: builds in CI, not yet tried on a real machine |
 
 ## Your own cloud, at cost
@@ -142,10 +144,11 @@ in Bantu chats** in the accounts dialog. This is on `main` and isn't in v0.1.0-a
 | Where `bantud` runs | Your monthly cost |
 |---|---|
 | Your laptop | $0 |
-| Your own machine or VPS, via Tailscale or Cloudflare Tunnel | $0 extra |
+| Your own machine or VPS, via Tailscale or Cloudflare Tunnel ([guide](docs/CLOUDFLARE.md)) | $0 extra |
 | Your AWS account: EC2 t4g over Tailscale, stops itself when idle | ≈ $7 at 4 h/day |
 | Your AWS account with CloudFront ([guide](docs/AWS.md)) | ≈ $10 at 4 h/day |
 | Your Vercel account: Sandbox microVMs for bursts of parallel tasks ([guide](docs/VERCEL.md)) | Hobby free tier, then ≈ $0.13/CPU-hour |
+| Your Cloudflare account: Containers for bursts of parallel tasks ([guide](docs/CLOUDFLARE-BURST.md)) | Workers Paid ($5), then a few cents a task |
 
 The project itself costs about $99 a year to run (Apple code signing). See
 [ARCHITECTURE.md](docs/ARCHITECTURE.md#4-bring-your-own-cloud-ranked-from-cheapest).

@@ -3,6 +3,7 @@ import type { AgentKind, AgentStatus, Command, CommandResponse, LoginMethod, Pre
 import type { DaemonClient } from "../lib/api.ts";
 import { accountKind, agentLabel } from "../lib/useAgents.ts";
 import { TerminalView } from "./terminal/TerminalView.tsx";
+import { afterExit } from "../lib/motion.ts";
 
 const INSTALL: Record<AgentKind, string> = {
   claude: "curl -fsSL https://claude.ai/install.sh | bash",
@@ -70,7 +71,7 @@ export function AccountsDialog({
   return (
     <dialog
       ref={dialog}
-      onClose={onClose}
+      onClose={() => afterExit(onClose)}
       className="m-auto w-[min(720px,calc(100vw-2rem))] rounded-lg border border-line bg-panel p-0 text-fg backdrop:bg-black/60"
     >
       <div className="flex items-center justify-between border-b border-line px-4 py-3">

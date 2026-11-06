@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Bantu: run your coding agents side by side</title>
+    <meta name="description" content="A free, open-source app that gives Claude Code, Codex, Gemini, OpenCode and Cursor their own git worktrees, so several agents can work at once on your machine or your own cloud." />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f6f3ec" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#16181c" media="(prefers-color-scheme: dark)" />
+    <meta property="og:title" content="Bantu: run your coding agents side by side" />
+    <meta property="og:description" content="Free and open source. Each agent gets its own branch, on your machine or your own cloud." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://sreenivas1323.github.io/bantu/assets/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="./assets/mark.svg" type="image/svg+xml" />
+    <link rel="preload" as="image" href="./assets/hero-board.webp" fetchpriority="high" />
+    <!-- The intro plays once per visit. Decided before first paint so nothing flashes. -->
+    <script>
+      try {
+        if (!sessionStorage.getItem("bantu-intro")) {
+          document.documentElement.classList.add("intro");
+          sessionStorage.setItem("bantu-intro", "1");
+        }
+      } catch {}
+    </script>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="wordmark" href="./" aria-label="Bantu home">
+        <span class="dots" aria-hidden="true"><i class="ok"></i><i class="run"></i><i class="wait"></i></span>
+        bantu
+      </a>
+      <nav aria-label="Main">
+        <a href="https://github.com/Sreenivas1323/bantu#readme">Guide</a>
+        <a href="https://github.com/Sreenivas1323/bantu/releases">Releases</a>
+        <a href="https://github.com/Sreenivas1323/bantu">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="title">
+        <h1 id="title" style="--n: 0">Run your coding agents side by side, each on its own branch.</h1>
+        <p class="lede" style="--n: 1">
+          Bantu is a free, open-source app for Claude&nbsp;Code, Codex, Gemini, OpenCode and Cursor. A small daemon on your
+          Mac, a Linux box or your own cloud gives every task its own git worktree, so five agents can work at once without
+          touching each other's files. You sign in with your own accounts; Bantu has none.
+        </p>
+        <div class="get" style="--n: 2">
+          <div class="cmd">
+            <code id="install">curl -fsSL https://raw.githubusercontent.com/Sreenivas1323/bantu/main/deploy/install.sh | sh</code>
+            <button class="copy" type="button" data-copy="install" aria-label="Copy the install command">
+              <svg class="i-copy" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5" /><path d="M10.5 2.5h-6a2 2 0 0 0-2 2v6" /></svg>
+              <svg class="i-done" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>
+            </button>
+          </div>
+          <div class="actions">
+            <a class="button primary" href="https://github.com/Sreenivas1323/bantu/releases/latest">Download for Mac</a>
+            <a class="button" href="https://github.com/Sreenivas1323/bantu">Read the source</a>
+          </div>
+          <p class="note">Alpha. macOS and Linux today; Windows is in preview. Apache-2.0.</p>
+        </div>
+        <figure class="shot hero-shot" style="--n: 3">
+          <img src="./assets/hero-board.webp" width="2560" height="1520" alt="The Bantu board: a lead workspace has started three others. rate-limit has finished with 3 files changed, refresh-middleware is working, and session-docs is waiting for an answer." fetchpriority="high" />
+          <figcaption>One agent split a task into three workspaces. One is done, one is working, and one is waiting for you to answer a question.</figcaption>
+        </figure>
+      </section>
+
+      <section class="split" aria-labelledby="how">
+        <div class="copytext">
+          <h2 id="how">Hand off a task, then get on with yours</h2>
+          <ol class="steps">
+            <li><strong>Add a repository.</strong> Bantu keeps your checkout as it is and works next to it.</li>
+            <li><strong>Describe the task.</strong> It gets a branch, a worktree, its own ports and a chat with the agent you pick.</li>
+            <li><strong>Review what changed.</strong> Read the diff, leave line comments for the agent, then open a pull request or merge it.</li>
+          </ol>
+          <p>Agents keep working when you close the window, because the daemon runs them, not the app.</p>
+        </div>
+        <figure class="shot">
+          <img src="./assets/chat.webp" width="2560" height="1520" loading="lazy" alt="A chat in the rate-limit workspace: the agent read and edited files, ran bun test, committed, and summarized that POST /login now returns 429 after five attempts a minute." />
+        </figure>
+      </section>
+
+      <section class="features" aria-labelledby="what">
+        <h2 id="what">What's in it</h2>
+        <ul class="marked">
+          <li><b>Agents that manage agents.</b> A chat can start workspaces, check on them and merge the results through Bantu's own tools.</li>
+          <li><b>A definition of done.</b> Your repo's check runs after every edit, and failures go straight back to the agent.</li>
+          <li><b>Conflict radar.</b> It warns you when two workspaces are about to change the same lines.</li>
+          <li><b>A second opinion.</b> Codex can review Claude's work, or the other way round, before you look.</li>
+          <li><b>Undo by turn.</b> Restore the files to how they were before any message.</li>
+          <li><b>Spotlight.</b> Try a workspace's changes in your main checkout, where your dev setup already runs.</li>
+          <li><b>Loops.</b> Run an agent every night, or whenever an issue gets a label.</li>
+          <li><b>Bring your history.</b> Import workspaces and chats from Conductor and Pane.</li>
+        </ul>
+      </section>
+
+      <section class="split phone" aria-labelledby="away">
+        <figure class="shot narrow">
+          <img src="./assets/phone.webp" width="780" height="1560" loading="lazy" alt="The rate-limit chat on a phone, with the agent's summary and a message box." />
+        </figure>
+        <div class="copytext">
+          <h2 id="away">Answer from your phone</h2>
+          <p>
+            Open your daemon's address on a phone and add it to the home screen. When an agent needs an approval or an answer,
+            you get a notification, sent by your own daemon rather than a service in between.
+          </p>
+          <p>Reach it from anywhere with Tailscale, Cloudflare Tunnel or SSH. Previews of your dev servers come along too.</p>
+        </div>
+      </section>
+
+      <section class="where" aria-labelledby="runs">
+        <h2 id="runs">Where it runs, at cost</h2>
+        <p>The same daemon runs anywhere. You pay the provider directly, and Bantu runs no servers of its own.</p>
+        <table>
+          <thead>
+            <tr><th scope="col">Where</th><th scope="col">Monthly cost</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Your laptop</td><td>$0</td></tr>
+            <tr><td>A machine you own, through Tailscale or Cloudflare Tunnel</td><td>$0 extra</td></tr>
+            <tr><td>Your AWS account, on a machine that stops itself when idle</td><td>≈ $7 at 4 hours a day</td></tr>
+            <tr><td>The same, at your own domain through CloudFront</td><td>≈ $10 at 4 hours a day</td></tr>
+            <tr><td>Bursts of parallel tasks on Vercel Sandbox or Cloudflare Containers</td><td>A few cents a task</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <footer>
+      <p><span lang="te">బంటు</span>, <i>bantu</i>, is Telugu for the faithful helper who does the work while you direct it.</p>
+      <p>Bantu is Apache-2.0 and has no paid tier. The project's only cost is about $99 a year for Apple code signing.</p>
+      <p><a href="https://github.com/Sreenivas1323/bantu">github.com/Sreenivas1323/bantu</a></p>
+    </footer>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

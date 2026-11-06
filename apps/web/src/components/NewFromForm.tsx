@@ -78,7 +78,7 @@ export function NewFromForm({
         <button
           type="submit"
           disabled={!valid || busy}
-          className="rounded bg-accent px-2 py-0.5 text-[12px] font-medium text-bg disabled:opacity-40"
+          className="pressable rounded bg-accent px-2 py-0.5 text-[12px] font-medium text-bg disabled:opacity-40"
         >
           {busy ? "Creating…" : "Create"}
         </button>

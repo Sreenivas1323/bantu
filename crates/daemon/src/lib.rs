@@ -1,5 +1,6 @@
 //! The Bantu daemon (`bantud`). See `docs/ARCHITECTURE.md`.
 
+pub mod access;
 pub mod acp;
 pub mod activity;
 pub mod agents;
@@ -64,6 +65,8 @@ pub struct Config {
     pub allowed_hosts: Vec<String>,
     /// The address remote clients use for port previews, if any.
     pub preview_url: Option<String>,
+    /// Require a Cloudflare Access sign-in on requests for public hostnames.
+    pub cf_access: Option<access::AccessConfig>,
 }
 
 pub struct Started {
@@ -96,6 +99,11 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
         daemon: daemon.clone(),
         token_hash: http::hash_token(&token).into(),
         allow_remote,
+        access: daemon
+            .config
+            .cf_access
+            .clone()
+            .map(|c| Arc::new(access::AccessVerifier::new(c))),
     };
     let preview_router = preview::router(state.clone());
     let router = http::router(state);

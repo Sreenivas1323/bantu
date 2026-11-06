@@ -25,6 +25,13 @@ export function Transcript({
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const running = session.status === "running";
+  // Items already here when a chat opens (history) stay still. Ones that arrive
+  // afterwards rise in, so you see what just happened.
+  const opened = useRef({ session: session.id, at: performance.now(), seq: -1 });
+  if (opened.current.session !== session.id) opened.current = { session: session.id, at: performance.now(), seq: -1 };
+  const settling = performance.now() - opened.current.at < 600;
+  if (settling) for (const e of entries) opened.current.seq = Math.max(opened.current.seq, e.seq);
+  const baseline = opened.current.seq;
 
   const { turns, results } = useMemo(() => {
     const results = new Map<string, ToolResult>();
@@ -68,17 +75,23 @@ export function Transcript({
               <RewindButton turn={turn} onRewind={onRewind} />
             )}
             {list.map((e) => (
-              <Item key={e.seq} entry={e} results={results} workspacePath={workspacePath} />
+              <div key={e.seq} className={`flex min-w-0 flex-col ${e.seq > baseline && e.item.kind !== "assistant" ? "enter-rise" : ""}`}>
+                <Item entry={e} results={results} workspacePath={workspacePath} />
+              </div>
             ))}
           </section>
         ))}
         {running && streaming && streaming.text && (
-          <div aria-live="polite">
+          <div aria-live="polite" className="enter-rise">
             {/* The caret rides at the end of the text so it sits inline even inside lists. */}
             <Markdown text={`${streaming.text}\u2009▍`} />
           </div>
         )}
-        {running && <Working queued={session.queued} />}
+        {running && (
+          <div className="enter-rise">
+            <Working queued={session.queued} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -189,7 +202,7 @@ function CheckResult({ item }: { item: Extract<ChatItem, { kind: "check" }> }) {
         <span className="shrink-0 tabular-nums text-faint">{formatDuration(item.duration_ms)}</span>
       </button>
       {open && item.output && (
-        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-bg p-2 font-mono text-[12px] text-muted">{item.output}</pre>
+        <pre className="reveal mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-bg p-2 font-mono text-[12px] text-muted">{item.output}</pre>
       )}
       {!item.passed && <p className="mt-1.5 text-[11.5px] text-faint">Sent back to the agent (at most twice in a row).</p>}
     </div>
@@ -201,12 +214,12 @@ function Thinking({ text }: { text: string }) {
   return (
     <div className="text-muted">
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex items-center gap-1.5 hover:text-fg">
-        <span aria-hidden className={`text-faint transition-transform ${open ? "rotate-90" : ""}`}>
+        <span aria-hidden className={`text-faint transition-transform duration-200 ease-[var(--ease-out-ui)] ${open ? "rotate-90" : ""}`}>
           ›
         </span>
         <span className="italic">Thinking…</span>
       </button>
-      {open && <div className="mt-1.5 whitespace-pre-wrap border-l-2 border-line pl-3 text-[12.5px] leading-5">{text}</div>}
+      {open && <div className="reveal mt-1.5 whitespace-pre-wrap border-l-2 border-line pl-3 text-[12.5px] leading-5">{text}</div>}
     </div>
   );
 }
@@ -232,7 +245,7 @@ function Working({ queued }: { queued: number }) {
     <div className="flex items-center gap-2 text-muted" role="status">
       <span className="flex gap-1" aria-hidden>
         {[0, 1, 2].map((i) => (
-          <span key={i} className="size-1.5 animate-bounce rounded-full bg-accent" style={{ animationDelay: `${i * 120}ms` }} />
+          <span key={i} className="breathe size-1.5 rounded-full bg-accent" style={{ animationDelay: `${i * 150}ms` }} />
         ))}
       </span>
       Working…
