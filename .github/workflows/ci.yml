@@ -56,6 +56,8 @@ jobs:
           git config --global user.name "Bantu CI"
           git config --global user.email "ci@bantu.invalid"
           git config --global init.defaultBranch main
+          # Runners convert line endings on checkout; the tests compare exact bytes.
+          git config --global core.autocrlf false
       - run: cargo build -p bantud
       - run: cargo test --workspace --lib --bins
 
