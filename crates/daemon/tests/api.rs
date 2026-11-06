@@ -33,6 +33,10 @@ struct Harness {
 
 impl Harness {
     async fn start() -> Self {
+        Self::start_with(|_| {}).await
+    }
+
+    async fn start_with(configure: impl FnOnce(&mut bantud::Config)) -> Self {
         let home = tempfile::tempdir().unwrap();
         let workspaces = tempfile::tempdir().unwrap();
         let claude_calls = home.path().join("claude-calls.log");
@@ -78,7 +82,7 @@ impl Harness {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&acp_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let config = bantud::Config {
+        let mut config = bantud::Config {
             home: home.path().to_path_buf(),
             workspaces_dir: workspaces.path().to_path_buf(),
             repos_dir: home.path().join("repos"),
@@ -92,7 +96,9 @@ impl Harness {
             cursor_bin: acp_bin,
             allowed_hosts: vec!["box.tail1234.ts.net".into()],
             preview_url: None,
+            cf_access: None,
         };
+        configure(&mut config);
         let started = bantud::start(config, false).await.unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -3982,4 +3988,84 @@ async fn imports_from_conductor_and_pane() {
     h.wait_for(&ws.id, WorkspaceState::Archived).await;
     assert_eq!(std::fs::read_to_string(&marker).unwrap(), "keep me");
     assert!(worktree.join(".git").exists());
+}
+
+#[tokio::test]
+async fn cloudflare_access_guards_public_hostnames() {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+    use rsa::pkcs1v15::SigningKey;
+    use rsa::signature::{SignatureEncoding, Signer};
+    use rsa::traits::PublicKeyParts;
+
+    // Cloudflare's key endpoint, served locally.
+    let private = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 1024).unwrap();
+    let public = private.to_public_key();
+    let jwks = json!({"keys": [{"kid": "k1", "kty": "RSA",
+        "n": URL_SAFE_NO_PAD.encode(public.n().to_bytes_be()),
+        "e": URL_SAFE_NO_PAD.encode(public.e().to_bytes_be())}]})
+    .to_string();
+    let certs = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let certs_addr = certs.local_addr().unwrap();
+    let app = axum::Router::new().route("/certs", axum::routing::get(move || async move { jwks }));
+    tokio::spawn(async move { axum::serve(certs, app).await.unwrap() });
+
+    let h = Harness::start_with(|config| {
+        let mut access =
+            bantud::access::AccessConfig::new("myteam", vec!["app-aud".into()]).unwrap();
+        access.certs_url = format!("http://{certs_addr}/certs");
+        config.cf_access = Some(access);
+    })
+    .await;
+    let sign = |aud: &str, exp: i64| {
+        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"RS256","kid":"k1"}"#);
+        let claims = json!({"aud": [aud], "iss": "https://myteam.cloudflareaccess.com",
+            "exp": exp, "email": "me@example.com"});
+        let payload = URL_SAFE_NO_PAD.encode(claims.to_string());
+        let signature = SigningKey::<rsa::sha2::Sha256>::new(private.clone())
+            .sign(format!("{header}.{payload}").as_bytes());
+        format!(
+            "{header}.{payload}.{}",
+            URL_SAFE_NO_PAD.encode(signature.to_bytes())
+        )
+    };
+    let now = chrono::Utc::now().timestamp();
+    let get = |host: &'static str, jwt: Option<String>| {
+        let mut req = h
+            .http
+            .get(format!("{}/v1/state", h.base))
+            .bearer_auth(&h.token)
+            .header("host", host);
+        if let Some(jwt) = jwt {
+            req = req.header("cf-access-jwt-assertion", jwt);
+        }
+        async move { req.send().await.unwrap().status().as_u16() }
+    };
+
+    // Through the public hostname, the token alone isn't enough.
+    assert_eq!(get("box.tail1234.ts.net", None).await, 403);
+    assert_eq!(
+        get("box.tail1234.ts.net", Some(sign("other-app", now + 300))).await,
+        403
+    );
+    assert_eq!(
+        get("box.tail1234.ts.net", Some(sign("app-aud", now - 3600))).await,
+        403
+    );
+    assert_eq!(
+        get("box.tail1234.ts.net", Some(sign("app-aud", now + 300))).await,
+        200
+    );
+    // On this machine, nothing changes.
+    assert_eq!(get("127.0.0.1", None).await, 200);
+    // A valid sign-in doesn't replace the daemon's own token.
+    let res = h
+        .http
+        .get(format!("{}/v1/state", h.base))
+        .header("host", "box.tail1234.ts.net")
+        .header("cf-access-jwt-assertion", sign("app-aud", now + 300))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status().as_u16(), 401);
 }

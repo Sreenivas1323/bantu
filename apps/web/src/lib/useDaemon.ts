@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import type { Command } from "@bantu/protocol";
-import { AuthError, DaemonClient } from "./api.ts";
+import { AuthError, DaemonClient, SignInError } from "./api.ts";
 import type { Connection } from "./connection.ts";
 import { emptyState, reducer } from "./store.ts";
 
-export type ConnStatus = "connecting" | "live" | "reconnecting" | "unauthorized";
+export type ConnStatus = "connecting" | "live" | "reconnecting" | "unauthorized" | "signin";
 
 const MAX_BACKOFF_MS = 10_000;
 
@@ -71,6 +71,8 @@ export function useDaemon(conn: Connection) {
           return;
         }
         scheduleRetry();
+        // Keeps trying, so signing in from another tab reconnects this one.
+        if (err instanceof SignInError) setStatus("signin");
       }
     }
 

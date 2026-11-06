@@ -16,6 +16,12 @@ import type { Connection } from "./connection.ts";
 
 export class AuthError extends Error {}
 
+/**
+ * Something in front of the daemon, like Cloudflare Access, wants the user to
+ * sign in again. The daemon's API never redirects, so a redirect means that.
+ */
+export class SignInError extends Error {}
+
 export class DaemonClient {
   constructor(private readonly conn: Connection) {}
 
@@ -26,12 +32,14 @@ export class DaemonClient {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const res = await fetch(this.url(path), {
       ...init,
+      redirect: "manual",
       headers: {
         Authorization: `Bearer ${this.conn.token}`,
         ...(init.body ? { "Content-Type": "application/json" } : {}),
         ...init.headers,
       },
     });
+    if (res.type === "opaqueredirect") throw new SignInError("Your sign-in in front of the daemon has expired.");
     if (res.status === 401) throw new AuthError("The daemon rejected this token.");
     let body: unknown;
     try {

@@ -549,6 +549,7 @@ Scripts run in the user's login shell (`$SHELL -lc`) in the workspace directory,
 | `BANTU_WORKSPACE_NAME` | Workspace name |
 | `BANTU_WORKSPACE_PATH` | Worktree path |
 | `BANTU_PREVIEW_BASE` | `/p/{workspace}/{BANTU_PORT}/`, the preview's base path (terminals and the run script) |
+| `BANTU_CF_ACCESS_TEAM`, `BANTU_CF_ACCESS_AUD` | Daemon settings, not script variables: with both, requests for a public hostname need a valid Cloudflare Access token as well as the daemon's ([CLOUDFLARE.md](CLOUDFLARE.md)) |
 | `BANTU_ROOT_PATH` | Main checkout path (setup and archive scripts) |
 | `BANTU_BASE_REF` | e.g. `origin/main` (setup and archive scripts) |
 

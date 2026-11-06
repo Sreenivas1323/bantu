@@ -33,6 +33,8 @@ pub struct AppState {
     pub daemon: Arc<Daemon>,
     pub token_hash: Arc<[u8]>,
     pub allow_remote: bool,
+    /// Set when the daemon sits behind Cloudflare Access.
+    pub access: Option<Arc<crate::access::AccessVerifier>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -78,6 +80,7 @@ pub fn router(state: AppState) -> Router {
                 "last-event-id".parse().unwrap(),
             ]),
     )
+    .layer(middleware::from_fn_with_state(state.clone(), check_access))
     .layer(middleware::from_fn_with_state(state, check_host))
 }
 
@@ -93,17 +96,8 @@ pub(crate) async fn check_host(
     next: Next,
 ) -> Response {
     if !state.allow_remote {
-        let host = req
-            .headers()
-            .get(header::HOST)
-            .and_then(|h| h.to_str().ok())
-            .unwrap_or("");
-        let hostname = host
-            .strip_prefix('[')
-            .and_then(|h| h.split(']').next())
-            .unwrap_or_else(|| host.split(':').next().unwrap_or(""));
-        let hostname = hostname.to_ascii_lowercase();
-        let allowed = matches!(hostname.as_str(), "127.0.0.1" | "localhost" | "::1")
+        let hostname = request_hostname(&req);
+        let allowed = is_loopback(&hostname)
             || state
                 .daemon
                 .config
@@ -115,6 +109,55 @@ pub(crate) async fn check_host(
         }
     }
     next.run(req).await
+}
+
+/// The request's `Host`, without its port, lowercased.
+fn request_hostname(req: &Request) -> String {
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    host.strip_prefix('[')
+        .and_then(|h| h.split(']').next())
+        .unwrap_or_else(|| host.split(':').next().unwrap_or(""))
+        .to_ascii_lowercase()
+}
+
+fn is_loopback(hostname: &str) -> bool {
+    matches!(hostname, "127.0.0.1" | "localhost" | "::1")
+}
+
+/// Behind Cloudflare Access, requests for a public hostname must carry a valid
+/// Access token. Without one, the Access setup has a gap, so this fails closed.
+pub(crate) async fn check_access(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let Some(access) = &state.access else {
+        return next.run(req).await;
+    };
+    if is_loopback(&request_hostname(&req)) {
+        return next.run(req).await;
+    }
+    let token = req
+        .headers()
+        .get("cf-access-jwt-assertion")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    let now = chrono::Utc::now().timestamp();
+    match access.verify(token, now).await {
+        Ok(_) => next.run(req).await,
+        Err(e) => {
+            tracing::warn!("refused a request without a valid Cloudflare Access sign-in: {e:#}");
+            (
+                StatusCode::FORBIDDEN,
+                "This daemon requires a Cloudflare Access sign-in, and this request didn't have a valid one.",
+            )
+                .into_response()
+        }
+    }
 }
 
 #[derive(Deserialize)]

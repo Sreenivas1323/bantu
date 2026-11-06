@@ -114,6 +114,14 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
 
   return (
     <div className="relative grid h-full grid-cols-1 grid-rows-[1fr_auto] md:grid-cols-[264px_minmax(0,1fr)]">
+      {status === "signin" && (
+        <div role="alert" className="enter-rise absolute inset-x-0 top-0 z-40 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warn/40 bg-panel px-4 py-2 text-center">
+          <span>Your sign-in for this daemon's address has expired, so Bantu can't reach it.</span>
+          <button type="button" onClick={() => window.location.reload()} className="pressable rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-bg">
+            Sign in again
+          </button>
+        </div>
+      )}
       {/* Always rendered so it can fade with the drawer, on the same timing. */}
       <button
         type="button"

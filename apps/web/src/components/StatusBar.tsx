@@ -11,6 +11,7 @@ const label: Record<ConnStatus, string> = {
   live: "Connected",
   reconnecting: "Reconnecting…",
   unauthorized: "Token rejected",
+  signin: "Sign-in expired",
 };
 
 const tone: Record<ConnStatus, string> = {
@@ -18,6 +19,7 @@ const tone: Record<ConnStatus, string> = {
   live: "bg-ok",
   reconnecting: "bg-warn animate-pulse",
   unauthorized: "bg-bad",
+  signin: "bg-warn",
 };
 
 export function StatusBar({

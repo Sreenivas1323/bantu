@@ -171,6 +171,10 @@ pub fn router(state: crate::http::AppState) -> Router {
         .fallback(any(redirect_root_path))
         .layer(middleware::from_fn_with_state(
             state.clone(),
+            crate::http::check_access,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
             crate::http::check_host,
         ))
         .with_state(state)
