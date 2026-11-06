@@ -47,7 +47,7 @@ export function PortsPanel({ workspace, client }: { workspace: Workspace; client
                 <span aria-hidden className="size-2 shrink-0 rounded-full bg-ok" />
                 <span className="flex-1 font-mono tabular-nums">{p.port}</span>
                 {p.url ? (
-                  <a href={p.url} target="_blank" rel="noreferrer" className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-bg">
+                  <a href={p.url} target="_blank" rel="noreferrer" className="pressable rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-bg">
                     Open
                   </a>
                 ) : (

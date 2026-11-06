@@ -67,7 +67,7 @@ export function CommentForm({
         className="block w-full resize-y rounded border border-line bg-bg px-2 py-1.5 text-[16px] sm:text-[13px] placeholder:text-faint focus:outline-none"
       />
       <div className="flex items-center gap-1.5">
-        <button type="submit" disabled={!body.trim() || busy} className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-bg disabled:opacity-40">
+        <button type="submit" disabled={!body.trim() || busy} className="pressable rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-bg disabled:opacity-40">
           Add draft
         </button>
         <button type="button" onClick={onCancel} className="rounded-md px-2.5 py-1 text-[12px] text-muted hover:bg-raised">

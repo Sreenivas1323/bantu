@@ -80,7 +80,7 @@ export function BoardPanel({
             disabled={busy || finished === 0}
             onClick={() => void integrate()}
             title="Merge finished workspaces into this branch. Nothing is pushed."
-            className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-bg disabled:opacity-40"
+            className="pressable shrink-0 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-bg disabled:opacity-40"
           >
             {busy ? "Merging…" : `Merge finished${finished > 0 ? ` (${finished})` : ""}`}
           </button>
@@ -90,7 +90,7 @@ export function BoardPanel({
         {children?.length === 0 && <p className="rounded-md border border-line bg-panel px-3 py-6 text-center text-muted">This workspace hasn't started any others.</p>}
         <ul className="flex flex-col gap-2">
           {children?.map((c) => (
-            <li key={c.workspace.id} className="rounded-md border border-line bg-panel p-3">
+            <li key={c.workspace.id} className="enter-rise rounded-md border border-line bg-panel p-3">
               <div className="flex items-center gap-2">
                 <span aria-hidden className={`size-2 shrink-0 rounded-full ${STATUS[c.status].dot}`} />
                 <button type="button" onClick={() => onOpen(c.workspace.id)} className="min-w-0 truncate font-medium underline-offset-2 hover:underline">
@@ -119,7 +119,7 @@ export function BoardPanel({
 
 function Outcome({ result }: { result: IntegrationResult }) {
   return (
-    <div role="status" className="rounded-md border border-line bg-panel px-3 py-2 text-[12.5px]">
+    <div role="status" className="enter-rise rounded-md border border-line bg-panel px-3 py-2 text-[12.5px]">
       {result.merged.length > 0 && <p className="text-ok">Merged {result.merged.join(", ")}.</p>}
       {result.conflict && (
         <p className="text-warn">

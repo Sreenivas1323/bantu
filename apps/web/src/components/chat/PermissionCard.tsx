@@ -28,7 +28,7 @@ export function PermissionCard({
   };
 
   return (
-    <div role="alertdialog" aria-label={`Allow ${request.tool_name}?`} className="rounded-lg border border-warn/50 bg-warn/5 p-3">
+    <div role="alertdialog" aria-label={`Allow ${request.tool_name}?`} className="enter-rise rounded-lg border border-warn/50 bg-warn/5 p-3">
       <div className="flex items-baseline gap-2">
         <span className="text-[12px] font-medium text-warn">Needs your approval</span>
         <span className="font-medium">{request.tool_name}</span>
@@ -72,7 +72,7 @@ export function PermissionCard({
             type="button"
             disabled={busy}
             onClick={() => void respond(true, null)}
-            className="rounded bg-accent px-3 py-1 font-medium text-bg hover:opacity-90 disabled:opacity-50"
+            className="pressable rounded bg-accent px-3 py-1 font-medium text-bg hover:opacity-90 disabled:opacity-50"
           >
             Allow
           </button>

@@ -113,7 +113,7 @@ export function ChatPanel({
           <div>
             <p>No chat in this workspace yet.</p>
             <div className="mt-3 flex justify-center gap-2">
-              <button type="button" onClick={() => void newChat("claude")} className="rounded-md bg-accent px-3 py-1.5 font-medium text-bg">
+              <button type="button" onClick={() => void newChat("claude")} className="pressable rounded-md bg-accent px-3 py-1.5 font-medium text-bg">
                 Start a Claude chat
               </button>
               {AGENT_KINDS.filter((a) => a !== "claude" && isInstalled(agents, a)).map((a) => (

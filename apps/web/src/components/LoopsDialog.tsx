@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { AgentKind, AgentStatus, Command, CommandResponse, Loop, LoopTrigger, PermissionMode, Repo, Workspace } from "@bantu/protocol";
 import { AGENT_KINDS, agentLabel } from "../lib/useAgents.ts";
+import { afterExit } from "../lib/motion.ts";
 
 type TriggerKind = LoopTrigger["kind"];
 
@@ -50,7 +51,7 @@ export function LoopsDialog({
   return (
     <dialog
       ref={dialog}
-      onClose={onClose}
+      onClose={() => afterExit(onClose)}
       className="m-auto max-h-[85dvh] w-[min(640px,calc(100vw-2rem))] rounded-lg border border-line bg-panel p-0 text-fg backdrop:bg-black/60"
     >
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -204,7 +205,7 @@ function NewLoop({ repoId, agents, run }: { repoId: string; agents: AgentStatus[
           </select>
         </label>
       </div>
-      <button type="submit" disabled={busy || !name.trim() || !prompt.trim() || !value.trim()} className="self-start rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-bg disabled:opacity-40">
+      <button type="submit" disabled={busy || !name.trim() || !prompt.trim() || !value.trim()} className="pressable self-start rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-bg disabled:opacity-40">
         {busy ? "Creating…" : "Create loop"}
       </button>
     </form>

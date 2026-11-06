@@ -32,8 +32,8 @@ export function Sidebar(props: Props) {
   const { repos, workspacesByRepo, selectedId, showArchived } = props;
   return (
     <aside
-      className={`absolute inset-y-0 left-0 z-30 flex w-[min(19rem,85vw)] min-h-0 flex-col border-r border-line bg-panel transition-transform duration-200 ease-out motion-reduce:transition-none md:static md:z-auto md:row-span-1 md:w-auto md:translate-x-0 md:transition-none ${
-        props.open ? "translate-x-0" : "-translate-x-full"
+      className={`absolute inset-y-0 left-0 z-30 flex w-[min(19rem,85vw)] min-h-0 flex-col border-r border-line bg-panel transition-transform will-change-transform md:static md:z-auto md:row-span-1 md:w-auto md:translate-x-0 md:transition-none ${
+        props.open ? "translate-x-0 duration-[280ms] ease-[var(--ease-out-ui)]" : "-translate-x-full duration-200 ease-[var(--ease-exit)]"
       }`}
     >
       <div className="flex items-center justify-between px-3 py-2.5">
@@ -270,7 +270,7 @@ function AddRepo({ onAdd, client }: { onAdd: (path: string) => Promise<void>; cl
         }}
       />
       <div className="flex gap-1.5">
-        <button type="submit" disabled={busy || !path.trim()} className="rounded-md bg-accent px-2.5 py-1 font-medium text-bg disabled:opacity-40">
+        <button type="submit" disabled={busy || !path.trim()} className="pressable rounded-md bg-accent px-2.5 py-1 font-medium text-bg disabled:opacity-40">
           {busy ? "Adding…" : "Add"}
         </button>
         <button type="button" onClick={() => setOpen(false)} className="rounded-md px-2.5 py-1 text-muted hover:bg-raised">

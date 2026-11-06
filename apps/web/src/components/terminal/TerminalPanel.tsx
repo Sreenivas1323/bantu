@@ -78,7 +78,7 @@ export function TerminalPanel({
         {terminals.length === 0 ? (
           <div className="flex h-full items-center justify-center text-muted">
             {ready ? (
-              <button type="button" onClick={() => void open()} className="rounded-md bg-accent px-3 py-1.5 font-medium text-bg">
+              <button type="button" onClick={() => void open()} className="pressable rounded-md bg-accent px-3 py-1.5 font-medium text-bg">
                 Open a shell in {workspace.name}
               </button>
             ) : (

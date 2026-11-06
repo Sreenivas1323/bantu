@@ -28,6 +28,15 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   // Phones show one thing at a time: the workspace list slides over the page.
   const [navOpen, setNavOpen] = useState(true);
 
+  // Entrances are for things that arrive while you're here, not for the first paint.
+  useEffect(() => {
+    const timer = setTimeout(() => document.documentElement.setAttribute("data-settled", ""), 800);
+    return () => {
+      clearTimeout(timer);
+      document.documentElement.removeAttribute("data-settled");
+    };
+  }, []);
+
   useEffect(() => {
     if (status === "unauthorized") onDisconnect("The daemon rejected this token. Paste a fresh one.");
   }, [status, onDisconnect]);
@@ -105,14 +114,17 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
 
   return (
     <div className="relative grid h-full grid-cols-1 grid-rows-[1fr_auto] md:grid-cols-[264px_minmax(0,1fr)]">
-      {navOpen && (
-        <button
-          type="button"
-          aria-label="Close the workspace list"
-          onClick={() => setNavOpen(false)}
-          className="absolute inset-0 z-20 bg-black/50 md:hidden"
-        />
-      )}
+      {/* Always rendered so it can fade with the drawer, on the same timing. */}
+      <button
+        type="button"
+        aria-label="Close the workspace list"
+        aria-hidden={!navOpen}
+        tabIndex={navOpen ? 0 : -1}
+        onClick={() => setNavOpen(false)}
+        className={`absolute inset-0 z-20 bg-black/50 transition-opacity md:hidden ${
+          navOpen ? "opacity-100 duration-[280ms] ease-[var(--ease-out-ui)]" : "pointer-events-none opacity-0 duration-200 ease-[var(--ease-exit)]"
+        }`}
+      />
       <Sidebar
         open={navOpen}
         onClose={() => setNavOpen(false)}
