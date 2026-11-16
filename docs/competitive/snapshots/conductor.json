@@ -1,5 +1,17 @@
 [
   {
+    "id": "0.94.2",
+    "title": "Conductor is back",
+    "url": "https://www.conductor.build/changelog/0.94.2-conductor-is-back",
+    "date": "2026-11-13"
+  },
+  {
+    "id": "0.94.0",
+    "title": "Claude Fable 5.2",
+    "url": "https://www.conductor.build/changelog/0.94.0-claude-fable-5-2",
+    "date": "2026-11-09"
+  },
+  {
     "id": "0.93.0",
     "title": "Conductor is joining Meta",
     "url": "https://www.conductor.build/changelog/0.93.0-conductor-is-joining-meta",
