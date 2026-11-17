@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context};
 use bantu_git as git;
-use bantu_protocol::{Command, LogStream, Repo, Workspace, WorkspaceSource, WorkspaceState};
+use bantu_protocol::{
+    Command, LogStream, Repo, TaskRef, Workspace, WorkspaceSource, WorkspaceState,
+};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::Mutex;
@@ -45,6 +47,7 @@ pub struct Daemon {
     pub(crate) push: crate::push::Push,
     pub(crate) preview: crate::preview::Preview,
     pub(crate) auto_review: crate::auto_review::AutoReview,
+    pub(crate) task_sync: crate::tasks::TaskSync,
     pub(crate) radar: crate::radar::Radar,
     pub(crate) activity: crate::activity::Tracker,
 }
@@ -62,6 +65,7 @@ impl Daemon {
             push: Default::default(),
             preview: Default::default(),
             auto_review: Default::default(),
+            task_sync: Default::default(),
             radar: Default::default(),
             activity: Default::default(),
         }
@@ -198,6 +202,28 @@ impl Daemon {
             Command::LoopRun { loop_id } => {
                 serde_json::to_value(self.run_loop(&loop_id, None, None).await?)
             }
+            Command::TrackerAdd {
+                repo_id,
+                kind,
+                site,
+                scope,
+                account,
+                token,
+            } => serde_json::to_value(
+                self.add_tracker(repo_id, kind, site, scope, account, token)
+                    .await?,
+            ),
+            Command::TrackerRemove { tracker_id } => {
+                self.remove_tracker(&tracker_id).await?;
+                Ok(serde_json::Value::Null)
+            }
+            Command::TasksRefresh { tracker_id } => {
+                serde_json::to_value(self.refresh_tasks(tracker_id.as_deref()).await?)
+            }
+            Command::TaskStart {
+                tracker_id,
+                task_id,
+            } => serde_json::to_value(self.start_task(&tracker_id, &task_id).await?),
             Command::ImportScan { source, path } => {
                 serde_json::to_value(self.import_scan(source, path).await?)
             }
@@ -392,6 +418,7 @@ impl Daemon {
             )));
         }
         self.delete_repo_loops(repo_id).await?;
+        self.delete_repo_trackers(repo_id).await?;
         self.store.delete_repo(repo_id).await?;
         Ok(())
     }
@@ -436,6 +463,7 @@ impl Daemon {
             loop_id: None,
             external: true,
             review_state: None,
+            task: None,
         };
         self.store.upsert_workspace(&ws).await?;
         Ok(ws)
@@ -532,6 +560,7 @@ impl Daemon {
             loop_id: origin.loop_id,
             external: false,
             review_state: None,
+            task: plan.task.clone(),
         };
         self.store.upsert_workspace(&ws).await?;
         drop(_alloc);
@@ -608,6 +637,7 @@ impl Daemon {
                     base_ref: Some(format!("origin/{base}")),
                     suggested_name: Some(format!("pr-{number}")),
                     first_message: None,
+                    task: None,
                 })
             }
             WorkspaceSource::Issue { number } => {
@@ -644,6 +674,10 @@ impl Daemon {
                     ..Default::default()
                 })
             }
+            WorkspaceSource::Task {
+                tracker_id,
+                task_id,
+            } => self.plan_task(root, &tracker_id, &task_id).await,
         }
     }
 
@@ -700,6 +734,13 @@ impl Daemon {
         if ws.state == WorkspaceState::Ready {
             match self.create_session(&ws.id, None, None, None).await {
                 Ok(session) => {
+                    // A task's chat is named after the task, as the team knows it.
+                    if let Some(task) = &plan.task {
+                        let title = format!("{} {}", task.key, task.title);
+                        let _ = self
+                            .update_session(&session.id, Some(title), None, None)
+                            .await;
+                    }
                     if let Some(task) = plan.first_message {
                         if let Err(e) = self.send_message(&session.id, task).await {
                             tracing::error!("failed to start the first task for {}: {e:#}", ws.id);
@@ -1093,12 +1134,14 @@ pub enum Checkout {
 
 #[derive(Debug, Clone, Default)]
 pub struct SourcePlan {
-    branch: Option<String>,
-    checkout: Checkout,
-    base_ref: Option<String>,
-    suggested_name: Option<String>,
+    pub(crate) branch: Option<String>,
+    pub(crate) checkout: Checkout,
+    pub(crate) base_ref: Option<String>,
+    pub(crate) suggested_name: Option<String>,
     /// Sent to the agent once the workspace is ready.
-    first_message: Option<String>,
+    pub(crate) first_message: Option<String>,
+    /// The tracker task it's for.
+    pub(crate) task: Option<TaskRef>,
 }
 
 pub(crate) async fn gh_json(dir: &Path, args: &[&str]) -> Option<serde_json::Value> {

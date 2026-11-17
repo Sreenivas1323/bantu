@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { WorkspaceSource } from "@bantu/protocol";
 
-type Kind = WorkspaceSource["kind"];
+/** Tasks from trackers start from the Tasks view instead. */
+type Kind = Exclude<WorkspaceSource["kind"], "task">;
 
 const LABELS: Record<Kind, { label: string; placeholder: string }> = {
   branch: { label: "Branch", placeholder: "feature/login" },

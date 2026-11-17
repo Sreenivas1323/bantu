@@ -8,6 +8,7 @@ import type { Repo } from "./Repo";
 import type { Session } from "./Session";
 import type { Spotlight } from "./Spotlight";
 import type { Terminal } from "./Terminal";
+import type { Tracker } from "./Tracker";
 import type { Workspace } from "./Workspace";
 import type { WorkspaceConflict } from "./WorkspaceConflict";
 
@@ -27,4 +28,4 @@ conflicts: Array<WorkspaceConflict>,
 /**
  * Workspaces currently shown in their repo's main checkout.
  */
-spotlights: Array<Spotlight>, loops: Array<Loop>, preferences: Preferences, };
+spotlights: Array<Spotlight>, loops: Array<Loop>, trackers: Array<Tracker>, preferences: Preferences, };

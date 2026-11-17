@@ -1,6 +1,7 @@
 import type {
   AgentStatus,
   ChildWorkspace,
+  Task,
   Command,
   CommandResponse,
   Event,
@@ -80,6 +81,11 @@ export class DaemonClient {
   /** CI runs, deployments, PR comments and todos for the Checks tab. */
   checks(workspaceId: string) {
     return this.request<WorkspaceChecks>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/checks`);
+  }
+
+  /** Open tasks from every connected tracker, newest first. */
+  tasks() {
+    return this.request<Task[]>("/v1/tasks");
   }
 
   /** The workspaces this one's agent started, for its board. */

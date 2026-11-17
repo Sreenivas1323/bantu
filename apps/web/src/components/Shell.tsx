@@ -12,6 +12,7 @@ import { AccountsDialog } from "./AccountsDialog.tsx";
 import { ImportDialog } from "./ImportDialog.tsx";
 import { InboxDialog } from "./InboxDialog.tsx";
 import { LoopsDialog } from "./LoopsDialog.tsx";
+import { TasksDialog } from "./TasksDialog.tsx";
 import { useAgents } from "../lib/useAgents.ts";
 import { WorkspaceView } from "./WorkspaceView.tsx";
 
@@ -25,6 +26,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const [showInbox, setShowInbox] = useState(false);
   const [loopsRepoId, setLoopsRepoId] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [tasksRepoId, setTasksRepoId] = useState<string | null>(null);
   // Phones show one thing at a time: the workspace list slides over the page.
   const [navOpen, setNavOpen] = useState(true);
 
@@ -161,6 +163,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
           await run({ type: "repo.remove", repo_id: repoId });
         }}
         onOpenLoops={setLoopsRepoId}
+        onOpenTasks={setTasksRepoId}
         onOpenImport={() => setShowImport(true)}
       />
       <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
@@ -243,6 +246,21 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             setNavOpen(false);
           }}
           onClose={() => setLoopsRepoId(null)}
+        />
+      )}
+      {tasksRepoId && state.repos[tasksRepoId] && (
+        <TasksDialog
+          repo={state.repos[tasksRepoId]}
+          trackers={Object.values(state.trackers).filter((t) => t.repo_id === tasksRepoId)}
+          tasksVersion={state.tasksVersion}
+          client={client}
+          run={run}
+          onSelectWorkspace={(id) => {
+            setSelectedId(id);
+            setTasksRepoId(null);
+            setNavOpen(false);
+          }}
+          onClose={() => setTasksRepoId(null)}
         />
       )}
       {showImport && <ImportDialog status={state.imports} run={run} onClose={() => setShowImport(false)} />}

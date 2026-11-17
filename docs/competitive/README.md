@@ -2,7 +2,7 @@
 
 Bantu learns from two products that do something similar:
 
-- **[Conductor](https://www.conductor.build)** is a proprietary Mac app. It's free for local use; a $50/mo Pro plan adds cloud, mobile and an API.
+- **[Conductor](https://www.conductor.build)** is a proprietary Mac app. It's free for local use. Its pricing page lists no plans as of November 2026 ([teams.md](teams.md)).
 - **[Pane](https://github.com/greenfield-inc/Pane)** is AGPL-3.0, built on Electron, terminal-first and self-hosted.
 
 **Rule: we copy features, never code or assets.** Everything here comes from public docs,

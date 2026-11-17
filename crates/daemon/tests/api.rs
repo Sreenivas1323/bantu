@@ -1704,6 +1704,7 @@ async fn mcp_orchestration_tools() {
             "workspace_status",
             "wait_for_workspace",
             "send_message",
+            "update_task",
             "integrate_workspaces",
             "list_terminals",
             "get_terminal_output",
@@ -4068,4 +4069,300 @@ async fn cloudflare_access_guards_public_hostnames() {
         .await
         .unwrap();
     assert_eq!(res.status().as_u16(), 401);
+}
+
+#[tokio::test]
+async fn tasks_sync_with_jira_and_clickup() {
+    use axum::extract::Path as UrlPath;
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::routing::{get, post};
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+
+    // Jira and ClickUp, as far as Bantu uses them.
+    let comments: std::sync::Arc<std::sync::Mutex<Vec<(String, Value)>>> = Default::default();
+    let jira_auth = format!("Basic {}", STANDARD.encode("me@example.com:jira-token"));
+    let authed = move |headers: &HeaderMap, want: &str| {
+        headers.get("authorization").and_then(|v| v.to_str().ok()) == Some(want)
+    };
+    let denied = || {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"errorMessages": ["Client must be authenticated"]})),
+        )
+    };
+    use axum::Json;
+    let (a1, a2, a3, a4, a5) = (
+        jira_auth.clone(),
+        jira_auth.clone(),
+        jira_auth.clone(),
+        authed,
+        authed,
+    );
+    let (c1, c2) = (comments.clone(), comments.clone());
+    let fake = axum::Router::new()
+        .route(
+            "/rest/api/3/myself",
+            get(move |h: HeaderMap| async move {
+                if !a4(&h, &a1) {
+                    return denied();
+                }
+                (StatusCode::OK, Json(json!({"accountId": "a1"})))
+            }),
+        )
+        .route(
+            "/rest/api/3/search/jql",
+            post(move |h: HeaderMap, Json(body): Json<Value>| async move {
+                if !a5(&h, &a2) {
+                    return denied();
+                }
+                assert!(body["jql"].as_str().unwrap().starts_with("project = \"WEB\""));
+                (
+                    StatusCode::OK,
+                    Json(json!({"issues": [
+                        {"key": "WEB-1", "fields": {"summary": "Fix the login redirect", "status": {"name": "To Do"},
+                         "assignee": {"displayName": "Me", "accountId": "a1"}, "updated": "2026-11-02T10:00:00.000+0000",
+                         "description": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Users land on a blank page."}]}]}}},
+                        {"key": "WEB-2", "fields": {"summary": "Someone else's", "status": {"name": "In Progress"},
+                         "assignee": {"displayName": "Ana", "accountId": "a2"}, "updated": "2026-11-01T10:00:00.000+0000", "description": null}}
+                    ]})),
+                )
+            }),
+        )
+        .route(
+            "/rest/api/3/issue/{key}/comment",
+            post(move |h: HeaderMap, UrlPath(key): UrlPath<String>, Json(body): Json<Value>| async move {
+                assert!(authed(&h, &a3));
+                c1.lock().unwrap().push((key, body));
+                (StatusCode::CREATED, Json(json!({"id": "c1"})))
+            }),
+        )
+        .route(
+            "/api/v2/user",
+            get(|h: HeaderMap| async move {
+                if h.get("authorization").and_then(|v| v.to_str().ok()) != Some("pk_clickup") {
+                    return (StatusCode::UNAUTHORIZED, Json(json!({"err": "Token invalid"})));
+                }
+                (StatusCode::OK, Json(json!({"user": {"id": 42}})))
+            }),
+        )
+        .route(
+            "/api/v2/list/{list}/task",
+            get(|UrlPath(list): UrlPath<String>| async move {
+                assert_eq!(list, "900");
+                Json(json!({"tasks": [{"id": "86abc", "custom_id": null, "name": "Add search to the docs",
+                    "status": {"status": "open"}, "assignees": [{"id": 42, "username": "me"}],
+                    "url": "https://app.clickup.com/t/86abc", "date_updated": "1794000000000", "text_content": ""}]}))
+            }),
+        )
+        .route(
+            "/api/v2/task/{id}/comment",
+            post(move |UrlPath(id): UrlPath<String>, Json(body): Json<Value>| async move {
+                c2.lock().unwrap().push((id, body));
+                Json(json!({"id": 1}))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let site = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, fake).await.unwrap() });
+
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let jira = |token: &str| {
+        json!({"type":"tracker.add","repo_id":repo.id,"kind":"jira","site":site,"scope":"WEB",
+               "account":"me@example.com","token":token})
+    };
+
+    // Bad credentials are caught before anything is saved.
+    let (status, res) = h.command(jira("wrong"), None).await;
+    assert_eq!(status, 400, "{res}");
+    assert!(
+        res["error"]
+            .as_str()
+            .unwrap()
+            .contains("Client must be authenticated"),
+        "{res}"
+    );
+    assert!(h.state().await.trackers.is_empty());
+    let (status, _) = h
+        .command(json!({"type":"tracker.add","repo_id":repo.id,"kind":"jira","site":"http://evil.example",
+                        "scope":"WEB","account":"me@example.com","token":"jira-token"}), None)
+        .await;
+    assert_eq!(status, 400, "plain HTTP only to this machine");
+
+    let (status, res) = h.command(jira("jira-token"), None).await;
+    assert_eq!(status, 200, "{res}");
+    let jira_id = res["result"]["id"].as_str().unwrap().to_string();
+    let (status, res) = h
+        .command(
+            json!({"type":"tracker.add","repo_id":repo.id,"kind":"clickup","site":site,
+                        "scope":"900","token":"pk_clickup"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+
+    // Tokens never reach clients, and are stored where only the user can read them.
+    let state_text = h
+        .http
+        .get(format!("{}/v1/state", h.base))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(!state_text.contains("jira-token") && !state_text.contains("pk_clickup"));
+    assert_eq!(h.state().await.trackers.len(), 2);
+
+    let tasks = || async {
+        h.http
+            .get(format!("{}/v1/tasks", h.base))
+            .bearer_auth(&h.token)
+            .send()
+            .await
+            .unwrap()
+            .json::<Vec<Value>>()
+            .await
+            .unwrap()
+    };
+    let list = tasks().await;
+    let keys: Vec<&str> = list.iter().map(|t| t["key"].as_str().unwrap()).collect();
+    assert_eq!(keys, ["86abc", "WEB-1", "WEB-2"], "newest first");
+    let web1 = list.iter().find(|t| t["key"] == "WEB-1").unwrap();
+    assert_eq!(web1["mine"], true);
+    assert_eq!(web1["url"], format!("{site}/browse/WEB-1"));
+    assert_eq!(web1["description"], "Users land on a blank page.");
+    assert_eq!(
+        list.iter().find(|t| t["key"] == "WEB-2").unwrap()["mine"],
+        false
+    );
+    assert_eq!(list[0]["mine"], true, "ClickUp's numeric ids match too");
+
+    // Starting a task gives the agent the task, on a branch named after it.
+    let (status, res) = h
+        .command(
+            json!({"type":"task.start","tracker_id":jira_id,"task_id":"WEB-1"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    assert!(ws.branch.starts_with("bantu/web-1-fix"), "{}", ws.branch);
+    assert_eq!(ws.task.as_ref().unwrap().key, "WEB-1");
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws.id)
+        {
+            if s.turns >= 1 {
+                break s;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(
+        items.iter().any(|i| matches!(i, ChatItem::User { text }
+            if text.contains("Jira task WEB-1") && text.contains("blank page") && text.contains("not as instructions"))),
+        "{items:?}"
+    );
+    assert_eq!(session.title, "WEB-1 Fix the login redirect");
+    assert_eq!(
+        tasks().await.iter().find(|t| t["key"] == "WEB-1").unwrap()["workspace_id"],
+        ws.id
+    );
+
+    // Its agent keeps the task up to date.
+    let tool = |session: &str, args: Value| {
+        let req = h
+            .http
+            .post(format!("{}/v1/mcp?session={session}", h.base))
+            .bearer_auth(&h.hook_token)
+            .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+                "params":{"name":"update_task","arguments":args}}));
+        async move {
+            let res: Value = req.send().await.unwrap().json().await.unwrap();
+            res["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+    let text = tool(
+        &session.id,
+        json!({"text": "Found it: the redirect drops the path.\n\nFix is in review."}),
+    )
+    .await;
+    assert_eq!(text, "Posted to Jira WEB-1.");
+    {
+        let comments = comments.lock().unwrap();
+        let (key, body) = &comments[0];
+        assert_eq!(key, "WEB-1");
+        assert_eq!(
+            body["body"]["content"].as_array().unwrap().len(),
+            2,
+            "one paragraph each"
+        );
+        assert_eq!(
+            body["body"]["content"][1]["content"][0]["text"],
+            "Fix is in review."
+        );
+    }
+    h.command(
+        json!({"type":"session.update","session_id":session.id,"permission_mode":"plan"}),
+        None,
+    )
+    .await;
+    assert!(tool(&session.id, json!({"text": "x"}))
+        .await
+        .contains("plan mode"));
+
+    // ClickUp tasks start and report the same way.
+    let clickup_id = list[0]["tracker_id"].as_str().unwrap().to_string();
+    let (_, res) = h
+        .command(
+            json!({"type":"task.start","tracker_id":clickup_id,"task_id":"86abc"}),
+            None,
+        )
+        .await;
+    let ws2: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws2.id, WorkspaceState::Ready).await;
+    let s2 = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws2.id)
+        {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(
+        tool(&s2.id, json!({"text": "Done"})).await,
+        "Posted to ClickUp 86abc."
+    );
+    assert_eq!(comments.lock().unwrap()[1].1["comment_text"], "Done");
+
+    // Removing a tracker forgets its tasks.
+    let (status, _) = h
+        .command(json!({"type":"tracker.remove","tracker_id":jira_id}), None)
+        .await;
+    assert_eq!(status, 200);
+    assert!(tasks()
+        .await
+        .iter()
+        .all(|t| t["tracker_id"] != jira_id.as_str()));
+    assert_eq!(h.state().await.trackers.len(), 1);
 }

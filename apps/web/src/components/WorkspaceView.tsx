@@ -102,6 +102,14 @@ export function WorkspaceView({
         <div className="min-w-0 max-md:hidden">
           <p className="truncate text-xs text-muted">
             {repo?.name ?? "Unknown repository"} · <span className="font-mono">{workspace.branch}</span>
+            {workspace.task && (
+              <>
+                {" · "}
+                <a href={workspace.task.url} target="_blank" rel="noreferrer" title={workspace.task.title} className="underline-offset-2 hover:text-fg hover:underline">
+                  {workspace.task.key}
+                </a>
+              </>
+            )}
             {workspace.parent_id && allWorkspaces[workspace.parent_id] && (
               <>
                 {" · started by "}

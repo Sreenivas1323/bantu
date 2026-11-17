@@ -89,7 +89,7 @@ impl Daemon {
         if caller.permission_mode == PermissionMode::Plan
             && matches!(
                 name,
-                "create_workspace" | "send_message" | "integrate_workspaces"
+                "create_workspace" | "send_message" | "integrate_workspaces" | "update_task"
             )
         {
             return Err(format!(
@@ -417,6 +417,13 @@ impl Daemon {
                     ),
                 })
             }
+            "update_task" => {
+                let text = args["text"].as_str().unwrap_or_default().trim();
+                if text.is_empty() {
+                    return Err("text is required".into());
+                }
+                self.comment_on_task(&me, text).await.map_err(err)
+            }
             "integrate_workspaces" => {
                 // The caller is mid-turn and reads the result, so it handles
                 // any conflict itself.
@@ -650,6 +657,11 @@ fn tool_list() -> Value {
                 "properties": {"workspace": workspace, "text": {"type": "string"}},
                 "required": ["workspace", "text"]
             }
+        },
+        {
+            "name": "update_task",
+            "description": "Post a short progress note on the tracker task (Jira, ClickUp or GitHub issue) this workspace is working on, so the team stays in sync. Use it for decisions, blockers and what's done, not for every step.",
+            "inputSchema": {"type": "object", "properties": {"text": {"type": "string", "description": "The note, in plain text"}}, "required": ["text"]}
         },
         {
             "name": "integrate_workspaces",

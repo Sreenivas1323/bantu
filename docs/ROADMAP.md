@@ -85,3 +85,14 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Vercel Sandbox burst runner ([VERCEL.md](VERCEL.md)): one microVM per task, with the API key held at the firewall and work returned as local branches — tested with a local stand-in for the VM, not yet run against Vercel
 - [x] Import from Conductor and Pane: active workspaces adopted in place (archiving only forgets them), chats with their recent history, read-only on the source
 - [ ] Windows support: the daemon compiles for Windows, uses PowerShell or `$SHELL`, finds npm-installed agents, and CI builds it on `windows-latest` without blocking. Still needed: running it on a real Windows machine, a background service, releases and the desktop app
+
+## M5 — Teams
+
+The full plan is in [TEAMS.md](TEAMS.md).
+
+- [x] Tasks from GitHub Issues, Jira and ClickUp: sync, start a workspace from a task, and progress and the pull request posted back (`update_task`) — tested against local fakes of the Jira and ClickUp APIs, not yet against real accounts
+- [ ] Task status written back (In Progress, In Review), and assigning a task to an agent
+- [ ] A shared team pack: skills, prompts, checks and allowed models from one git repo
+- [ ] The org service: sign-in and roles, a team board, analytics in team totals only; self-hosted or hosted
+- [ ] Shared agents on the org's cloud: an agent queue, a test agent, deployments and live versions
+- [ ] A support agent that watches production and files deduplicated tickets
