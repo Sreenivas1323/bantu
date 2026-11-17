@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Bantu for teams: your tracker assigns the work, agents do it</title>
+    <meta name="description" content="Bantu picks up tasks from Jira, ClickUp and GitHub Issues, gives each one an agent in its own workspace, and reports progress and the pull request back to the ticket. Free, open source, in your own cloud." />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f7f8fa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#16181c" media="(prefers-color-scheme: dark)" />
+    <meta property="og:title" content="Bantu for teams" />
+    <meta property="og:description" content="Tasks from Jira, ClickUp and GitHub Issues, worked on by agents in your own cloud, with progress posted back to the ticket." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://sreenivas1323.github.io/bantu/assets/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="./assets/mark.svg" type="image/svg+xml" />
+    <link rel="preload" as="image" href="./assets/tasks.webp" fetchpriority="high" />
+    <script>
+      try {
+        if (!sessionStorage.getItem("bantu-intro-teams")) {
+          document.documentElement.classList.add("intro");
+          sessionStorage.setItem("bantu-intro-teams", "1");
+        }
+      } catch {}
+    </script>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="wordmark" href="./" aria-label="Bantu home">
+        <span class="dots" aria-hidden="true"><i class="ok"></i><i class="run"></i><i class="wait"></i></span>
+        bantu
+      </a>
+      <nav aria-label="Main">
+        <a href="./teams.html" aria-current="page">Teams</a>
+        <a class="optional" href="https://github.com/Sreenivas1323/bantu#readme">Guide</a>
+        <a href="https://github.com/Sreenivas1323/bantu">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="title">
+        <p class="eyebrow" style="--n: 0">Bantu for teams</p>
+        <h1 id="title" style="--n: 0">Your tracker assigns the work. Agents do it, and say so on the ticket.</h1>
+        <p class="lede" style="--n: 1">
+          Bantu picks up tasks from Jira, ClickUp and GitHub Issues. Each one gets an agent in its own git workspace, and
+          progress and the pull request go back to the ticket, so the team can follow along without opening Bantu. It runs on
+          your laptops and in your own cloud account.
+        </p>
+        <div class="get" style="--n: 2">
+          <div class="actions">
+            <a class="button primary" href="./">Get Bantu</a>
+            <a class="button" href="https://github.com/Sreenivas1323/bantu/blob/main/docs/TEAMS.md">Read the plan</a>
+          </div>
+          <p class="note">Task sync works today. The rest of this page is the plan, and each item says which it is.</p>
+        </div>
+        <figure class="shot hero-shot framed" style="--n: 3">
+          <img src="./assets/tasks.webp" width="1488" height="732" alt="Bantu's Tasks view for the storefront-api repo, connected to the Jira project WEB, listing three tasks assigned to me, each with a Start button." fetchpriority="high" />
+          <figcaption>A repo connected to Jira. The tasks assigned to you are one click from an agent working on them.</figcaption>
+        </figure>
+      </section>
+
+      <section class="split" aria-labelledby="today">
+        <div class="copytext">
+          <h2 id="today">From ticket to pull request</h2>
+          <ol class="steps">
+            <li><strong>Connect a tracker.</strong> GitHub Issues through <code>gh</code>, Jira with an API token, or a ClickUp list. Tokens stay on the machine running Bantu.</li>
+            <li><strong>Start a task.</strong> It gets a branch named after it, and the agent gets the ticket, with its text treated as information rather than orders.</li>
+            <li><strong>Watch the ticket.</strong> The agent posts decisions and blockers as comments, and the pull request link lands there when it's ready.</li>
+          </ol>
+          <p>Everything else in Bantu still applies: the repo's checks run after each edit, another agent can review the work, and a lead agent can split a big ticket across several workspaces.</p>
+        </div>
+        <figure class="shot">
+          <img src="./assets/task-workspace.webp" width="2400" height="1560" loading="lazy" alt="A workspace started from Jira task WEB-14, on the branch bantu/web-14-fix-login-redirect-after-password. The agent's first message is the task with its description." />
+        </figure>
+      </section>
+
+      <section class="plan" aria-labelledby="next">
+        <h2 id="next">What's coming</h2>
+        <p class="intro-text">In this order. Each step works for one person before it works for a team.</p>
+        <ul class="status-list">
+          <li data-status="next">
+            <span class="tag">Next</span>
+            <div><b>Tickets that move themselves.</b> In Progress when an agent starts, In Review when there's a pull request. Give a ticket a label, or assign it to Bantu, and an agent takes it.</div>
+          </li>
+          <li data-status="planned">
+            <span class="tag">Planned</span>
+            <div><b>One way of working, shared.</b> The team's skills, <code>CLAUDE.md</code>, checks, prompts and allowed models live in one git repo, and everyone's Bantu stays in step with it.</div>
+          </li>
+          <li data-status="planned">
+            <span class="tag">Planned</span>
+            <div><b>A board for the whole team.</b> Tasks from every tracker in one place, each assigned to a person or to the agent queue.</div>
+          </li>
+          <li data-status="planned">
+            <span class="tag">Planned</span>
+            <div><b>Agents for the work around the code.</b> A test agent that won't call work done until checks pass, and a view of what's live in each environment, taken from the CI/CD you already have.</div>
+          </li>
+          <li data-status="planned">
+            <span class="tag">Planned</span>
+            <div><b>A support agent.</b> It watches error tracking, logs and uptime, and files one ticket per problem, with how often it happens, since which deploy, and the likely code. A person decides whether an agent takes it on.</div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="split principles" aria-labelledby="totals">
+        <div class="copytext">
+          <h2 id="totals">Team totals, never people</h2>
+          <p>
+            Admins will see how the team uses agents: tasks done, time to merge, how often checks pass, what it costs. Not how any one person does. Daemons send
+            counts rather than activity, and a group smaller than three is never shown on its own, so a total can't quietly become a person.
+          </p>
+          <p class="aside">Bantu can only speak for itself: Anthropic's and OpenAI's own admin consoles still show their per-person usage.</p>
+        </div>
+        <div class="copytext">
+          <h2 id="host">In your cloud, or ours</h2>
+          <p>
+            Every part runs in your own account: your laptops, a machine on AWS, or Cloudflare. You pay those providers directly. We'll also host it for teams
+            that would rather not, using the same open-source code, and nothing self-hosted will ever depend on our service.
+          </p>
+          <p class="aside">Available today: self-hosting on your machines, AWS and Cloudflare. Hosted: planned.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Bantu is free and open source under Apache-2.0. Follow the work on <a href="https://github.com/Sreenivas1323/bantu">GitHub</a>.</p>
+    </footer>
+  </body>
+</html>

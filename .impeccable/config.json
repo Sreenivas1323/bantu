@@ -11,6 +11,15 @@
         ],
         "createdAt": "2026-11-17T05:27:56.292Z",
         "reason": "Claude: false positive. Sections are separated by a border-top rule with clamp(3rem, 8vw, 6rem) of top padding (styles.css 'main > section:not(.hero)'), measured 48-96px in the browser; the static check doesn't resolve it"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "site/teams.html"
+        ],
+        "createdAt": "2026-11-17T06:11:36.300Z",
+        "reason": "Claude: false positive, same as site/index.html. Sections are separated by a border-top rule with clamp(3rem, 8vw, 6rem) of top padding (styles.css 'main > section:not(.hero)'), measured 48-96px in the browser"
       }
     ]
   }

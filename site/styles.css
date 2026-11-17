@@ -453,8 +453,9 @@ footer {
   }
 }
 
+/* Narrow screens keep only the links that lead somewhere new. */
 @media (max-width: 40rem) {
-  .top nav a:first-child {
+  .top nav .optional {
     display: none;
   }
 }
@@ -480,4 +481,88 @@ footer {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* ---- Teams page ------------------------------------------------------------ */
+
+.top nav a[aria-current="page"] {
+  color: var(--ink);
+}
+
+.eyebrow {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+
+/* A cropped dialog sits on the page, so it needs room around it like a window. */
+.framed img {
+  max-width: 48rem;
+}
+
+.intro-text,
+.aside {
+  max-width: var(--measure);
+  color: var(--ink-2);
+}
+
+.aside {
+  font-size: 0.9rem;
+}
+
+/* The roadmap reuses the app's status dots: blue is next, amber is planned. */
+.status-list {
+  margin: 1.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  max-width: 52rem;
+  & li {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    gap: 1rem;
+    padding: 1rem 0;
+    border-top: 1px solid var(--rule);
+    color: var(--ink-2);
+  }
+  & b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  & .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 1.6rem;
+    font-size: 0.85rem;
+    font-weight: 550;
+    color: var(--ink);
+  }
+  & .tag::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--wait);
+  }
+  & li[data-status="next"] .tag::before {
+    background: var(--run);
+  }
+  @media (max-width: 34rem) {
+    & li {
+      grid-template-columns: 1fr;
+      gap: 0.3rem;
+    }
+  }
+}
+
+.principles {
+  align-items: start;
 }
