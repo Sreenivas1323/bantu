@@ -1,12 +1,13 @@
-/* Colours come from the app itself (apps/web/src/index.css): its ink, its
-   accent and the three status dots. The page follows the system theme. */
+/* Colours come from the app itself (apps/web/src/index.css): its cool grey
+   neutrals, its accent and the three status dots, in both themes. The page
+   follows the system theme. */
 :root {
   color-scheme: light dark;
-  --paper: light-dark(oklch(0.968 0.01 85), oklch(0.19 0.006 260));
-  --paper-2: light-dark(oklch(0.94 0.012 85), oklch(0.225 0.007 260));
+  --paper: light-dark(oklch(0.975 0.003 260), oklch(0.19 0.006 260));
+  --paper-2: light-dark(oklch(0.945 0.005 260), oklch(0.225 0.007 260));
   --ink: light-dark(oklch(0.22 0.008 260), oklch(0.93 0.005 260));
   --ink-2: light-dark(oklch(0.42 0.01 260), oklch(0.72 0.01 260));
-  --rule: light-dark(oklch(0.86 0.012 85), oklch(0.32 0.008 260));
+  --rule: light-dark(oklch(0.87 0.006 260), oklch(0.32 0.008 260));
   --accent: light-dark(oklch(0.48 0.14 250), oklch(0.74 0.12 250));
   --ok: oklch(0.7 0.15 150);
   --run: oklch(0.68 0.14 250);
