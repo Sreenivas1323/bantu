@@ -5,6 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "bun ./index.html",
-    "build": "rm -rf dist && bun build ./index.html --outdir dist --minify && mkdir -p dist/assets && cp assets/og.png dist/assets/ && cp .nojekyll dist/"
+    "build": "rm -rf dist && bun build ./index.html ./teams.html --outdir dist --minify && mkdir -p dist/assets && cp assets/og.png dist/assets/ && cp .nojekyll dist/"
   }
 }
