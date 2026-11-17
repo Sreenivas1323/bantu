@@ -135,7 +135,9 @@ Prices were checked in November 2026; see the sources in [competitive/README.md]
 | Windows signing (later) | SignPath Foundation (free for OSS) | $0 |
 | Accounts, relay, telemetry backend, database | None: pairing is a QR code with daemon URL + token (the daemon stores only a hash) | $0 |
 
-Hard rule: **no feature may require a server run by the project.**
+Hard rule: **no feature may require a server run by the project.** The project may host Bantu
+for teams that want it, but the hosted service runs the same open-source code, and everything
+it offers also works self-hosted with no dependency on it ([TEAMS.md](TEAMS.md)).
 
 ## Tech stack
 
