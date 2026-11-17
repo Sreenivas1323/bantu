@@ -90,6 +90,88 @@ pub struct Workspace {
     /// Where automatic review has got to. `None` when it hasn't run on this work.
     #[serde(default)]
     pub review_state: Option<ReviewState>,
+    /// The tracker task this workspace was started from.
+    #[serde(default)]
+    pub task: Option<TaskRef>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum TrackerKind {
+    /// GitHub Issues, through the user's `gh`.
+    Github,
+    /// Jira Cloud, with an email and API token.
+    Jira,
+    /// ClickUp, with a personal API token.
+    Clickup,
+}
+
+impl TrackerKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Github => "GitHub",
+            Self::Jira => "Jira",
+            Self::Clickup => "ClickUp",
+        }
+    }
+}
+
+/// Where a repo's tasks come from. Its API token is stored apart from this and
+/// never sent to clients.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Tracker {
+    pub id: String,
+    pub kind: TrackerKind,
+    pub repo_id: String,
+    /// Shown in the app, e.g. "Jira: WEB".
+    pub name: String,
+    /// Jira: `https://<you>.atlassian.net`. ClickUp: the API's address, only
+    /// set to test against something else.
+    pub site: Option<String>,
+    /// Which tasks: a Jira project key or JQL query, a ClickUp list id, or a
+    /// GitHub label (empty for all open issues).
+    pub scope: String,
+    /// The Jira account's email, for its API token.
+    pub account: Option<String>,
+    pub created_at: String,
+    pub last_synced_at: Option<String>,
+    /// Why the last sync failed, if it did.
+    pub last_error: Option<String>,
+}
+
+/// A task in a tracker: a Jira issue, a ClickUp task or a GitHub issue.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Task {
+    pub tracker_id: String,
+    /// The tracker's own id for API calls.
+    pub id: String,
+    /// What people call it: `WEB-12`, `#12`, or ClickUp's custom id.
+    pub key: String,
+    pub title: String,
+    pub url: String,
+    pub status: String,
+    pub assignee: Option<String>,
+    /// Assigned to the person whose credentials Bantu uses.
+    pub mine: bool,
+    pub updated_at: Option<String>,
+    /// The start of its description, as plain text.
+    pub description: String,
+    /// The workspace already working on it, if any.
+    pub workspace_id: Option<String>,
+}
+
+/// Which task a workspace is for.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct TaskRef {
+    pub tracker_id: String,
+    pub id: String,
+    pub key: String,
+    pub title: String,
+    pub url: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -701,6 +783,9 @@ pub enum WorkspaceSource {
     /// Start a fresh branch named after a GitHub issue and send the issue to
     /// the agent as its first task (needs `gh`).
     Issue { number: u32 },
+    /// Start a fresh branch named after a tracker task and send the task to
+    /// the agent as its first job.
+    Task { tracker_id: String, task_id: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
@@ -826,6 +911,32 @@ pub enum Command {
     /// Start a run now.
     #[serde(rename = "loop.run")]
     LoopRun { loop_id: String },
+    /// Connect a repo to a task tracker. `token` is required for Jira and
+    /// ClickUp; GitHub uses `gh`. The connection is tested before it's saved.
+    #[serde(rename = "tracker.add")]
+    TrackerAdd {
+        repo_id: String,
+        kind: TrackerKind,
+        #[serde(default)]
+        site: Option<String>,
+        #[serde(default)]
+        scope: Option<String>,
+        #[serde(default)]
+        account: Option<String>,
+        #[serde(default)]
+        token: Option<String>,
+    },
+    #[serde(rename = "tracker.remove")]
+    TrackerRemove { tracker_id: String },
+    /// Fetch tasks now, from one tracker or all of them. Returns `Task[]`.
+    #[serde(rename = "tasks.refresh")]
+    TasksRefresh {
+        #[serde(default)]
+        tracker_id: Option<String>,
+    },
+    /// Start a workspace for a task, with the agent on it once it's ready.
+    #[serde(rename = "task.start")]
+    TaskStart { tracker_id: String, task_id: String },
     /// See what an import would bring across. `path` overrides where the tool's
     /// database normally is.
     #[serde(rename = "import.scan")]
@@ -1043,6 +1154,13 @@ pub enum EventData {
     },
     #[serde(rename = "loop.deleted")]
     LoopDeleted { loop_id: String },
+    #[serde(rename = "tracker.updated")]
+    TrackerUpdated { tracker: Tracker },
+    #[serde(rename = "tracker.removed")]
+    TrackerRemoved { tracker_id: String },
+    /// A tracker's tasks changed. Fetch them again from `GET /v1/tasks`.
+    #[serde(rename = "tasks.changed")]
+    TasksChanged { tracker_id: String },
     #[serde(rename = "import.updated")]
     ImportUpdated { status: ImportStatus },
     #[serde(rename = "inbox.added")]
@@ -1078,6 +1196,9 @@ impl EventData {
             | Self::ConflictsUpdated { .. }
             | Self::SpotlightUpdated { .. }
             | Self::ImportUpdated { .. }
+            | Self::TrackerUpdated { .. }
+            | Self::TrackerRemoved { .. }
+            | Self::TasksChanged { .. }
             | Self::LoopUpdated { .. }
             | Self::LoopDeleted { .. }
             | Self::PreferencesUpdated { .. } => None,
@@ -1142,6 +1263,8 @@ pub struct StateSnapshot {
     pub spotlights: Vec<Spotlight>,
     #[serde(default)]
     pub loops: Vec<Loop>,
+    #[serde(default)]
+    pub trackers: Vec<Tracker>,
     pub preferences: Preferences,
 }
 
@@ -1246,10 +1369,14 @@ mod tests {
             "Spotlight",
             "StateSnapshot",
             "StreamDelta",
+            "Task",
+            "TaskRef",
             "Terminal",
             "TerminalKind",
             "TodoItem",
             "TodoSource",
+            "Tracker",
+            "TrackerKind",
             "Workspace",
             "WorkspaceChecks",
             "WorkspaceConflict",

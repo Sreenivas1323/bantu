@@ -6,6 +6,7 @@ import type {
   ImportStatus,
   InboxItem,
   Loop,
+  Tracker,
   LogStream,
   PermissionRequest,
   Preferences,
@@ -45,6 +46,9 @@ export type DaemonState = {
   /** Conflict-radar results per repo id. */
   conflicts: Record<string, WorkspaceConflict[]>;
   loops: Record<string, Loop>;
+  trackers: Record<string, Tracker>;
+  /** Bumped when any tracker's tasks change, so views fetch them again. */
+  tasksVersion: number;
   /** The latest import from each tool. Not in the snapshot: it's only for the dialog. */
   imports: Partial<Record<ImportSource, ImportStatus>>;
   /** What's in each repo's main checkout, by repo id. */
@@ -68,6 +72,8 @@ export const emptyState: DaemonState = {
   conflicts: {},
   spotlights: {},
   loops: {},
+  trackers: {},
+  tasksVersion: 0,
   imports: {},
   preferences: { claude_user_setup: false, loadouts: [] },
 };
@@ -99,6 +105,8 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         conflicts: groupConflicts(snapshot.conflicts),
         spotlights: Object.fromEntries(snapshot.spotlights.map((s) => [s.repo_id, s])),
         loops: Object.fromEntries(snapshot.loops.map((l) => [l.id, l])),
+        trackers: Object.fromEntries(snapshot.trackers.map((t) => [t.id, t])),
+        tasksVersion: state.tasksVersion + 1,
         imports: state.imports,
         preferences: snapshot.preferences,
         // History isn't in the snapshot; it's backfilled per workspace.
@@ -206,6 +214,14 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
     }
     case "import.updated":
       return { ...next, imports: { ...state.imports, [data.status.source]: data.status } };
+    case "tracker.updated":
+      return { ...next, trackers: { ...state.trackers, [data.tracker.id]: data.tracker } };
+    case "tracker.removed": {
+      const { [data.tracker_id]: _gone, ...trackers } = state.trackers;
+      return { ...next, trackers, tasksVersion: state.tasksVersion + 1 };
+    }
+    case "tasks.changed":
+      return { ...next, tasksVersion: state.tasksVersion + 1 };
     case "loop.updated":
       return { ...next, loops: { ...state.loops, [data.loop.id]: data.loop } };
     case "loop.deleted": {

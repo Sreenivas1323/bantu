@@ -38,6 +38,7 @@ All bodies are JSON (`content-type: application/json`). Errors are JSON too: `{ 
 | `GET /v1/workspaces/{id}/checks` | token | `WorkspaceChecks` |
 | `GET /v1/workspaces/{id}/ports` | token | `ForwardedPort[]`, the servers listening on the workspace's ports |
 | `GET /v1/workspaces/{id}/children` | token | `ChildWorkspace[]`, the workspaces its agent started |
+| `GET /v1/tasks` | token | `Task[]`, open tasks from every connected tracker, newest first |
 | `GET /v1/push/key` | token | `{ public_key }`, the VAPID key browsers subscribe with |
 | `GET /v1/terminals/{id}/ws` | token | WebSocket of raw PTY bytes |
 | `POST /v1/hooks/permission?session=<id>` | hook token | Claude Code hook response (internal) |
@@ -159,6 +160,7 @@ This is Claude Code's `PermissionRequest` HTTP hook (see [Agent sessions](#agent
 | `loop_id` | string \| null | The loop this workspace is a run of |
 | `external` | boolean | Another tool owns the worktree (it was imported), so archiving leaves the files alone |
 | `review_state` | `"reviewing" \| "changes_requested" \| "approved"` \| null | Where automatic review has got to |
+| `task` | `TaskRef` \| null | `{ tracker_id, id, key, title, url }`: the tracker task it was started from |
 
 ### `Session`
 One chat with an agent in a workspace. Every workspace gets one automatically when it becomes ready.
@@ -294,6 +296,10 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `loop.update` | `loop_id`, `enabled?`, `prompt?` | `Loop` | Pauses, resumes or changes a loop. |
 | `loop.delete` | `loop_id` | — | Existing runs' workspaces are kept. |
 | `loop.run` | `loop_id` | `Workspace` | Starts a run now. 409 if the last run is still working or the repo has 10 active workspaces. |
+| `tracker.add` | `repo_id`, `kind`, `site?`, `scope?`, `account?`, `token?` | `Tracker` | Connects a repo to GitHub Issues, Jira or ClickUp; see [Tasks](#tasks). 400 if signing in or reading tasks fails. |
+| `tracker.remove` | `tracker_id` | — | Workspaces started from it are kept. |
+| `tasks.refresh` | `tracker_id?` | `Task[]` | Fetches now instead of waiting for the next sync. |
+| `task.start` | `tracker_id`, `task_id` | `Workspace` | A workspace for the task, with the agent given the task once it's ready. |
 | `import.scan` | `source`, `path?` | `ImportPreview` | Shows what an import from `conductor` or `pane` would bring across. `path` overrides where the tool's database normally is. |
 | `import.run` | `source`, `path?` | `ImportPreview` | Imports in the background; see below. 404 if the database isn't there. |
 | `comment.add` | `workspace_id`, `path`, `line`, `body` | `DiffComment` | Adds a draft review comment. |
@@ -336,6 +342,21 @@ A `Loop` runs an agent on its own: `{ id, repo_id, name, trigger, prompt, agent,
 - **Missed runs aren't caught up on.** If the daemon or machine was off at the scheduled time, the next run is the next one due.
 - **GitHub triggers need a label**, because labels take triage rights while anyone can open an issue, and an issue's text goes into the agent's prompt. They refuse `bypass_permissions` and don't check out forks' PRs. The first poll records what's already open, so turning a loop on doesn't start a run for every old issue.
 - **Alerts.** A finished loop run sends no push alert, but one that asks for approval still does.
+
+### Tasks
+
+A repo can be connected to task trackers. `StateSnapshot.trackers` lists them (`Tracker`: `{ id, kind, repo_id, name, site, scope, account, created_at, last_synced_at, last_error }`), and `GET /v1/tasks` returns their open tasks.
+
+| `kind` | Needs | `scope` |
+|---|---|---|
+| `github` | `gh`, signed in | A label, or empty for all open issues |
+| `jira` | `site` (`https://<you>.atlassian.net`), `account` (your email), `token` (API token) | A project key, or a JQL query |
+| `clickup` | `token` (personal API token) | A list id |
+
+- **Sync.** Open tasks are fetched every 3 minutes, and on `tasks.refresh`. A `tasks.changed` event says when a tracker's tasks changed; fetch `GET /v1/tasks` again. `Task.mine` is true when it's assigned to the person whose credentials Bantu uses.
+- **Starting.** `task.start` creates a workspace on a branch named after the task (`bantu/web-12-fix-login`), names its chat after the task, and sends the agent the task. The description is marked as information written in the tracker, not instructions. `Workspace.task` records the link.
+- **Reporting back.** The agent can post notes with the `update_task` MCP tool. Once the workspace's branch has a pull request, its link is posted to the task, once.
+- **Tokens** are stored in `$BANTU_HOME/trackers/<id>.token`, readable only by the user, and are never in the event log, the snapshot or any response. HTTP goes through `curl` with its arguments on stdin, so tokens aren't in the process list. `site` must be HTTPS (plain HTTP only to `127.0.0.1`, for testing).
 
 ### Importing from Conductor and Pane
 
@@ -451,12 +472,13 @@ Every turn gets Bantu's MCP server (`POST /v1/mcp?session=<id>`, authenticated w
 | `list_workspaces`, `workspace_status`, `wait_for_workspace` | See and wait for this repo's workspaces |
 | `create_workspace`, `send_message`, `get_diff` | Start, message and review other workspaces' agents |
 | `integrate_workspaces` | Merge the workspaces this one started into its branch |
+| `update_task` | Post a progress note on the tracker task this workspace was started from |
 | `list_terminals`, `get_terminal_output` | Read a workspace's terminals, such as dev server logs (ANSI codes stripped, last 2,000 lines at most) |
 | `list_diff_comments`, `add_diff_comment` | Read review comments, and add draft ones for the user to send |
 | `notify_user` | Send a notice to the inbox without waiting |
 | `ask_user` | Ask a question and block until it's answered, dismissed or stopped, or the timeout passes (10–1800 s, default 600) |
 
-A chat in plan mode can't use `create_workspace`, `send_message` or `integrate_workspaces`. A chat that doesn't bypass permissions can't `send_message` to one that does.
+A chat in plan mode can't use `create_workspace`, `send_message`, `integrate_workspaces` or `update_task`. A chat that doesn't bypass permissions can't `send_message` to one that does.
 
 ### Chat and terminal on one conversation
 
@@ -497,6 +519,9 @@ These agents speak the [Agent Client Protocol](https://agentclientprotocol.com):
 | `comment.deleted` | `comment_id`, `workspace_id` | |
 | `permission.requested` | `request` | An agent is waiting for approval |
 | `permission.resolved` | `request_id`, `session_id`, `workspace_id`, `allowed` | Answered, stopped or timed out |
+| `tracker.updated` | `tracker` | A tracker was connected, or synced (full object) |
+| `tracker.removed` | `tracker_id` | |
+| `tasks.changed` | `tracker_id` | Its tasks changed; fetch `GET /v1/tasks` |
 | `loop.updated` | `loop` | A loop was created or changed, including after a run (full object) |
 | `loop.deleted` | `loop_id` | |
 | `spotlight.updated` | `repo_id`, `spotlight` | A workspace entered or updated the main checkout; `spotlight` is `null` when it returned to its branch |

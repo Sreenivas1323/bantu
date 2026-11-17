@@ -53,3 +53,7 @@ export type { LoopTrigger } from "./generated/LoopTrigger";
 export type { ImportPreview } from "./generated/ImportPreview";
 export type { ImportSource } from "./generated/ImportSource";
 export type { ImportStatus } from "./generated/ImportStatus";
+export type { Task } from "./generated/Task";
+export type { TaskRef } from "./generated/TaskRef";
+export type { Tracker } from "./generated/Tracker";
+export type { TrackerKind } from "./generated/TrackerKind";

@@ -52,6 +52,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/workspaces/{id}/checks", get(get_checks))
         .route("/v1/workspaces/{id}/ports", get(get_ports))
         .route("/v1/workspaces/{id}/children", get(get_children))
+        .route("/v1/tasks", get(get_tasks))
         .route("/v1/repos/{id}/conflicts", post(scan_conflicts))
         .route("/v1/terminals/{id}/ws", get(terminal_ws))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token));
@@ -234,6 +235,7 @@ async fn get_state(State(state): State<AppState>) -> Result<Json<StateSnapshot>,
         conflicts: state.daemon.all_conflicts().await,
         spotlights: store.spotlights().await?,
         loops: store.loops().await?,
+        trackers: store.trackers().await?,
         preferences: store.preferences().await?,
     }))
 }
@@ -409,6 +411,14 @@ async fn get_ports(
         .any(|local| host == *local || host.starts_with(&format!("{local}:")));
     match state.daemon.forwarded_ports(&id, via_loopback).await {
         Ok(ports) => Json(ports).into_response(),
+        Err(e) => command_error(e),
+    }
+}
+
+/// Every connected tracker's open tasks.
+async fn get_tasks(State(state): State<AppState>) -> Response {
+    match state.daemon.all_tasks().await {
+        Ok(tasks) => Json(tasks).into_response(),
         Err(e) => command_error(e),
     }
 }

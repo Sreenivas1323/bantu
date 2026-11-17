@@ -12,7 +12,8 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use bantu_protocol::{
     AgentKind, ChatItem, DiffComment, Event, EventData, LogStream, Loop, PermissionMode,
-    Preferences, Repo, ReviewState, Session, SessionStatus, Spotlight, Workspace, WorkspaceState,
+    Preferences, Repo, ReviewState, Session, SessionStatus, Spotlight, Tracker, Workspace,
+    WorkspaceState,
 };
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
@@ -99,10 +100,11 @@ impl Store {
         sqlx::query(
             "INSERT INTO workspaces (id, repo_id, name, branch, base_ref, path, port_base,
                                      state, error, archive_commit, created_at,
-                                     parent_id, loop_id, external, review_state)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     parent_id, loop_id, external, review_state, task)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 review_state = excluded.review_state,
+                task = excluded.task,
                 name = excluded.name, branch = excluded.branch,
                 base_ref = excluded.base_ref, path = excluded.path,
                 port_base = excluded.port_base, state = excluded.state,
@@ -123,6 +125,7 @@ impl Store {
         .bind(&ws.loop_id)
         .bind(ws.external)
         .bind(ws.review_state.map(|r| r.as_str()))
+        .bind(ws.task.as_ref().map(serde_json::to_string).transpose()?)
         .execute(&mut *tx)
         .await?;
         let data = EventData::WorkspaceUpdated {
@@ -378,6 +381,67 @@ impl Store {
         )
         .bind(format!("loopseen:{id}"))
         .bind(serde_json::to_string(seen)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn upsert_tracker(&self, t: &Tracker) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query(
+            "INSERT INTO preferences (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(format!("tracker:{}", t.id))
+        .bind(serde_json::to_string(t)?)
+        .execute(&mut *tx)
+        .await?;
+        let data = EventData::TrackerUpdated { tracker: t.clone() };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn delete_tracker(&self, id: &str) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query("DELETE FROM preferences WHERE key = ?")
+            .bind(format!("tracker:{id}"))
+            .execute(&mut *tx)
+            .await?;
+        let data = EventData::TrackerRemoved {
+            tracker_id: id.to_string(),
+        };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn trackers(&self) -> Result<Vec<Tracker>> {
+        let values: Vec<String> =
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key LIKE 'tracker:%'")
+                .fetch_all(&self.pool)
+                .await?;
+        let mut out: Vec<Tracker> = values
+            .iter()
+            .filter_map(|v| serde_json::from_str(v).ok())
+            .collect();
+        out.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        Ok(out)
+    }
+
+    /// A small value kept across restarts that clients never see.
+    pub async fn private_value(&self, key: &str) -> Result<Option<String>> {
+        Ok(
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key = ?")
+                .bind(format!("private:{key}"))
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+
+    pub async fn set_private_value(&self, key: &str, value: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO preferences (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(format!("private:{key}"))
+        .bind(value)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -730,6 +794,9 @@ fn event_kind(data: &EventData) -> &'static str {
         EventData::TerminalClosed { .. } => "terminal.closed",
         EventData::SpotlightUpdated { .. } => "spotlight.updated",
         EventData::ImportUpdated { .. } => "import.updated",
+        EventData::TrackerUpdated { .. } => "tracker.updated",
+        EventData::TrackerRemoved { .. } => "tracker.removed",
+        EventData::TasksChanged { .. } => "tasks.changed",
         EventData::LoopUpdated { .. } => "loop.updated",
         EventData::LoopDeleted { .. } => "loop.deleted",
         EventData::InboxAdded { .. } => "inbox.added",
@@ -769,6 +836,9 @@ fn workspace_from_row(r: &SqliteRow) -> Result<Workspace> {
         review_state: r
             .get::<Option<String>, _>("review_state")
             .and_then(|s| ReviewState::parse(&s)),
+        task: r
+            .get::<Option<String>, _>("task")
+            .and_then(|t| serde_json::from_str(&t).ok()),
     })
 }
 

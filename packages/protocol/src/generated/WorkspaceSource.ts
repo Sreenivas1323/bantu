@@ -4,4 +4,4 @@
  * Where a new workspace's branch comes from. Without one, a fresh branch is
  * created from the base.
  */
-export type WorkspaceSource = { "kind": "branch", branch: string, } | { "kind": "pull_request", number: number, } | { "kind": "issue", number: number, };
+export type WorkspaceSource = { "kind": "branch", branch: string, } | { "kind": "pull_request", number: number, } | { "kind": "issue", number: number, } | { "kind": "task", tracker_id: string, task_id: string, };

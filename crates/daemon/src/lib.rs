@@ -27,6 +27,7 @@ pub mod sessions;
 pub mod settings;
 pub mod spotlight;
 pub mod store;
+pub mod tasks;
 pub mod terminal_driver;
 pub mod terminals;
 
@@ -95,6 +96,7 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     daemon.recover_reviews().await?;
     daemon.start_push()?;
     daemon.start_loops().await?;
+    daemon.start_task_sync();
     let state = AppState {
         daemon: daemon.clone(),
         token_hash: http::hash_token(&token).into(),

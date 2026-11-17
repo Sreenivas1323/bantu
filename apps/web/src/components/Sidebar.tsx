@@ -25,6 +25,7 @@ type Props = {
   onNewWorkspace: (repoId: string, from?: WorkspaceSource) => Promise<void>;
   onRemoveRepo: (repoId: string) => Promise<void>;
   onOpenLoops: (repoId: string) => void;
+  onOpenTasks: (repoId: string) => void;
   onOpenImport: () => void;
 };
 
@@ -58,6 +59,7 @@ export function Sidebar(props: Props) {
             onNewWorkspace={props.onNewWorkspace}
             onRemoveRepo={props.onRemoveRepo}
             onOpenLoops={props.onOpenLoops}
+            onOpenTasks={props.onOpenTasks}
           />
         ))}
       </nav>
@@ -85,6 +87,7 @@ function RepoGroup({
   onNewWorkspace,
   onRemoveRepo,
   onOpenLoops,
+  onOpenTasks,
 }: {
   repo: Repo;
   workspaces: Workspace[];
@@ -98,6 +101,7 @@ function RepoGroup({
   onNewWorkspace: (repoId: string, from?: WorkspaceSource) => Promise<void>;
   onRemoveRepo: (repoId: string) => Promise<void>;
   onOpenLoops: (repoId: string) => void;
+  onOpenTasks: (repoId: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [showFrom, setShowFrom] = useState(false);
@@ -117,6 +121,14 @@ function RepoGroup({
           title="Remove repository"
         >
           Remove
+        </button>
+        <button
+          type="button"
+          onClick={() => onOpenTasks(repo.id)}
+          className="rounded px-1 py-0.5 text-xs text-muted hover:bg-raised hover:text-fg"
+          title="Tasks from GitHub Issues, Jira and ClickUp"
+        >
+          Tasks
         </button>
         <button
           type="button"
