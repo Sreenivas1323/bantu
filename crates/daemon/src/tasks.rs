@@ -1,10 +1,10 @@
-//! Tasks from GitHub Issues, Jira and ClickUp, kept in sync with Bantu.
+//! Tasks from GitHub Issues, GitLab, Jira and ClickUp, kept in sync with Bantu.
 //!
 //! Each repo can be connected to trackers. Their open tasks are fetched every
 //! few minutes; starting one creates a workspace whose agent gets the task, and
 //! progress goes back to the tracker as comments: the agent can post updates
-//! through the `update_task` MCP tool, and the pull request link is posted once
-//! one exists.
+//! through the `update_task` MCP tool, and the pull request (or GitLab merge
+//! request) link is posted once one exists.
 //!
 //! API tokens live in files only the user can read, never in the event log or
 //! anything sent to clients. HTTP goes through `curl` with its arguments on
@@ -30,6 +30,7 @@ const SYNC_EVERY: Duration = Duration::from_secs(180);
 const MAX_TASKS: usize = 200;
 const DESCRIPTION_CHARS: usize = 4000;
 const CLICKUP_API: &str = "https://api.clickup.com";
+const GITLAB_SITE: &str = "https://gitlab.com";
 
 type CmdResult<T> = Result<T, CommandError>;
 
@@ -130,7 +131,10 @@ async fn http(
     Ok(value)
 }
 
-/// The useful part of an API error, from any of the three trackers.
+/// The useful part of an API error, from any of the trackers. GitLab's is
+/// `{"message": "401 Unauthorized"}`, or `message` as an object for validation
+/// errors (https://docs.gitlab.com/api/rest/troubleshooting/), and
+/// `error_description` when a token lacks a scope.
 fn api_error(value: &Value, raw: &str) -> String {
     let messages: Vec<String> = value["errorMessages"]
         .as_array()
@@ -139,6 +143,12 @@ fn api_error(value: &Value, raw: &str) -> String {
         .filter_map(|m| m.as_str().map(String::from))
         .chain(value["err"].as_str().map(String::from))
         .chain(value["message"].as_str().map(String::from))
+        .chain(
+            value["message"]
+                .is_object()
+                .then(|| value["message"].to_string()),
+        )
+        .chain(value["error_description"].as_str().map(String::from))
         .collect();
     if messages.is_empty() {
         raw.chars().take(200).collect()
@@ -157,6 +167,20 @@ fn valid_site(site: &str) -> bool {
         return false;
     }
     scheme == "https" || (scheme == "http" && matches!(host, "127.0.0.1" | "localhost"))
+}
+
+/// Percent-encodes everything but RFC 3986's unreserved characters, for a
+/// path segment or a query value.
+fn pct(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for b in text.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 // ---- Parsing --------------------------------------------------------------------
@@ -333,6 +357,96 @@ pub fn parse_github(tracker: &Tracker, value: &Value, me: Option<&str>) -> Vec<T
         .collect()
 }
 
+/// A GitLab tracker's `scope`: a project, then optionally a label.
+///
+/// - `acme/web` or `acme/platform/web`: the project's path, as in its URL.
+/// - `1234`: the project's numeric id.
+/// - `acme/web ~agent`, `acme/web agent` or `acme/web ~"needs agent"`: only
+///   issues with that label. The `~` is optional, as are quotes around a name
+///   with spaces. Commas separate labels an issue must all have, as in
+///   GitLab's own `labels` filter.
+#[derive(Debug, PartialEq, Eq)]
+pub struct GitlabScope {
+    pub project: String,
+    pub label: Option<String>,
+}
+
+pub fn gitlab_scope(scope: &str) -> Option<GitlabScope> {
+    let scope = scope.trim();
+    let (project, rest) = scope.split_once(char::is_whitespace).unwrap_or((scope, ""));
+    let project = project.trim_matches('/');
+    let valid = !project.is_empty()
+        && project.split('/').all(|part| {
+            !part.is_empty()
+                && !part.starts_with('.')
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        });
+    if !valid {
+        return None;
+    }
+    let label = rest.trim().trim_start_matches('~').trim();
+    let label = label
+        .strip_prefix('"')
+        .and_then(|l| l.strip_suffix('"'))
+        .unwrap_or(label)
+        .trim();
+    Some(GitlabScope {
+        project: project.to_string(),
+        label: (!label.is_empty()).then(|| label.to_string()),
+    })
+}
+
+/// Issues from `GET /projects/:id/issues`
+/// (https://docs.gitlab.com/api/issues/#list-project-issues): `iid` is the
+/// number people use and the API takes, `assignees[].id` says whose it is.
+pub fn parse_gitlab(tracker: &Tracker, value: &Value, me: Option<&str>) -> Vec<Task> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|issue| {
+            let iid = issue["iid"].as_u64()?;
+            let assignees: Vec<&Value> = issue["assignees"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .collect();
+            Some(Task {
+                tracker_id: tracker.id.clone(),
+                id: iid.to_string(),
+                key: format!("#{iid}"),
+                url: issue["web_url"].as_str().unwrap_or_default().to_string(),
+                title: issue["title"].as_str().unwrap_or_default().to_string(),
+                status: match issue["state"].as_str() {
+                    Some("opened") | None => "Open".into(),
+                    Some(other) => other.to_string(),
+                },
+                assignee: assignees
+                    .first()
+                    .and_then(|a| a["name"].as_str().or(a["username"].as_str()))
+                    .map(String::from),
+                mine: me.is_some_and(|me| assignees.iter().any(|a| id_text(&a["id"]) == me)),
+                updated_at: issue["updated_at"].as_str().and_then(parse_date),
+                description: clip(issue["description"].as_str().unwrap_or_default()),
+                workspace_id: None,
+            })
+        })
+        .collect()
+}
+
+/// The open merge request from `branch`, out of `GET /projects/:id/merge_requests`
+/// (https://docs.gitlab.com/api/merge_requests/#list-project-merge-requests).
+pub fn gitlab_merge_request(value: &Value, branch: &str) -> Option<String> {
+    value
+        .as_array()?
+        .iter()
+        .find(|mr| mr["source_branch"] == branch && mr["state"] == "opened")
+        .and_then(|mr| mr["web_url"].as_str())
+        .map(String::from)
+}
+
 /// The agent's first message. Tracker text is written by people outside the
 /// repo, so it's marked as information rather than instructions.
 pub fn task_message(tracker: TrackerKind, task: &Task) -> String {
@@ -356,11 +470,18 @@ pub fn task_message(tracker: TrackerKind, task: &Task) -> String {
          tests where it makes sense. Use the `update_task` tool to post short progress notes to \
          the task when something worth knowing happens, such as a decision or a blocker.",
     );
-    if tracker == TrackerKind::Github {
-        msg.push_str(&format!(
+    match tracker {
+        TrackerKind::Github => msg.push_str(&format!(
             " Mention `Fixes {}` in the pull request.",
             task.key
-        ));
+        )),
+        // GitLab's default closing pattern links the issue to the MR
+        // (https://docs.gitlab.com/user/project/issues/managing_issues/#default-closing-pattern).
+        TrackerKind::Gitlab => msg.push_str(&format!(
+            " Mention `Closes {}` in the merge request description.",
+            task.key
+        )),
+        TrackerKind::Jira | TrackerKind::Clickup => {}
     }
     msg
 }
@@ -384,6 +505,7 @@ impl Client {
     fn site(&self) -> String {
         let default = match self.tracker.kind {
             TrackerKind::Clickup => CLICKUP_API,
+            TrackerKind::Gitlab => GITLAB_SITE,
             _ => "",
         };
         self.tracker
@@ -392,6 +514,20 @@ impl Client {
             .unwrap_or(default)
             .trim_end_matches('/')
             .to_string()
+    }
+
+    /// The GitLab project's API address, `<site>/api/v4/projects/<path or id>`,
+    /// with the path URL-encoded (https://docs.gitlab.com/api/rest/#namespaced-paths).
+    fn gitlab_project(&self) -> Result<(String, GitlabScope)> {
+        let scope = gitlab_scope(&self.tracker.scope)
+            .context("the scope isn't a GitLab project path or id")?;
+        let site = self.site();
+        let base = format!(
+            "{}/api/v4/projects/{}",
+            site.trim_end_matches("/api/v4"),
+            pct(&scope.project)
+        );
+        Ok((base, scope))
     }
 
     fn auth(&self) -> Result<Vec<(&'static str, String)>> {
@@ -405,6 +541,8 @@ impl Client {
                 ]
             }
             TrackerKind::Clickup => vec![("Authorization", self.token()?.to_string())],
+            // https://docs.gitlab.com/api/rest/authentication/#personalprojectgroup-access-tokens
+            TrackerKind::Gitlab => vec![("PRIVATE-TOKEN", self.token()?.to_string())],
             TrackerKind::Github => vec![],
         })
     }
@@ -434,6 +572,21 @@ impl Client {
                 )
                 .await?;
                 Ok(id_text(&v["user"]["id"]))
+            }
+            // https://docs.gitlab.com/api/users/#retrieve-the-current-user
+            TrackerKind::Gitlab => {
+                let site = self.site();
+                let v = http(
+                    "GET",
+                    &format!("{}/api/v4/user", site.trim_end_matches("/api/v4")),
+                    &self.auth()?,
+                    None,
+                )
+                .await?;
+                if v["id"].is_null() {
+                    bail!("GitLab didn't say who you are");
+                }
+                Ok(id_text(&v["id"]))
             }
             TrackerKind::Github => {
                 let v = gh(&self.root, &["api", "user"]).await?;
@@ -468,6 +621,17 @@ impl Client {
                     t.scope.trim()
                 );
                 parse_clickup(t, &http("GET", &url, &self.auth()?, None).await?, me)
+            }
+            // https://docs.gitlab.com/api/issues/#list-project-issues
+            TrackerKind::Gitlab => {
+                let (base, scope) = self.gitlab_project()?;
+                let mut url = format!(
+                    "{base}/issues?state=opened&order_by=updated_at&sort=desc&per_page=100"
+                );
+                if let Some(label) = &scope.label {
+                    url.push_str(&format!("&labels={}", pct(label)));
+                }
+                parse_gitlab(t, &http("GET", &url, &self.auth()?, None).await?, me)
             }
             TrackerKind::Github => {
                 let mut args = vec![
@@ -504,11 +668,49 @@ impl Client {
                 let url = format!("{}/api/v2/task/{task_id}/comment", self.site());
                 http("POST", &url, &self.auth()?, Some(&body)).await?;
             }
+            // https://docs.gitlab.com/api/notes/#create-new-issue-note
+            TrackerKind::Gitlab => {
+                let (base, _) = self.gitlab_project()?;
+                let url = format!("{base}/issues/{}/notes", pct(task_id));
+                http("POST", &url, &self.auth()?, Some(&json!({"body": text}))).await?;
+            }
             TrackerKind::Github => {
                 gh_run(&self.root, &["issue", "comment", task_id, "--body", text]).await?;
             }
         }
         Ok(())
+    }
+
+    /// What the tracker calls a branch's review request.
+    fn review_noun(&self) -> &'static str {
+        match self.tracker.kind {
+            TrackerKind::Gitlab => "Merge request",
+            _ => "Pull request",
+        }
+    }
+
+    /// The link to the open pull request or merge request from `branch`, if
+    /// there is one: GitLab's API for GitLab trackers, `gh` for the rest.
+    async fn review_link(&self, branch: &str) -> Result<Option<String>> {
+        match self.tracker.kind {
+            // https://docs.gitlab.com/api/merge_requests/#list-project-merge-requests
+            TrackerKind::Gitlab => {
+                let (base, _) = self.gitlab_project()?;
+                let url = format!(
+                    "{base}/merge_requests?source_branch={}&state=opened",
+                    pct(branch)
+                );
+                let v = http("GET", &url, &self.auth()?, None).await?;
+                Ok(gitlab_merge_request(&v, branch))
+            }
+            _ => {
+                // `gh pr view` fails when there's no pull request yet.
+                let Ok(pr) = gh(&self.root, &["pr", "view", branch, "--json", "url"]).await else {
+                    return Ok(None);
+                };
+                Ok(pr["url"].as_str().map(String::from))
+            }
+        }
     }
 }
 
@@ -621,6 +823,11 @@ impl Daemon {
                     return bad(
                         "ClickUp needs a personal API token and the id of the list to follow",
                     );
+                }
+            }
+            TrackerKind::Gitlab => {
+                if token.is_none() || gitlab_scope(&scope).is_none() {
+                    return bad("GitLab needs a personal access token and the project's path (group/project) or id");
                 }
             }
             TrackerKind::Github => {}
@@ -860,8 +1067,9 @@ impl Daemon {
         Ok(format!("Posted to {} {}.", tracker.kind.label(), task.key))
     }
 
-    /// Posts each task workspace's pull request to its task, once.
-    async fn post_pull_requests(&self) {
+    /// Posts each task workspace's pull request (or merge request) to its
+    /// task, once. The sync loop calls this after each round.
+    pub async fn post_pull_requests(&self) {
         let Ok(workspaces) = self.store.workspaces().await else {
             return;
         };
@@ -881,24 +1089,24 @@ impl Daemon {
             {
                 continue;
             }
-            let Ok(Some(repo)) = self.store.repo(&ws.repo_id).await else {
+            let Ok(tracker) = self.require_tracker(&task.tracker_id).await else {
                 continue;
             };
-            let Ok(pr) = gh(
-                Path::new(&repo.root_path),
-                &["pr", "view", &ws.branch, "--json", "url"],
-            )
-            .await
-            else {
+            let Ok(client) = self.client(&tracker).await else {
                 continue;
             };
-            let Some(url) = pr["url"].as_str() else {
-                continue;
+            let url = match client.review_link(&ws.branch).await {
+                Ok(Some(url)) => url,
+                Ok(None) => continue,
+                Err(e) => {
+                    tracing::debug!("couldn't look up a review for {}: {e:#}", ws.branch);
+                    continue;
+                }
             };
-            let note = format!("Pull request from Bantu: {url}");
+            let note = format!("{} from Bantu: {url}", client.review_noun());
             match self.comment_on_task(&ws, &note).await {
                 Ok(_) => {
-                    let _ = self.store.set_private_value(&key, url).await;
+                    let _ = self.store.set_private_value(&key, &url).await;
                 }
                 Err(e) => tracing::warn!("couldn't post {url} to {}: {e}", task.key),
             }
@@ -1051,5 +1259,108 @@ mod tests {
         task.key = "WEB-12".into();
         assert!(task_branch("bantu/", &task).starts_with("bantu/web-12-"));
         assert!(!task_message(TrackerKind::Jira, &task).contains("Fixes"));
+        task.key = "#12".into();
+        let msg = task_message(TrackerKind::Gitlab, &task);
+        assert!(
+            msg.contains("Closes #12") && !msg.contains("Fixes"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn reads_gitlab_scopes() {
+        let scope = |project: &str, label: Option<&str>| {
+            Some(GitlabScope {
+                project: project.into(),
+                label: label.map(String::from),
+            })
+        };
+        assert_eq!(gitlab_scope("acme/web"), scope("acme/web", None));
+        assert_eq!(
+            gitlab_scope(" /acme/platform/web/ "),
+            scope("acme/platform/web", None)
+        );
+        assert_eq!(gitlab_scope("1234"), scope("1234", None));
+        assert_eq!(
+            gitlab_scope("acme/web ~agent"),
+            scope("acme/web", Some("agent"))
+        );
+        assert_eq!(
+            gitlab_scope("acme/web agent"),
+            scope("acme/web", Some("agent"))
+        );
+        assert_eq!(
+            gitlab_scope(r#"acme/my.site  ~"needs agent""#),
+            scope("acme/my.site", Some("needs agent"))
+        );
+        assert_eq!(gitlab_scope("acme/web ~"), scope("acme/web", None));
+        for bad in [
+            "",
+            "~agent",
+            "acme//web",
+            "acme/../web",
+            "acme/web?x=1",
+            "https://gitlab.com/acme/web",
+        ] {
+            assert_eq!(gitlab_scope(bad), None, "{bad}");
+        }
+        assert_eq!(pct("acme/platform/web"), "acme%2Fplatform%2Fweb");
+        assert_eq!(pct("bantu/12-fix"), "bantu%2F12-fix");
+        assert_eq!(pct("needs agent,ui"), "needs%20agent%2Cui");
+    }
+
+    #[test]
+    fn parses_gitlab_issues_and_merge_requests() {
+        let issues = json!([
+            {"id": 41, "iid": 12, "title": "Fix login", "description": "Steps", "state": "opened",
+             "web_url": "https://gitlab.com/acme/web/-/issues/12", "updated_at": "2026-11-02T15:31:46.176Z",
+             "assignees": [{"id": 7, "username": "ana", "name": "Ana Lima"}], "labels": ["bug"]},
+            {"id": 42, "iid": 13, "title": "Unassigned", "description": null, "state": "opened",
+             "web_url": "https://gitlab.com/acme/web/-/issues/13", "updated_at": "2026-11-01T00:00:00Z",
+             "assignees": []},
+            {"title": "no iid"}
+        ]);
+        let tasks = parse_gitlab(&tracker(TrackerKind::Gitlab), &issues, Some("7"));
+        assert_eq!(tasks.len(), 2);
+        let t = &tasks[0];
+        assert_eq!(
+            (
+                t.id.as_str(),
+                t.key.as_str(),
+                t.url.as_str(),
+                t.status.as_str()
+            ),
+            (
+                "12",
+                "#12",
+                "https://gitlab.com/acme/web/-/issues/12",
+                "Open"
+            )
+        );
+        assert_eq!((t.assignee.as_deref(), t.mine), (Some("Ana Lima"), true));
+        assert_eq!(t.updated_at.as_deref(), Some("2026-11-02T15:31:46.176Z"));
+        assert_eq!(t.description, "Steps");
+        assert!(!tasks[1].mine && tasks[1].assignee.is_none() && tasks[1].description.is_empty());
+        assert!(!parse_gitlab(&tracker(TrackerKind::Gitlab), &issues, None)[0].mine);
+
+        let mrs = json!([
+            {"iid": 3, "source_branch": "other", "state": "opened", "web_url": "https://gitlab.com/acme/web/-/merge_requests/3"},
+            {"iid": 4, "source_branch": "bantu/12-fix-login", "state": "opened", "web_url": "https://gitlab.com/acme/web/-/merge_requests/4"}
+        ]);
+        assert_eq!(
+            gitlab_merge_request(&mrs, "bantu/12-fix-login").as_deref(),
+            Some("https://gitlab.com/acme/web/-/merge_requests/4")
+        );
+        assert_eq!(gitlab_merge_request(&mrs, "bantu/none"), None);
+        assert_eq!(gitlab_merge_request(&json!([]), "x"), None);
+        assert_eq!(
+            api_error(&json!({"message": "401 Unauthorized"}), ""),
+            "401 Unauthorized"
+        );
+        assert!(api_error(
+            &json!({"error": "insufficient_scope", "error_description": "The request requires higher privileges"}),
+            ""
+        )
+        .contains("higher privileges"));
     }
 }

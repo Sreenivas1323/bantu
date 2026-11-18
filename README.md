@@ -134,6 +134,7 @@ in Bantu chats** in the accounts dialog. This is on `main` and isn't in v0.1.0-a
 | One-click review in a read-only chat (Claude or Codex) | ✅ |
 | Orchestrator board, merging child workspaces into one branch | ✅ |
 | Automatic cross-agent review before "Ready" (opt-in) | ✅ |
+| Tasks from GitHub Issues, GitLab, Jira and ClickUp: start a workspace from a task; notes and the PR or MR link go back to it | ✅ (GitLab, Jira and ClickUp tested only against local fakes of their APIs) |
 | Loops: agents on a schedule or from GitHub labels | ✅ (GitHub polling not yet run against a real repo) |
 | Import workspaces and chats from Conductor and Pane | ✅ |
 | Burst runs on Vercel Sandbox or Cloudflare Containers | ✅ (not yet run against either service) |

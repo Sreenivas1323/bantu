@@ -105,6 +105,8 @@ pub enum TrackerKind {
     Jira,
     /// ClickUp, with a personal API token.
     Clickup,
+    /// GitLab (gitlab.com or self-managed), with a personal access token.
+    Gitlab,
 }
 
 impl TrackerKind {
@@ -113,6 +115,7 @@ impl TrackerKind {
             Self::Github => "GitHub",
             Self::Jira => "Jira",
             Self::Clickup => "ClickUp",
+            Self::Gitlab => "GitLab",
         }
     }
 }
@@ -127,11 +130,13 @@ pub struct Tracker {
     pub repo_id: String,
     /// Shown in the app, e.g. "Jira: WEB".
     pub name: String,
-    /// Jira: `https://<you>.atlassian.net`. ClickUp: the API's address, only
-    /// set to test against something else.
+    /// Jira: `https://<you>.atlassian.net`. GitLab: the instance, if not
+    /// `https://gitlab.com`. ClickUp: the API's address, only set to test
+    /// against something else.
     pub site: Option<String>,
-    /// Which tasks: a Jira project key or JQL query, a ClickUp list id, or a
-    /// GitHub label (empty for all open issues).
+    /// Which tasks: a Jira project key or JQL query, a ClickUp list id, a
+    /// GitLab project (`group/project` or its id, optionally followed by
+    /// ` ~label`), or a GitHub label (empty for all open issues).
     pub scope: String,
     /// The Jira account's email, for its API token.
     pub account: Option<String>,
@@ -141,7 +146,7 @@ pub struct Tracker {
     pub last_error: Option<String>,
 }
 
-/// A task in a tracker: a Jira issue, a ClickUp task or a GitHub issue.
+/// A task in a tracker: a Jira issue, a ClickUp task, or a GitHub or GitLab issue.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
 pub struct Task {
@@ -930,8 +935,8 @@ pub enum Command {
     /// Start a run now.
     #[serde(rename = "loop.run")]
     LoopRun { loop_id: String },
-    /// Connect a repo to a task tracker. `token` is required for Jira and
-    /// ClickUp; GitHub uses `gh`. The connection is tested before it's saved.
+    /// Connect a repo to a task tracker. `token` is required for Jira,
+    /// ClickUp and GitLab; GitHub uses `gh`. The connection is tested before it's saved.
     #[serde(rename = "tracker.add")]
     TrackerAdd {
         repo_id: String,

@@ -11,13 +11,15 @@ export type Tracker = { id: string, kind: TrackerKind, repo_id: string,
  */
 name: string, 
 /**
- * Jira: `https://<you>.atlassian.net`. ClickUp: the API's address, only
- * set to test against something else.
+ * Jira: `https://<you>.atlassian.net`. GitLab: the instance, if not
+ * `https://gitlab.com`. ClickUp: the API's address, only set to test
+ * against something else.
  */
 site: string | null, 
 /**
- * Which tasks: a Jira project key or JQL query, a ClickUp list id, or a
- * GitHub label (empty for all open issues).
+ * Which tasks: a Jira project key or JQL query, a ClickUp list id, a
+ * GitLab project (`group/project` or its id, optionally followed by
+ * ` ~label`), or a GitHub label (empty for all open issues).
  */
 scope: string, 
 /**

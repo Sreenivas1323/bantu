@@ -90,7 +90,7 @@ Feature-by-feature status against Conductor and Pane lives in
 
 The full plan is in [TEAMS.md](TEAMS.md).
 
-- [x] Tasks from GitHub Issues, Jira and ClickUp: sync, start a workspace from a task, and progress and the pull request posted back (`update_task`) — tested against local fakes of the Jira and ClickUp APIs, not yet against real accounts
+- [x] Tasks from GitHub Issues, GitLab, Jira and ClickUp: sync, start a workspace from a task, and progress and the pull request (GitLab: merge request) posted back (`update_task`) — tested against local fakes of the GitLab, Jira and ClickUp APIs, not yet against real accounts
 - [ ] Task status written back (In Progress, In Review), and assigning a task to an agent
 - [ ] A shared team pack: skills, prompts, checks and allowed models from one git repo
 - [ ] The org service: sign-in and roles, a team board, analytics in team totals only; self-hosted or hosted
