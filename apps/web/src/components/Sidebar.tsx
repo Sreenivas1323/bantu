@@ -40,7 +40,10 @@ export function Sidebar(props: Props) {
       }`}
     >
       <div className="flex items-center justify-between px-3 py-2.5">
-        <span className="font-semibold tracking-tight">Bantu</span>
+        <span className="flex items-center gap-2 font-semibold tracking-tight">
+          <img src="./icon.svg" alt="" width={22} height={22} className="-my-1" />
+          Bantu
+        </span>
         <button type="button" onClick={props.onClose} aria-label="Close the workspace list" className="flex size-8 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg md:hidden">
           ✕
         </button>
