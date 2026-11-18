@@ -120,7 +120,7 @@ cross-checked against [Agent Orchestrator](https://github.com/OrchestratorInc/ag
 | Protocol v1 (HTTP commands + resumable SSE events, idempotent retries) | ✅ |
 | Repos, worktree workspaces, setup/archive/run scripts, port ranges | ✅ |
 | Web UI; one-line installer and background service for macOS/Linux | ✅ |
-| macOS desktop app (.dmg, bundles the daemon; not notarized yet) | ✅ |
+| macOS desktop app (.dmg, bundles the daemon; signed and notarized) | ✅ |
 | Claude Code chat: tool cards, live streaming, queue, stop, plan mode, model picker | ✅ |
 | Codex chat (`codex exec --json`) | ✅ (not yet verified against the live service) |
 | Workspaces from a branch, PR or GitHub issue; descriptive branch names | ✅ |
