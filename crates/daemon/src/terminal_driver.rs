@@ -99,7 +99,7 @@ impl Daemon {
                 };
                 (command, 0)
             }
-            AgentKind::Opencode | AgentKind::Gemini | AgentKind::Cursor => {
+            _ => {
                 return Err(CommandError::BadRequest(format!(
                     "{} can't reopen this conversation in a terminal yet; open its CLI from the \
                      Terminal tab instead",

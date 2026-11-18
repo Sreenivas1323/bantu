@@ -5,15 +5,8 @@ import { accountKind, agentLabel } from "../lib/useAgents.ts";
 import { TerminalView } from "./terminal/TerminalView.tsx";
 import { afterExit } from "../lib/motion.ts";
 
-const INSTALL: Record<AgentKind, string> = {
-  claude: "curl -fsSL https://claude.ai/install.sh | bash",
-  codex: "npm install -g @openai/codex",
-  opencode: "curl -fsSL https://opencode.ai/install | bash",
-  gemini: "npm install -g @google/gemini-cli",
-  cursor: "curl https://cursor.com/install -fsS | bash",
-};
-
-const METHODS: Record<AgentKind, { method: LoginMethod; label: string; hint: string }[]> = {
+// Agents with more than one way in; the rest get one button for their own flow.
+const METHODS: Partial<Record<AgentKind, { method: LoginMethod; label: string; hint: string }[]>> = {
   claude: [
     { method: "subscription", label: "Claude subscription", hint: "Pro, Max or Team: turns use your plan's limits" },
     { method: "sso", label: "SSO", hint: "Team or Enterprise with single sign-on" },
@@ -86,12 +79,13 @@ export function AccountsDialog({
           subscription's limits apply; Bantu never sees your credentials.
         </p>
         {!agents && <p className="text-muted">Checking…</p>}
-        {agents?.map((a) => (
+        {agents?.filter((a) => a.installed || a.agent === "claude").map((a) => (
           <section key={a.agent} className="rounded-md border border-line p-3">
             <div className="flex items-baseline gap-2">
               <span className={`size-2 shrink-0 self-center rounded-full ${a.logged_in ? "bg-ok" : a.installed ? "bg-warn" : "bg-faint"}`} />
-              <span className="font-medium">{agentLabel(a.agent)}</span>
+              <span className="font-medium">{a.name}</span>
               {a.version && <span className="font-mono text-[11.5px] text-faint">{a.version}</span>}
+              {a.mode === "terminal" && <span className="text-[11.5px] text-faint">terminal only</span>}
               <span className="flex-1" />
               <span className={a.logged_in ? "text-ok" : "text-warn"}>{a.installed ? accountKind(a) : "not installed"}</span>
             </div>
@@ -102,7 +96,8 @@ export function AccountsDialog({
             )}
             {a.installed ? (
               <div className="mt-2.5 flex flex-wrap gap-1.5 pl-4">
-                {METHODS[a.agent].map((m) => (
+                {!a.can_sign_in && <span className="text-[12.5px] text-muted">Reads provider API keys from your environment.</span>}
+                {(a.can_sign_in ? (METHODS[a.agent] ?? [{ method: "subscription" as const, label: a.name, hint: `${a.name}'s own sign-in` }]) : []).map((m) => (
                   <button
                     key={m.method}
                     type="button"
@@ -117,11 +112,36 @@ export function AccountsDialog({
             ) : (
               <p className="mt-2 pl-4 text-[12.5px] text-muted">
                 Install it, then reopen this dialog:{" "}
-                <code className="rounded bg-bg px-1.5 py-0.5 font-mono text-[12px]">{INSTALL[a.agent]}</code>
+                <code className="rounded bg-bg px-1.5 py-0.5 font-mono text-[12px]">{a.install_hint}</code>
               </p>
             )}
           </section>
         ))}
+        {agents && agents.some((a) => !a.installed && a.agent !== "claude") && (
+          <details className="rounded-md border border-line p-3">
+            <summary className="cursor-pointer text-muted hover:text-fg">
+              More agents ({agents.filter((a) => !a.installed && a.agent !== "claude").length} not installed)
+            </summary>
+            <p className="mt-2 text-[12.5px] text-muted">
+              Install one, then reopen this dialog. Chat agents work in the chat; terminal-only ones open in a workspace terminal.
+            </p>
+            <ul className="mt-2 flex flex-col gap-2">
+              {agents
+                .filter((a) => !a.installed && a.agent !== "claude")
+                .map((a) => (
+                  <li key={a.agent} className="flex flex-col gap-0.5">
+                    <span className="flex items-baseline gap-2">
+                      <a href={a.docs_url} target="_blank" rel="noreferrer" className="hover:underline">
+                        {a.name}
+                      </a>
+                      <span className="text-[11.5px] text-faint">{a.mode === "terminal" ? "terminal only" : "chat"}</span>
+                    </span>
+                    <code className="w-fit rounded bg-bg px-1.5 py-0.5 font-mono text-[12px] break-all select-all">{a.install_hint}</code>
+                  </li>
+                ))}
+            </ul>
+          </details>
+        )}
         <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-line p-3">
           <input
             type="checkbox"

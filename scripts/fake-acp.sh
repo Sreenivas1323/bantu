@@ -1,5 +1,5 @@
 #!/bin/sh
-# A stand-in for an ACP agent (OpenCode, Gemini CLI, Cursor) that costs nothing.
+# A stand-in for any ACP agent (OpenCode, Gemini CLI, Goose, ...) that costs nothing.
 # It speaks just enough JSON-RPC over stdio for the daemon's ACP driver:
 #
 #   BANTU_OPENCODE_BIN=$PWD/scripts/fake-acp.sh cargo run -p bantud

@@ -95,7 +95,23 @@ in Bantu chats** in the accounts dialog. This is on `main` and isn't in v0.1.0-a
 - **Open source.** Apache-2.0.
 - **Daemon first.** One small Rust daemon, `bantud`, runs your agents. The desktop and web apps are thin clients. With `bantud` installed as a service, agents keep working when you close the window.
 - **Bring your own cloud.** The same daemon runs on a spare Mac mini, a Linux box or your own AWS account, at cost price and paid to your provider directly.
-- **Your own agents.** Claude Code, Codex, OpenCode, Gemini CLI and Cursor, with your own login.
+- **Your own agents.** 18 coding agents, each with your own login; see [Supported agents](#supported-agents).
+
+## Supported agents
+
+| Agent | How Bantu runs it | Tested against |
+|---|---|---|
+| Claude Code | Structured chat (`stream-json`) | The real CLI and a fake |
+| Codex CLI | Structured chat (`codex exec --json`) | A fake only |
+| OpenCode, Gemini CLI, Cursor CLI | Structured chat over ACP | A fake only |
+| Goose, Qwen Code, GitHub Copilot CLI, Auggie, Kimi Code CLI, Kiro CLI, Cline, Kilo Code, Mistral Vibe | Structured chat over ACP | A fake only (new in alpha.4) |
+| Aider, Amp, Crush, Factory Droid | Their own UI in a workspace terminal | Not yet run |
+
+An agent is listed as ACP only when its own docs show an ACP mode. The others open in a
+terminal from the same **+ New chat** menu. Install hints, sign-in and per-agent details are
+in the accounts dialog and in [docs/PROTOCOL.md](docs/PROTOCOL.md#agents). Agent data was
+cross-checked against [Agent Orchestrator](https://github.com/OrchestratorInc/agent-orchestrator)
+(Apache-2.0).
 
 ## Status
 
@@ -113,7 +129,9 @@ in Bantu chats** in the accounts dialog. This is on `main` and isn't in v0.1.0-a
 | Diff review with line comments sent to the agent; Create PR; PR checks summary | ✅ |
 | Terminals and run scripts (PTY over WebSocket) | ✅ |
 | Per-turn checkpoints and "restore files to before this turn" | ✅ |
-| ACP agents (OpenCode, Cursor, Gemini) | ✅ (tested with a fake agent; no full turn against a real one yet) |
+| ACP agents (OpenCode, Cursor, Gemini, Goose, Qwen Code, Copilot, Auggie, Kimi, Kiro, Cline, Kilo Code, Vibe) | ✅ (tested with a fake agent; no full turn against a real one yet) |
+| Terminal-only agents (Aider, Amp, Crush, Droid) from the chat picker | ✅ (not yet run against the real CLIs) |
+| Per-repo agent roles: `[agents] worker`, `orchestrator`, `reviewer` | ✅ |
 | Chat ⇄ terminal on one conversation; any CLI in a terminal | ✅ |
 | Checks tab: CI, deployments, PR comments, todos | ✅ |
 | Per-repo prompts, loadouts, effort and fast mode, forking a chat | ✅ |
@@ -162,7 +180,7 @@ The project itself costs about $99 a year to run (Apple code signing). See
                           |
    bantud: one Rust binary on macOS, Linux or EC2
      ├─ workspaces   git worktrees, scripts, port ranges
-     ├─ agents       your own `claude`, `codex`, `opencode`, `gemini` and `agent` CLIs
+     ├─ agents       your own `claude`, `codex` and ACP CLIs, or any CLI in a terminal
      ├─ checkpoints  per-turn snapshots in private git refs
      └─ SQLite       append-only event log
 ```
@@ -205,6 +223,11 @@ run = "bun dev --port $BANTU_PORT"      # the ▶ Run button
 archive = "docker compose down"        # runs when a workspace is archived
 check = "bun run typecheck && bun test" # after each agent turn that changed files;
                                         # failures go back to the agent (twice at most)
+
+[agents]                                # which agent each role uses (Claude by default)
+worker = "codex"                        # new chats
+orchestrator = "claude"                 # lead chats that start other workspaces
+reviewer = "gemini"                     # Review, and automatic review
 ```
 
 Each workspace gets 10 ports from `$BANTU_PORT`. Gitignored `.env*` files, and anything

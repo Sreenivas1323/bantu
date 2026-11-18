@@ -22,7 +22,7 @@ export function TerminalPanel({
   const ready = workspace.state === "ready";
 
   const open = async (command: string | null = null) => {
-    const res = await run({ type: "terminal.open", workspace_id: workspace.id, cols: null, rows: null, command });
+    const res = await run({ type: "terminal.open", workspace_id: workspace.id, cols: null, rows: null, command, agent: null });
     const t = res?.result as Terminal | undefined;
     if (t?.id) onSelect(t.id);
   };

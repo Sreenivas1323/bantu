@@ -39,6 +39,7 @@ All bodies are JSON (`content-type: application/json`). Errors are JSON too: `{ 
 | `GET /v1/workspaces/{id}/ports` | token | `ForwardedPort[]`, the servers listening on the workspace's ports |
 | `GET /v1/workspaces/{id}/children` | token | `ChildWorkspace[]`, the workspaces its agent started |
 | `GET /v1/tasks` | token | `Task[]`, open tasks from every connected tracker, newest first |
+| `GET /v1/agents` | token | `AgentStatus[]`, every agent Bantu knows, in `AgentKind` order; see [Agents](#agents) |
 | `GET /v1/push/key` | token | `{ public_key }`, the VAPID key browsers subscribe with |
 | `GET /v1/terminals/{id}/ws` | token | WebSocket of raw PTY bytes |
 | `POST /v1/hooks/permission?session=<id>` | hook token | Claude Code hook response (internal) |
@@ -169,7 +170,7 @@ One chat with an agent in a workspace. Every workspace gets one automatically wh
 |---|---|---|
 | `id` | string | |
 | `workspace_id` | string | |
-| `agent` | `"claude" \| "codex" \| "opencode" \| "gemini" \| "cursor"` | Fixed when the chat is created |
+| `agent` | `AgentKind` | Fixed when the chat is created; see [Agents](#agents) |
 | `title` | string | `"New chat"` until the first message, which becomes the title |
 | `model` | string \| null | `null` uses the agent's default (e.g. `opus`, `sonnet`, `haiku`, or a full model id) |
 | `permission_mode` | `PermissionMode` | See below |
@@ -280,8 +281,8 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `workspace.address_comments` | `workspace_id`, `session_id` | `Session` | Sends the PR's comments to the agent. 400 without a PR or comments. |
 | `workspace.resolve_conflicts` | `workspace_id`, `session_id` | `Session` | Asks the agent to resolve what the conflict radar found. 400 if there's nothing to resolve. |
 | `workspace.rename_branch` | `workspace_id`, `session_id` | `Session` | Asks the agent to rename the branch. The daemon picks up the new name when the turn ends. |
-| `workspace.review` | `workspace_id`, `agent?` | `Session` | Starts a read-only chat that reviews the workspace's changes. |
-| `session.create` | `workspace_id`, `agent?`, `model?`, `permission_mode?`, `effort?`, `fast?` | `Session` | Opens another chat in a ready workspace. |
+| `workspace.review` | `workspace_id`, `agent?` | `Session` | Starts a read-only chat that reviews the workspace's changes. Without `agent`, the repo's `[agents] reviewer` (else Claude). |
+| `session.create` | `workspace_id`, `agent?`, `role?`, `model?`, `permission_mode?`, `effort?`, `fast?` | `Session` | Opens another chat in a ready workspace. Without `agent`, the repo's agent for `role` (`worker`, `orchestrator` or `reviewer`; see [Repo configuration](#repo-configuration-bantusettingstoml)) is used, else Claude. `role` defaults to `orchestrator` in a workspace that has started others, and `worker` otherwise. 400 for a terminal-only agent. |
 | `session.fork` | `session_id` | `Session` | Starts a new chat that continues from where this one is now; see below. 409 while a turn is running. |
 | `session.send` | `session_id`, `text` | `Session` | Sends a message. If a turn is running it's queued (`queued` goes up) and runs afterwards, in order. |
 | `session.cancel` | `session_id` | `Session` | Stops the running turn (it ends with an `error` item `"Stopped"`), drops queued messages, and denies pending permission requests. |
@@ -305,7 +306,7 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `comment.add` | `workspace_id`, `path`, `line`, `body` | `DiffComment` | Adds a draft review comment. |
 | `comment.delete` | `comment_id` | — | |
 | `comments.send` | `workspace_id`, `session_id` | `Session` | Sends every draft comment to the agent as one message (sorted by file and line), then marks them sent. 400 if there are none. |
-| `terminal.open` | `workspace_id`, `cols?`, `rows?`, `command?` | `Terminal` | Opens an interactive login shell in the worktree, or runs `command` (any CLI) there. |
+| `terminal.open` | `workspace_id`, `cols?`, `rows?`, `command?`, `agent?` | `Terminal` | Opens an interactive login shell in the worktree, or runs `command` (any CLI) there. With `agent` and no `command`, it runs that agent's own terminal UI (titled with its name); this is how terminal-only agents are used. |
 | `session.open_terminal` | `session_id`, `cols?`, `rows?` | `Terminal` | Continues a Claude or Codex chat in the agent's own terminal UI; see below. Returns the existing terminal if it's already open. 409 while a turn is running. |
 | `terminal.close` | `terminal_id` | — | Hangs up the terminal's whole process group and forgets it. |
 | `preferences.update` | `claude_user_setup?`, `loadouts?` | `Preferences` | Changes daemon-wide preferences (also in `StateSnapshot.preferences`; changes arrive as `preferences.updated`). |
@@ -488,13 +489,45 @@ While that terminal runs, `session.send` returns 409, because two processes must
 
 - **Claude**: new entries in its transcript (`<CLAUDE_CONFIG_DIR>/projects/*/<id>.jsonl`) are added as chat items, then a `terminal_session` item. Subagent work and injected context are skipped, and the transcript carries no per-turn cost.
 - **Codex**: only the `terminal_session` item is added, but the conversation resumes normally, because Codex keeps it.
-- **ACP agents** can't reopen a conversation in a terminal yet (400). Run their CLI with `terminal.open` and a `command`; that's a separate conversation.
+- **ACP agents** can't reopen a conversation in a terminal yet (400). Open their own UI with `terminal.open` and `agent`; that's a separate conversation.
 
-### ACP agents (OpenCode, Gemini CLI, Cursor)
+### Agents
+
+`AgentKind` is one of these ids. The daemon's catalogue (`crates/daemon/src/catalogue.rs`) holds each one's binary, how it starts, its install command and how to tell it's signed in. `GET /v1/agents` returns an `AgentStatus` for each: `{ agent, name, mode, install_hint, docs_url, can_sign_in, installed, version, logged_in, auth_method, account, organization, plan }`, where `mode` (`AgentMode`) is `native`, `acp` or `terminal`.
+
+| `AgentKind` | Agent | Mode | Command Bantu runs |
+|---|---|---|---|
+| `claude` | Claude Code | native | `claude -p --output-format stream-json …` |
+| `codex` | Codex CLI | native | `codex exec --json …` |
+| `opencode` | OpenCode | acp | `opencode acp` |
+| `gemini` | Gemini CLI | acp | `gemini --acp` |
+| `cursor` | Cursor CLI | acp | `agent acp` |
+| `goose` | Goose | acp | `goose acp` |
+| `qwen` | Qwen Code | acp | `qwen --acp` |
+| `copilot` | GitHub Copilot CLI | acp | `copilot --acp` |
+| `auggie` | Auggie (Augment Code) | acp | `auggie --acp` |
+| `kimi` | Kimi Code CLI | acp | `kimi acp` |
+| `kiro` | Kiro CLI | acp | `kiro-cli acp` |
+| `cline` | Cline CLI | acp | `cline --acp` |
+| `kilo` | Kilo Code CLI | acp | `kilo acp` |
+| `vibe` | Mistral Vibe | acp | `vibe-acp` (installed next to `vibe`) |
+| `aider` | Aider | terminal | `aider` |
+| `amp` | Amp | terminal | `amp` |
+| `crush` | Crush | terminal | `crush` |
+| `droid` | Factory Droid | terminal | `droid` |
+
+- **ACP** is listed only where the agent's own current docs show an ACP mode. Amp, Aider and Crush have no first-party ACP mode (only third-party adapters or unreleased branches), and Factory's CLI reference doesn't document one for Droid, so they run in a terminal. Binaries, install commands and sign-in checks were cross-checked against [Agent Orchestrator](https://github.com/OrchestratorInc/agent-orchestrator)'s adapters (Apache-2.0).
+- **Tested with fakes only.** The automated tests drive Claude, Codex and the ACP agents through stand-in scripts (`scripts/fake-*.sh`). Goose, Qwen Code, Copilot, Auggie, Kimi, Kiro, Cline, Kilo Code, Mistral Vibe, Aider, Amp, Crush and Droid have not been run against their real CLIs yet.
+- **Binaries.** Each agent's binary can be overridden with `BANTU_<ID>_BIN` (e.g. `BANTU_KIRO_BIN`) or `--agent-bin <id>=<path>`. `--claude-bin`, `--codex-bin`, `--opencode-bin`, `--gemini-bin` and `--cursor-bin` still work.
+- **Installed** means `<bin> --version` succeeds. **Signed in** comes from `claude auth status`, `codex login status` and `kiro-cli whoami`; Goose, Auggie and Cline count as signed in when their credential file exists or their API-key variable is set; the other agents count as signed in once installed, until a turn says otherwise.
+- **Terminal-only agents** can't hold a chat (`session.create` returns 400). `terminal.open` with `agent` runs their own UI in the worktree.
+- **Sign-in.** `agent.login` opens the agent's own flow: a subcommand where it has one (`goose configure`, `kiro-cli login`, `auggie auth login`, `cline auth`, …), or else its UI, where it signs in with a command such as `/login`. Aider has none (`can_sign_in` is false): it reads provider API keys from the environment.
+
+### ACP agents
 
 These agents speak the [Agent Client Protocol](https://agentclientprotocol.com): JSON-RPC 2.0 over stdio. Each turn is one process running `initialize`, then `session/new` (or `session/load` to resume), then `session/prompt`.
 
-- **Commands**: `opencode acp`, `gemini --acp` and `agent acp`. Override the binaries with `BANTU_OPENCODE_BIN`, `BANTU_GEMINI_BIN` and `BANTU_CURSOR_BIN`.
+- **Commands**: the `acp` rows in [Agents](#agents).
 - **Client capabilities**: Bantu advertises neither `fs` nor `terminal`, so agents use their own file and shell tools inside the worktree.
 - **Bantu's MCP server** is passed to agents that advertise `mcpCapabilities.http`. The token travels over stdin, never in argv.
 - **Workspace context** is prepended to the first prompt, because ACP has no system prompt.
@@ -563,7 +596,19 @@ auto = true
 agent = "codex"   # defaults to Codex for Claude's work, and Claude for everyone else's
 ```
 
-Bantu looks for `setup` and `run` first in the worktree (the branch's committed config), then in the main checkout. Settings that make the daemon act on its own (`check`, `archive`, `[prompts]` and `[review]`) come only from the main checkout, because an agent allowed to edit files could otherwise run any command without a prompt, or turn off its own review. A branch's changes to them apply once they're merged. While Spotlight is active, those settings come from the base branch instead. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.
+Which agent the repo uses for each role. Any `AgentKind` that can hold a chat works; terminal-only and unknown ids are ignored, with a warning in the daemon log.
+
+```toml
+[agents]
+worker = "codex"         # new chats, including each workspace's first chat and create_workspace children
+orchestrator = "claude"  # a lead chat: session.create with role "orchestrator", or any new chat
+                         # in a workspace that has started others
+reviewer = "gemini"      # workspace.review without an agent, and automatic review
+```
+
+Each defaults to Claude, except that automatic review without a reviewer still picks a different agent from the author's. `[review] agent` is an alias for `reviewer`; `reviewer` wins when both are set. An explicit `agent` in a command always wins.
+
+Bantu looks for `setup` and `run` first in the worktree (the branch's committed config), then in the main checkout. Settings that make the daemon act on its own (`check`, `archive`, `[prompts]`, `[review]` and `[agents]`) come only from the main checkout, because an agent allowed to edit files could otherwise run any command without a prompt, or turn off its own review. A branch's changes to them apply once they're merged. While Spotlight is active, those settings come from the base branch instead. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.
 
 Scripts run in the user's login shell (`$SHELL -lc`) in the workspace directory, with these environment variables:
 

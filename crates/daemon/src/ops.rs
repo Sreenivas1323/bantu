@@ -94,11 +94,19 @@ impl Daemon {
             Command::SessionCreate {
                 workspace_id,
                 agent,
+                role,
                 model,
                 permission_mode,
                 effort,
                 fast,
             } => {
+                let agent = match (agent, role) {
+                    (None, Some(role)) => {
+                        let ws = self.require_workspace(&workspace_id).await?;
+                        Some(self.role_agent(&ws, role).await)
+                    }
+                    (agent, _) => agent,
+                };
                 let session = self
                     .create_session(&workspace_id, agent, model, permission_mode)
                     .await?;
@@ -249,10 +257,17 @@ impl Daemon {
                 cols,
                 rows,
                 command,
-            } => serde_json::to_value(
-                self.open_terminal(&workspace_id, cols, rows, command)
-                    .await?,
-            ),
+                agent,
+            } => serde_json::to_value(match (agent, command) {
+                (Some(agent), None) => {
+                    self.open_agent_terminal(&workspace_id, agent, cols, rows)
+                        .await?
+                }
+                (_, command) => {
+                    self.open_terminal(&workspace_id, cols, rows, command)
+                        .await?
+                }
+            }),
             Command::SessionOpenTerminal {
                 session_id,
                 cols,

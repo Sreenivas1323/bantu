@@ -1,4 +1,5 @@
-//! Agent Client Protocol driver for OpenCode, Gemini CLI and Cursor.
+//! Agent Client Protocol driver for every ACP agent in the catalogue
+//! (OpenCode, Gemini CLI, Cursor, Goose, Qwen Code, Copilot and more).
 //!
 //! ACP is JSON-RPC 2.0 over stdio with one JSON message per line. Like the
 //! other drivers this runs one process per turn: `initialize`, then
@@ -15,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
-use bantu_protocol::{AgentKind, ChatItem, PermissionMode, Session, StreamDelta};
+use bantu_protocol::{AgentKind, AgentMode, ChatItem, PermissionMode, Session, StreamDelta};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, Notify};
@@ -32,14 +33,19 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 /// How much of the transcript to replay to an agent that can't load sessions.
 const REPLAY_CHARS: usize = 20_000;
 
-/// The binary and arguments that start an agent in ACP mode.
+/// The binary and arguments that start an agent in ACP mode, from the
+/// [catalogue](crate::catalogue). `None` for agents that don't speak ACP.
 pub fn command(config: &Config, agent: AgentKind) -> Option<(PathBuf, &'static [&'static str])> {
-    match agent {
-        AgentKind::Opencode => Some((config.opencode_bin.clone(), &["acp"])),
-        AgentKind::Gemini => Some((config.gemini_bin.clone(), &["--acp"])),
-        AgentKind::Cursor => Some((config.cursor_bin.clone(), &["acp"])),
-        AgentKind::Claude | AgentKind::Codex => None,
+    let spec = crate::catalogue::spec(agent);
+    if spec.mode != AgentMode::Acp {
+        return None;
     }
+    let bin = config.agent_bin(agent);
+    let bin = match spec.acp_program {
+        Some(program) => crate::catalogue::sibling(&bin, program),
+        None => bin,
+    };
+    Some((bin, spec.acp_args))
 }
 
 fn request(id: u64, method: &str, params: Value) -> String {
