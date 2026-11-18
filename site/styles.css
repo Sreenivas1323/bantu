@@ -93,7 +93,14 @@ li {
   text-decoration: none;
 }
 
-/* The signature: the app's status dots, finished, working and needs-you. */
+/* The mark: a pawn on a shield, the helper that guards the king. */
+.mark {
+  width: 30px;
+  height: 30px;
+  margin: -4px 0;
+}
+
+/* The app's status dots, finished, working and needs-you, mark lists. */
 .dots {
   display: inline-flex;
   gap: 4px;
