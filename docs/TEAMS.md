@@ -67,6 +67,15 @@ Each step is useful on its own, and each step works for one person before it wor
 The first piece that needs a server, so it's built to run anywhere: Cloudflare (Workers and D1)
 or a container on the org's cloud. The hosted version is this same service.
 
+- [x] The daemon's side of Bantu Connect ([PROTOCOL.md](PROTOCOL.md#organizations-bantu-connect)):
+  join with a link, sync every 5 minutes, leave, and clean up when removed (a 401). The org's
+  Jira, ClickUp and GitLab connections become trackers members can't remove, attached to the repo
+  their scope points at or else every repo. Its Claude access (`team`, `api_key`, `bedrock`,
+  `vertex`) is applied to Claude Code in chats, reviews and terminals. Yesterday's team totals are
+  posted once a day, as counts only. So far it's tested only against a fake connector in the
+  daemon's API tests, not the Connect service itself.
+- [x] The app's Organization section in the accounts dialog: join, the org's trackers and Claude
+  access with plain guidance, sync status, and leaving.
 - [ ] Sign-in with GitHub or Google, or Cloudflare Access; owner, admin and member roles.
 - [ ] A team board across trackers: assign a task to a person or to the agent queue.
 - [ ] Analytics in team totals: tasks done, cycle time, check pass rate, review verdicts, agent

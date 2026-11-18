@@ -43,10 +43,15 @@ impl Harness {
         let claude_bin = home.path().join("fake-claude");
         std::fs::write(
             &claude_bin,
-            FAKE_CLAUDE.replace(
-                "${BANTU_FAKE_CLAUDE_LOG:-/dev/null}",
-                claude_calls.to_str().unwrap(),
-            ),
+            FAKE_CLAUDE
+                .replace(
+                    "${BANTU_FAKE_CLAUDE_LOG:-/dev/null}",
+                    claude_calls.to_str().unwrap(),
+                )
+                .replace(
+                    "${BANTU_FAKE_CLAUDE_ENV:-/dev/null}",
+                    home.path().join("claude-env.log").to_str().unwrap(),
+                ),
         )
         .unwrap();
         #[cfg(unix)]
@@ -4991,4 +4996,463 @@ async fn browser_is_opt_in_and_limited_to_the_workspace_ports() {
         })
         .count();
     assert_eq!(finished, 4, "{items:?}");
+}
+
+/// Bantu Connect as far as the daemon uses it, with Jira and ClickUp on the
+/// same server for the trackers it hands out.
+#[derive(Default)]
+struct FakeConnect {
+    /// The daemon token was revoked: sync answers 401.
+    revoked: bool,
+    /// Sync answers 500.
+    failing: bool,
+    connections: Vec<Value>,
+    claude: Value,
+    joins: Vec<Value>,
+    totals: Vec<Value>,
+    leaves: u32,
+}
+
+type Connect = std::sync::Arc<std::sync::Mutex<FakeConnect>>;
+
+const DAEMON_TOKEN: &str = "daemon-token-7f3a";
+
+async fn fake_connect(connect: Connect) -> String {
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::routing::{get, post};
+    use axum::Json;
+
+    fn authed(h: &HeaderMap) -> bool {
+        h.get("authorization").and_then(|v| v.to_str().ok())
+            == Some(format!("Bearer {DAEMON_TOKEN}").as_str())
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let (c1, c2, c3, c4) = (
+        connect.clone(),
+        connect.clone(),
+        connect.clone(),
+        connect.clone(),
+    );
+    let app = axum::Router::new()
+        .route(
+            "/api/daemon/join",
+            post(move |Json(body): Json<Value>| async move {
+                c1.lock().unwrap().joins.push(body.clone());
+                match body["code"].as_str() {
+                    Some("GOOD") => (
+                        StatusCode::OK,
+                        Json(json!({"daemon_token": DAEMON_TOKEN,
+                            "org": {"id": "org_acme", "name": "Acme", "slug": "acme"},
+                            "member": {"login": "ana", "role": "member"}})),
+                    ),
+                    Some("OLD") => (StatusCode::GONE, Json(json!({"error": "expired"}))),
+                    _ => (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": "unknown code"})),
+                    ),
+                }
+            }),
+        )
+        .route(
+            "/api/daemon/sync",
+            get(move |h: HeaderMap| async move {
+                let c = c2.lock().unwrap();
+                if !authed(&h) || c.revoked {
+                    return (StatusCode::UNAUTHORIZED, Json(json!({"error": "revoked"})));
+                }
+                if c.failing {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": "database down"})),
+                    );
+                }
+                (
+                    StatusCode::OK,
+                    Json(json!({
+                        "org": {"id": "org_acme", "name": "Acme", "slug": "acme"},
+                        "member": {"login": "ana", "role": "member"},
+                        "connections": c.connections,
+                        "claude": c.claude,
+                        "synced_at": "2026-11-18T10:00:00Z",
+                    })),
+                )
+            }),
+        )
+        .route(
+            "/api/daemon/totals",
+            post(move |h: HeaderMap, Json(body): Json<Value>| async move {
+                if !authed(&h) {
+                    return StatusCode::UNAUTHORIZED;
+                }
+                c3.lock().unwrap().totals.push(body);
+                StatusCode::NO_CONTENT
+            }),
+        )
+        .route(
+            "/api/daemon/leave",
+            post(move |h: HeaderMap| async move {
+                if !authed(&h) {
+                    return StatusCode::UNAUTHORIZED;
+                }
+                c4.lock().unwrap().leaves += 1;
+                StatusCode::NO_CONTENT
+            }),
+        )
+        .route(
+            "/rest/api/3/myself",
+            get(|| async { Json(json!({"accountId": "a1"})) }),
+        )
+        .route(
+            "/rest/api/3/search/jql",
+            post(|| async { Json(json!({"issues": []})) }),
+        )
+        .route(
+            "/api/v2/user",
+            get(|| async { Json(json!({"user": {"id": 42}})) }),
+        )
+        .route(
+            "/api/v2/list/{list}/task",
+            get(|| async { Json(json!({"tasks": []})) }),
+        );
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    base
+}
+
+/// Everything clients can see: the snapshot and the whole event log.
+async fn visible_text(h: &Harness) -> String {
+    let state = h
+        .http
+        .get(format!("{}/v1/state", h.base))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let last = h.state().await.last_seq;
+    let events = h.events(0, last as usize).await;
+    format!("{state}\n{}", serde_json::to_string(&events).unwrap())
+}
+
+async fn first_session(h: &Harness, workspace_id: &str) -> Session {
+    loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == workspace_id)
+        {
+            return s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test]
+async fn organization_membership_through_connect() {
+    let connect: Connect = Default::default();
+    let base = fake_connect(connect.clone()).await;
+    {
+        let mut c = connect.lock().unwrap();
+        c.connections = vec![
+            json!({"id": "jira1", "kind": "jira", "name": "Web tickets", "site": base, "scope": "WEB",
+                   "account": "bot@acme.dev", "token": "org-jira-token"}),
+            json!({"id": "cu1", "kind": "clickup", "name": "Sprint", "site": base, "scope": "900",
+                   "account": null, "token": "org-clickup-token"}),
+        ];
+        c.claude = json!({"mode": "api_key", "plan": null,
+                          "env": {"ANTHROPIC_API_KEY": "sk-ant-org-secret", "PATH": "/evil"}});
+    }
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let join = |link: String| json!({"type": "org.join", "link": link});
+
+    // Bad links and codes are refused, and nothing is stored.
+    let (status, res) = h.command(join("not a link".into()), None).await;
+    assert_eq!(status, 400, "{res}");
+    let (status, res) = h
+        .command(join("http://connect.acme.dev/c/GOOD".into()), None)
+        .await;
+    assert_eq!(status, 400, "{res}");
+    assert!(res["error"].as_str().unwrap().contains("https"), "{res}");
+    let (status, res) = h.command(join(format!("{base}/c/WRONG")), None).await;
+    assert_eq!(status, 400, "{res}");
+    assert!(
+        res["error"].as_str().unwrap().contains("isn't valid"),
+        "{res}"
+    );
+    let (status, res) = h.command(join(format!("{base}/c/OLD")), None).await;
+    assert_eq!(status, 400, "{res}");
+    assert!(res["error"].as_str().unwrap().contains("expired"), "{res}");
+    assert!(h.state().await.org.is_none());
+    let token_path = h.daemon.config.home.join("org.token");
+    assert!(!token_path.exists());
+
+    // A good code joins, under this machine's name.
+    let (status, res) = h.command(join(format!("{base}/c/GOOD")), None).await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["name"], "Acme");
+    assert_eq!(res["result"]["member"]["role"], "member");
+    assert_eq!(res["result"]["connector"], base);
+    assert!(res["result"]["last_synced_at"].is_string(), "{res}");
+    {
+        let c = connect.lock().unwrap();
+        let joined = c.joins.last().unwrap();
+        assert_eq!(joined["code"], "GOOD");
+        assert!(!joined["name"].as_str().unwrap().is_empty());
+    }
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(&token_path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(std::fs::read_to_string(&token_path).unwrap(), DAEMON_TOKEN);
+    let (status, _) = h.command(join(format!("{base}/c/GOOD")), None).await;
+    assert_eq!(status, 409, "already in an org");
+
+    // The org's connections are trackers on the repo, marked as the org's.
+    let state = h.state().await;
+    let org = state.org.clone().expect("org in the snapshot");
+    assert_eq!(org.claude.mode, bantu_protocol::ClaudeAccessMode::ApiKey);
+    assert_eq!(
+        org.claude.env_keys,
+        ["ANTHROPIC_API_KEY"],
+        "PATH isn't passed on"
+    );
+    assert_eq!(state.trackers.len(), 2, "{:?}", state.trackers);
+    assert!(state
+        .trackers
+        .iter()
+        .all(|t| t.org_id.as_deref() == Some("org_acme") && t.repo_id == repo.id));
+    let jira = state
+        .trackers
+        .iter()
+        .find(|t| t.name == "Web tickets")
+        .unwrap()
+        .clone();
+    let clickup = state
+        .trackers
+        .iter()
+        .find(|t| t.name == "Sprint")
+        .unwrap()
+        .clone();
+    assert_eq!(jira.account.as_deref(), Some("bot@acme.dev"));
+    let tracker_token = |id: &str| h.daemon.config.home.join(format!("trackers/{id}.token"));
+    assert_eq!(
+        std::fs::read_to_string(tracker_token(&jira.id)).unwrap(),
+        "org-jira-token"
+    );
+
+    // Members can't remove them.
+    let (status, res) = h
+        .command(json!({"type":"tracker.remove","tracker_id":jira.id}), None)
+        .await;
+    assert_eq!(status, 409, "{res}");
+    assert!(
+        res["error"]
+            .as_str()
+            .unwrap()
+            .contains("managed by your organization (Acme)"),
+        "{res}"
+    );
+    assert_eq!(h.state().await.trackers.len(), 2);
+
+    // In api_key mode, Claude Code gets the org's key.
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = first_session(&h, &ws.id).await;
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"hello"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let env_log = h.claude_calls.with_file_name("claude-env.log");
+    let last_env = || {
+        std::fs::read_to_string(&env_log)
+            .unwrap_or_default()
+            .lines()
+            .last()
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert!(
+        last_env().contains("ANTHROPIC_API_KEY=sk-ant-org-secret"),
+        "{}",
+        last_env()
+    );
+
+    // Secrets never reach clients or the event log.
+    let visible = visible_text(&h).await;
+    for secret in [
+        DAEMON_TOKEN,
+        "sk-ant-org-secret",
+        "org-jira-token",
+        "org-clickup-token",
+    ] {
+        assert!(!visible.contains(secret), "{secret} is visible to clients");
+    }
+
+    // Yesterday's totals went once, as counts only.
+    let yesterday = (chrono::Utc::now().date_naive() - chrono::Days::new(1))
+        .format("%Y-%m-%d")
+        .to_string();
+    h.command(json!({"type":"org.sync"}), None).await;
+    h.command(json!({"type":"org.sync"}), None).await;
+    {
+        let c = connect.lock().unwrap();
+        assert_eq!(c.totals.len(), 1, "{:?}", c.totals);
+        let sent = &c.totals[0];
+        assert_eq!(sent["day"], yesterday.as_str());
+        let mut keys: Vec<&str> = sent
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        keys.sort();
+        assert_eq!(keys, ["counts", "day"]);
+        let counts = sent["counts"].as_object().unwrap();
+        let mut names: Vec<&str> = counts.keys().map(|k| k.as_str()).collect();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                "agent_turns",
+                "checks_failed",
+                "checks_passed",
+                "cost_usd",
+                "prs_merged",
+                "prs_opened",
+                "workspaces_started"
+            ]
+        );
+        assert!(counts.values().all(Value::is_number), "{counts:?}");
+    }
+    // Today's counts come from the local store.
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let counts = h.daemon.store.day_counts(&today).await.unwrap();
+    assert_eq!(counts.workspaces_started, 1);
+    assert_eq!(counts.agent_turns, 1);
+    assert!((counts.cost_usd - 0.25).abs() < 1e-9, "{counts:?}");
+    assert_eq!((counts.prs_opened, counts.prs_merged), (0, 0));
+
+    // A connection the admin drops goes away.
+    connect
+        .lock()
+        .unwrap()
+        .connections
+        .retain(|c| c["id"] != "cu1");
+    let (status, res) = h.command(json!({"type":"org.sync"}), None).await;
+    assert_eq!(status, 200, "{res}");
+    let trackers = h.state().await.trackers;
+    assert_eq!(trackers.len(), 1);
+    assert_eq!(trackers[0].id, jira.id);
+    assert!(!tracker_token(&clickup.id).exists());
+
+    // Other modes: the member's own account, or a seat on the team's plan.
+    connect.lock().unwrap().claude = json!({"mode": "own", "plan": null, "env": {}});
+    let (_, res) = h.command(json!({"type":"org.sync"}), None).await;
+    assert_eq!(res["result"]["claude"]["mode"], "own");
+    assert_eq!(res["result"]["claude"]["env_keys"], json!([]));
+    connect.lock().unwrap().claude = json!({"mode": "team", "plan": "Claude Team", "env": {}});
+    let (_, res) = h.command(json!({"type":"org.sync"}), None).await;
+    assert_eq!(res["result"]["claude"]["plan"], "Claude Team");
+
+    // Leaving tells the connector and removes what the org added.
+    connect.lock().unwrap().claude = json!({"mode": "api_key", "plan": null,
+        "env": {"ANTHROPIC_API_KEY": "sk-ant-org-secret"}});
+    h.command(json!({"type":"org.sync"}), None).await;
+    let (status, res) = h.command(json!({"type":"org.leave"}), None).await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(connect.lock().unwrap().leaves, 1);
+    let state = h.state().await;
+    assert!(state.org.is_none() && state.org_ended.is_none());
+    assert!(state.trackers.is_empty());
+    assert!(!token_path.exists());
+    assert!(!tracker_token(&jira.id).exists());
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"again"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 2
+    })
+    .await;
+    assert!(!last_env().contains("sk-ant-org-secret"), "{}", last_env());
+    let (status, _) = h.command(json!({"type":"org.leave"}), None).await;
+    assert_eq!(status, 400, "not in an org any more");
+}
+
+#[tokio::test]
+async fn removal_from_the_org_cleans_up() {
+    let connect: Connect = Default::default();
+    let base = fake_connect(connect.clone()).await;
+    connect.lock().unwrap().connections = vec![json!({"id": "gl1", "kind": "gitlab",
+        "name": "app", "site": base, "scope": "acme/app", "account": null,
+        "token": "org-gitlab-token"})];
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    h.command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let join = json!({"type":"org.join","link": format!("{base}/c/GOOD")});
+    let (status, res) = h.command(join.clone(), None).await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(h.state().await.trackers.len(), 1);
+
+    // When the connector fails, the last known settings stay.
+    connect.lock().unwrap().failing = true;
+    let (status, res) = h.command(json!({"type":"org.sync"}), None).await;
+    assert_eq!(status, 200, "{res}");
+    assert!(
+        res["result"]["last_error"]
+            .as_str()
+            .unwrap()
+            .contains("database down"),
+        "{res}"
+    );
+    let state = h.state().await;
+    assert!(state.org.unwrap().last_error.is_some());
+    assert_eq!(state.trackers.len(), 1);
+
+    // A 401 means this machine was removed: everything goes, and why is kept.
+    {
+        let mut c = connect.lock().unwrap();
+        c.failing = false;
+        c.revoked = true;
+    }
+    let (status, res) = h.command(json!({"type":"org.sync"}), None).await;
+    assert_eq!(status, 200, "{res}");
+    assert!(res["result"].is_null(), "{res}");
+    let state = h.state().await;
+    assert!(state.org.is_none());
+    assert!(
+        state.org_ended.as_deref().unwrap().contains("Acme removed"),
+        "{:?}",
+        state.org_ended
+    );
+    assert!(state.trackers.is_empty());
+    assert!(!h.daemon.config.home.join("org.token").exists());
+    assert_eq!(connect.lock().unwrap().leaves, 0);
+
+    // Joining again clears the notice.
+    connect.lock().unwrap().revoked = false;
+    let (status, _) = h.command(join, None).await;
+    assert_eq!(status, 200);
+    let state = h.state().await;
+    assert!(state.org.is_some() && state.org_ended.is_none());
 }

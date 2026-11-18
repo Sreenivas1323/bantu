@@ -6,6 +6,7 @@ import type {
   ImportStatus,
   InboxItem,
   Loop,
+  Org,
   Tracker,
   WorkspacePr,
   LogStream,
@@ -57,6 +58,10 @@ export type DaemonState = {
   /** What's in each repo's main checkout, by repo id. */
   spotlights: Record<string, Spotlight>;
   preferences: Preferences;
+  /** The organization this daemon belongs to through Bantu Connect. */
+  org: Org | null;
+  /** Why the last membership ended, when the connector ended it. */
+  orgEnded: string | null;
 };
 
 export const emptyState: DaemonState = {
@@ -80,6 +85,8 @@ export const emptyState: DaemonState = {
   tasksVersion: 0,
   imports: {},
   preferences: { claude_user_setup: false, loadouts: [] },
+  org: null,
+  orgEnded: null,
 };
 
 export type Action =
@@ -114,6 +121,8 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         tasksVersion: state.tasksVersion + 1,
         imports: state.imports,
         preferences: snapshot.preferences,
+        org: snapshot.org ?? null,
+        orgEnded: snapshot.org_ended ?? null,
         // History isn't in the snapshot; it's backfilled per workspace.
         logs: state.logs,
         chat: state.chat,
@@ -226,6 +235,8 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
       const { [data.workspace_id]: _gone, ...pullRequests } = state.pullRequests;
       return { ...next, pullRequests };
     }
+    case "org.updated":
+      return { ...next, org: data.org, orgEnded: data.ended };
     case "tracker.updated":
       return { ...next, trackers: { ...state.trackers, [data.tracker.id]: data.tracker } };
     case "tracker.removed": {

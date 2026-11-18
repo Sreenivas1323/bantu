@@ -243,6 +243,10 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
           agents={agents}
           terminals={state.terminals}
           preferences={state.preferences}
+          org={state.org}
+          orgEnded={state.orgEnded}
+          trackers={Object.values(state.trackers)}
+          repos={state.repos}
           client={client}
           run={run}
           onRefresh={refreshAgents}
@@ -268,6 +272,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
         <TasksDialog
           repo={state.repos[tasksRepoId]}
           trackers={Object.values(state.trackers).filter((t) => t.repo_id === tasksRepoId)}
+          org={state.org}
           tasksVersion={state.tasksVersion}
           client={client}
           run={run}

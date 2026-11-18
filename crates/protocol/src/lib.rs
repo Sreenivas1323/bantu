@@ -148,6 +148,68 @@ pub struct Tracker {
     pub last_synced_at: Option<String>,
     /// Why the last sync failed, if it did.
     pub last_error: Option<String>,
+    /// The organization that manages this tracker, when it came from Bantu
+    /// Connect. Members can't remove these; the org's admins do.
+    #[serde(default)]
+    pub org_id: Option<String>,
+}
+
+/// How an organization wants its members' Claude Code to reach Claude.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ClaudeAccessMode {
+    /// Whatever each member's Claude Code is signed in to.
+    #[default]
+    Own,
+    /// A seat on the org's Claude Team or Enterprise plan: members sign in
+    /// with their work account.
+    Team,
+    /// One Anthropic API key, set for members' Claude Code.
+    ApiKey,
+    /// Amazon Bedrock.
+    Bedrock,
+    /// Google Vertex AI.
+    Vertex,
+}
+
+/// Your role and login in an organization.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct OrgMember {
+    pub login: String,
+    /// `owner`, `admin` or `member`.
+    pub role: String,
+}
+
+/// What the org set for Claude Code. The values of `env` stay in the daemon;
+/// clients only see the names.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct OrgClaude {
+    pub mode: ClaudeAccessMode,
+    /// The plan's name in `team` mode, e.g. "Claude Team".
+    pub plan: Option<String>,
+    /// Names of the environment variables Bantu sets on Claude Code
+    /// processes (chats, reviews and terminals).
+    pub env_keys: Vec<String>,
+}
+
+/// The organization this daemon belongs to through Bantu Connect.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct Org {
+    pub id: String,
+    pub name: String,
+    pub slug: String,
+    pub member: OrgMember,
+    /// The Connect service's address, e.g. `https://connect.example.com`.
+    pub connector: String,
+    pub joined_at: String,
+    pub last_synced_at: Option<String>,
+    /// Why the last sync failed, if it did. The last known settings stay.
+    pub last_error: Option<String>,
+    pub claude: OrgClaude,
 }
 
 /// A task in a tracker: a Jira issue, a ClickUp task, or a GitHub or GitLab issue.
@@ -1188,6 +1250,17 @@ pub enum Command {
         workspace_id: String,
         session_id: String,
     },
+    /// Join an organization with a join link from Bantu Connect,
+    /// `https://<connector>/c/<code>`. Returns the `Org`.
+    #[serde(rename = "org.join")]
+    OrgJoin { link: String },
+    /// Fetch the org's settings now. Returns the `Org`, or `null` if the
+    /// connector says this machine is no longer a member.
+    #[serde(rename = "org.sync")]
+    OrgSync,
+    /// Leave the organization and remove everything it added.
+    #[serde(rename = "org.leave")]
+    OrgLeave,
     /// Change daemon-wide preferences. Omitted fields are left as they are.
     #[serde(rename = "preferences.update")]
     PreferencesUpdate {
@@ -1303,6 +1376,13 @@ pub enum EventData {
     /// The workspace no longer has a pull request on its branch.
     #[serde(rename = "pr.removed")]
     PrRemoved { workspace_id: String },
+    /// The organization changed: joined, synced, left or removed. `org` is
+    /// `None` when there isn't one; `ended` then says why, if it was removed.
+    #[serde(rename = "org.updated")]
+    OrgUpdated {
+        org: Option<Org>,
+        ended: Option<String>,
+    },
     #[serde(rename = "tracker.updated")]
     TrackerUpdated { tracker: Tracker },
     #[serde(rename = "tracker.removed")]
@@ -1347,6 +1427,7 @@ impl EventData {
             | Self::SpotlightUpdated { .. }
             | Self::ImportUpdated { .. }
             | Self::TrackerUpdated { .. }
+            | Self::OrgUpdated { .. }
             | Self::PrUpdated { .. }
             | Self::PrRemoved { .. }
             | Self::TrackerRemoved { .. }
@@ -1421,6 +1502,12 @@ pub struct StateSnapshot {
     #[serde(default)]
     pub pull_requests: Vec<WorkspacePr>,
     pub preferences: Preferences,
+    /// The organization this daemon belongs to through Bantu Connect.
+    #[serde(default)]
+    pub org: Option<Org>,
+    /// Why the last membership ended, when the connector removed it.
+    #[serde(default)]
+    pub org_ended: Option<String>,
 }
 
 /// How an agent CLI on this machine is installed and signed in.
@@ -1502,6 +1589,7 @@ mod tests {
             "ChatItem",
             "CheckRun",
             "ChildStatus",
+            "ClaudeAccessMode",
             "ChildWorkspace",
             "Command",
             "CommandResponse",
@@ -1525,6 +1613,9 @@ mod tests {
             "Loop",
             "LoopTrigger",
             "LoginMethod",
+            "Org",
+            "OrgClaude",
+            "OrgMember",
             "PermissionMode",
             "PermissionRequest",
             "PrComment",

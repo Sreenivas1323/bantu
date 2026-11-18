@@ -719,6 +719,8 @@ impl Daemon {
                 let context = browser::with_note(workspace_context(&ws), browser.as_ref());
                 let mut cmd =
                     tokio::process::Command::new(platform::program(&self.config.claude_bin));
+                // How the org wants Claude reached (an API key, Bedrock, ...).
+                cmd.envs(self.claude_env());
                 cmd.args(["-p", "--output-format", "stream-json", "--verbose"])
                     .arg("--include-partial-messages")
                     .args(["--permission-prompts", "none"])
