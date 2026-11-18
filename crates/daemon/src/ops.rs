@@ -48,6 +48,7 @@ pub struct Daemon {
     pub(crate) preview: crate::preview::Preview,
     pub(crate) auto_review: crate::auto_review::AutoReview,
     pub(crate) task_sync: crate::tasks::TaskSync,
+    pub(crate) org: crate::org::OrgState,
     pub(crate) pr_watch: crate::pr_watch::PrWatch,
     pub(crate) radar: crate::radar::Radar,
     pub(crate) activity: crate::activity::Tracker,
@@ -67,6 +68,7 @@ impl Daemon {
             preview: Default::default(),
             auto_review: Default::default(),
             task_sync: Default::default(),
+            org: Default::default(),
             pr_watch: Default::default(),
             radar: Default::default(),
             activity: Default::default(),
@@ -76,7 +78,17 @@ impl Daemon {
     pub async fn execute(self: &Arc<Self>, cmd: Command) -> CmdResult<serde_json::Value> {
         self.activity.touch();
         let value = match cmd {
-            Command::RepoAdd { path } => serde_json::to_value(self.add_repo(&path).await?),
+            Command::RepoAdd { path } => {
+                let repo = self.add_repo(&path).await?;
+                // The org's trackers may belong on this repo too.
+                if self.in_org().await {
+                    let this = self.clone();
+                    tokio::spawn(async move {
+                        let _ = this.sync_org().await;
+                    });
+                }
+                serde_json::to_value(repo)
+            }
             Command::RepoRemove { repo_id } => {
                 self.remove_repo(&repo_id).await?;
                 Ok(serde_json::Value::Null)
@@ -224,6 +236,12 @@ impl Daemon {
                 self.add_tracker(repo_id, kind, site, scope, account, token)
                     .await?,
             ),
+            Command::OrgJoin { link } => serde_json::to_value(self.join_org(&link).await?),
+            Command::OrgSync => serde_json::to_value(self.sync_org().await?),
+            Command::OrgLeave => {
+                self.leave_org().await?;
+                Ok(serde_json::Value::Null)
+            }
             Command::TrackerRemove { tracker_id } => {
                 self.remove_tracker(&tracker_id).await?;
                 Ok(serde_json::Value::Null)

@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bantu_protocol::{
-    AgentKind, ChatItem, DiffComment, Event, EventData, LogStream, Loop, PermissionMode,
+    AgentKind, ChatItem, DiffComment, Event, EventData, LogStream, Loop, Org, PermissionMode,
     Preferences, Repo, ReviewState, Session, SessionStatus, Spotlight, Tracker, Workspace,
     WorkspaceState,
 };
@@ -21,6 +21,19 @@ use tokio::sync::{broadcast, Mutex, MutexGuard};
 
 pub fn now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+/// One day's activity as numbers, with nothing that names a person, repo,
+/// branch or piece of text.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+pub struct DayCounts {
+    pub workspaces_started: u64,
+    pub prs_opened: u64,
+    pub prs_merged: u64,
+    pub checks_passed: u64,
+    pub checks_failed: u64,
+    pub agent_turns: u64,
+    pub cost_usd: f64,
 }
 
 pub struct Store {
@@ -438,6 +451,65 @@ impl Store {
         Ok(out)
     }
 
+    /// Records the organization (or that there's none, and why) and tells
+    /// clients. The daemon token is never part of it.
+    pub async fn set_org(&self, org: Option<&Org>, ended: Option<&str>) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        for (key, value) in [
+            ("org", org.map(serde_json::to_string).transpose()?),
+            ("org-ended", ended.map(String::from)),
+        ] {
+            match value {
+                Some(value) => {
+                    sqlx::query(
+                        "INSERT INTO preferences (key, value) VALUES (?, ?)
+                         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    )
+                    .bind(key)
+                    .bind(value)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                None => {
+                    sqlx::query("DELETE FROM preferences WHERE key = ?")
+                        .bind(key)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+            }
+        }
+        let data = EventData::OrgUpdated {
+            org: org.cloned(),
+            ended: ended.map(String::from),
+        };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn org(&self) -> Result<Option<Org>> {
+        let value: Option<String> =
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key = 'org'")
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(value.and_then(|v| serde_json::from_str(&v).ok()))
+    }
+
+    /// Why the last membership ended, if the connector ended it.
+    pub async fn org_ended(&self) -> Result<Option<String>> {
+        Ok(
+            sqlx::query_scalar("SELECT value FROM preferences WHERE key = 'org-ended'")
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+
+    pub async fn delete_private_value(&self, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM preferences WHERE key = ?")
+            .bind(format!("private:{key}"))
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// A small value kept across restarts that clients never see.
     pub async fn private_value(&self, key: &str) -> Result<Option<String>> {
         Ok(
@@ -759,6 +831,74 @@ impl Store {
             .collect())
     }
 
+    /// What happened on one UTC day (`YYYY-MM-DD`), as counts only, for an
+    /// organization's team totals.
+    pub async fn day_counts(&self, day: &str) -> Result<DayCounts> {
+        let workspaces_started: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM workspaces WHERE external = 0 AND substr(created_at, 1, 10) = ?",
+        )
+        .bind(day)
+        .fetch_one(&self.pool)
+        .await?;
+        let (agent_turns, cost_usd): (i64, f64) = sqlx::query_as(
+            "SELECT COUNT(*), COALESCE(SUM(json_extract(payload, '$.item.cost_usd')), 0.0)
+             FROM events
+             WHERE kind = 'session.item' AND substr(ts, 1, 10) = ?
+               AND json_extract(payload, '$.item.kind') = 'turn_end'",
+        )
+        .bind(day)
+        .fetch_one(&self.pool)
+        .await?;
+        let (checks_passed, checks_failed): (i64, i64) = sqlx::query_as(
+            "SELECT COALESCE(SUM(json_extract(payload, '$.item.passed') = 1), 0),
+                    COALESCE(SUM(json_extract(payload, '$.item.passed') = 0), 0)
+             FROM events
+             WHERE kind = 'session.item' AND substr(ts, 1, 10) = ?
+               AND json_extract(payload, '$.item.kind') = 'check'",
+        )
+        .bind(day)
+        .fetch_one(&self.pool)
+        .await?;
+        // A pull request counts as opened on the day Bantu first saw it, and
+        // as merged on the day it was first seen merged, so the board's
+        // repeated updates (and restarts) don't count it twice.
+        let rows = sqlx::query(
+            "SELECT substr(ts, 1, 10) AS day,
+                    json_extract(payload, '$.pr.pull_request.url') AS url,
+                    json_extract(payload, '$.pr.pull_request.state') AS state
+             FROM events WHERE kind = 'pr.updated' AND substr(ts, 1, 10) <= ? ORDER BY seq",
+        )
+        .bind(day)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut first_seen = std::collections::HashMap::new();
+        let mut first_merged = std::collections::HashMap::new();
+        for r in &rows {
+            let (Some(url), Some(on)) = (
+                r.get::<Option<String>, _>("url"),
+                r.get::<Option<String>, _>("day"),
+            ) else {
+                continue;
+            };
+            first_seen.entry(url.clone()).or_insert_with(|| on.clone());
+            if r.get::<Option<String>, _>("state").as_deref() == Some("MERGED") {
+                first_merged.entry(url).or_insert(on);
+            }
+        }
+        let on_day = |m: &std::collections::HashMap<String, String>| {
+            m.values().filter(|d| d.as_str() == day).count() as u64
+        };
+        Ok(DayCounts {
+            workspaces_started: workspaces_started as u64,
+            prs_opened: on_day(&first_seen),
+            prs_merged: on_day(&first_merged),
+            checks_passed: checks_passed as u64,
+            checks_failed: checks_failed as u64,
+            agent_turns: agent_turns as u64,
+            cost_usd,
+        })
+    }
+
     // ---- idempotency ------------------------------------------------------
 
     pub async fn idempotent_response(&self, key: &str) -> Result<Option<(u16, String)>> {
@@ -809,6 +949,7 @@ fn event_kind(data: &EventData) -> &'static str {
         EventData::SpotlightUpdated { .. } => "spotlight.updated",
         EventData::ImportUpdated { .. } => "import.updated",
         EventData::TrackerUpdated { .. } => "tracker.updated",
+        EventData::OrgUpdated { .. } => "org.updated",
         EventData::PrUpdated { .. } => "pr.updated",
         EventData::PrRemoved { .. } => "pr.removed",
         EventData::TrackerRemoved { .. } => "tracker.removed",

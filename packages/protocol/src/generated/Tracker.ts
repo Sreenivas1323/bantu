@@ -29,4 +29,9 @@ account: string | null, created_at: string, last_synced_at: string | null,
 /**
  * Why the last sync failed, if it did.
  */
-last_error: string | null, };
+last_error: string | null, 
+/**
+ * The organization that manages this tracker, when it came from Bantu
+ * Connect. Members can't remove these; the org's admins do.
+ */
+org_id: string | null, };

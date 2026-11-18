@@ -288,6 +288,10 @@ impl Daemon {
         cmd.args(&shell_args);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        // The org's Claude settings, for `claude` run in any terminal.
+        for (key, value) in self.claude_env() {
+            cmd.env(key, value);
+        }
         for (key, value) in env {
             cmd.env(key, value);
         }

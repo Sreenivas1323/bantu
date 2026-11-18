@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import type { AgentKind, AgentStatus, Command, CommandResponse, LoginMethod, Preferences, Terminal } from "@bantu/protocol";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import type { AgentKind, AgentStatus, Command, CommandResponse, LoginMethod, Org, Preferences, Repo, Terminal, Tracker } from "@bantu/protocol";
 import type { DaemonClient } from "../lib/api.ts";
 import { accountKind, agentLabel } from "../lib/useAgents.ts";
 import { TerminalView } from "./terminal/TerminalView.tsx";
 import { afterExit } from "../lib/motion.ts";
+import { claudeGuidance, orgTrackers, syncLine } from "../lib/org.ts";
 
 // Agents with more than one way in; the rest get one button for their own flow.
 const METHODS: Partial<Record<AgentKind, { method: LoginMethod; label: string; hint: string }[]>> = {
@@ -30,6 +31,10 @@ export function AccountsDialog({
   agents,
   terminals,
   preferences,
+  org,
+  orgEnded,
+  trackers,
+  repos,
   client,
   run,
   onRefresh,
@@ -38,6 +43,10 @@ export function AccountsDialog({
   agents: AgentStatus[] | null;
   terminals: Record<string, Terminal>;
   preferences: Preferences;
+  org: Org | null;
+  orgEnded: string | null;
+  trackers: Tracker[];
+  repos: Record<string, Repo>;
   client: DaemonClient;
   run: (command: Command) => Promise<CommandResponse | null>;
   onRefresh: () => Promise<void>;
@@ -78,6 +87,7 @@ export function AccountsDialog({
           Bantu runs the agent CLIs installed on this machine, so chats use whatever account they're signed in to. Your
           subscription's limits apply; Bantu never sees your credentials.
         </p>
+        <OrganizationSection org={org} ended={orgEnded} trackers={orgTrackers(trackers, org)} repos={repos} run={run} />
         {!agents && <p className="text-muted">Checking…</p>}
         {agents?.filter((a) => a.installed || a.agent === "claude").map((a) => (
           <section key={a.agent} className="rounded-md border border-line p-3">
@@ -202,5 +212,139 @@ export function AccountsDialog({
         )}
       </div>
     </dialog>
+  );
+}
+
+/**
+ * Membership of an organization through Bantu Connect: join with a link, or
+ * see what the org manages here and leave it.
+ */
+function OrganizationSection({
+  org,
+  ended,
+  trackers,
+  repos,
+  run,
+}: {
+  org: Org | null;
+  ended: string | null;
+  trackers: Tracker[];
+  repos: Record<string, Repo>;
+  run: (command: Command) => Promise<CommandResponse | null>;
+}) {
+  const [link, setLink] = useState("");
+  const [busy, setBusy] = useState<"join" | "sync" | "leave" | null>(null);
+
+  const act = async (kind: "join" | "sync" | "leave", command: Command) => {
+    setBusy(kind);
+    try {
+      return await run(command);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (!org) {
+    const submit = async (e: FormEvent) => {
+      e.preventDefault();
+      if (!link.trim()) return;
+      const res = await act("join", { type: "org.join", link: link.trim() });
+      if (res?.ok) setLink("");
+    };
+    return (
+      <section className="rounded-md border border-line p-3">
+        <h3 className="font-medium">Organization</h3>
+        {ended && <p className="mt-1 text-[12.5px] text-warn">{ended}</p>}
+        <p className="mt-1 text-[12.5px] text-muted">
+          Join your team's Bantu Connect to get its trackers and Claude settings here. Paste the join link an admin sent you.
+        </p>
+        <form onSubmit={(e) => void submit(e)} className="mt-2 flex gap-2">
+          <label className="sr-only" htmlFor="org-join-link">
+            Join link
+          </label>
+          <input
+            id="org-join-link"
+            value={link}
+            onChange={(e) => setLink(e.target.value)}
+            placeholder="https://connect.example.com/c/…"
+            spellCheck={false}
+            autoComplete="off"
+            className="min-w-0 flex-1 rounded-md border border-line bg-bg px-2 py-1 font-mono text-[16px] sm:text-[13px]"
+          />
+          <button
+            type="submit"
+            disabled={busy !== null || !link.trim()}
+            className="pressable rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-bg disabled:opacity-40"
+          >
+            {busy === "join" ? "Joining…" : "Join"}
+          </button>
+        </form>
+      </section>
+    );
+  }
+
+  const sync = syncLine(org);
+  const guidance = claudeGuidance(org.claude.mode, org.claude.plan);
+  return (
+    <section className="rounded-md border border-line p-3">
+      <div className="flex items-baseline gap-2">
+        <span className={`size-2 shrink-0 self-center rounded-full ${sync.failed ? "bg-bad" : "bg-ok"}`} />
+        <h3 className="font-medium">{org.name}</h3>
+        <span className="text-[12px] text-faint">
+          {org.member.login} · {org.member.role}
+        </span>
+        <span className="flex-1" />
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() => void act("sync", { type: "org.sync" })}
+          className="rounded-md border border-line px-2 py-0.5 text-[12px] text-muted hover:bg-raised hover:text-fg disabled:opacity-50"
+        >
+          {busy === "sync" ? "Syncing…" : "Sync now"}
+        </button>
+      </div>
+      <p className={`mt-1 pl-4 text-[12.5px] ${sync.failed ? "text-bad" : "text-muted"}`}>
+        {sync.text}
+        {sync.failed && " · Using the last settings it sent."}
+      </p>
+      <div className="mt-2.5 flex flex-col gap-2 pl-4 text-[12.5px]">
+        <div>
+          <p className="text-fg">Claude: {guidance.title}</p>
+          <p className="text-muted">{guidance.body}</p>
+        </div>
+        <div>
+          <p className="text-fg">Trackers from {org.name}</p>
+          {trackers.length === 0 ? (
+            <p className="text-muted">None yet.</p>
+          ) : (
+            <ul className="flex flex-col gap-0.5 text-muted">
+              {trackers.map((t) => (
+                <li key={t.id} className="flex items-center gap-1.5">
+                  <span aria-hidden className={`size-1.5 rounded-full ${t.last_error ? "bg-bad" : "bg-ok"}`} />
+                  <span className="truncate" title={t.last_error ?? undefined}>
+                    {t.name} <span className="text-faint">on {repos[t.repo_id]?.name ?? "a repo"}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() => {
+            if (
+              confirm(
+                `Leave ${org.name}? Its trackers and Claude settings are removed from this machine. Workspaces you started from its tasks are kept.`,
+              )
+            )
+              void act("leave", { type: "org.leave" });
+          }}
+          className="self-start rounded-md border border-line px-2.5 py-1 text-[12px] text-muted hover:border-bad hover:text-bad disabled:opacity-50"
+        >
+          {busy === "leave" ? "Leaving…" : "Leave organization"}
+        </button>
+      </div>
+    </section>
   );
 }

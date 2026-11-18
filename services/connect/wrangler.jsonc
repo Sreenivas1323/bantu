@@ -1,0 +1,26 @@
+// Bantu Connect: the org service. See docs/CONNECT.md.
+{
+  "name": "bantu-connect",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-15",
+  "vars": {
+    // Optional. The public origin, such as https://connect.example.com. When it's empty the
+    // Worker uses the origin of each request, which is right for workers.dev or one custom
+    // domain. It's used for the GitHub callback URL and for join links.
+    "PUBLIC_URL": "",
+  },
+  "secrets": {
+    // wrangler secret put <NAME>. Deploy refuses to go ahead until all four are set.
+    "required": ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "SESSION_SECRET", "ENCRYPTION_KEY"],
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "bantu-connect",
+      // Replace with the id that `wrangler d1 create bantu-connect` prints.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "observability": { "enabled": true },
+}

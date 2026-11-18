@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { Command, CommandResponse, Repo, Task, Tracker, TrackerKind } from "@bantu/protocol";
+import type { Command, CommandResponse, Org, Repo, Task, Tracker, TrackerKind } from "@bantu/protocol";
 import type { DaemonClient } from "../lib/api.ts";
 import { afterExit } from "../lib/motion.ts";
 
@@ -14,6 +14,7 @@ const KINDS: { kind: TrackerKind; label: string }[] = [
 export function TasksDialog({
   repo,
   trackers,
+  org,
   tasksVersion,
   client,
   run,
@@ -22,6 +23,8 @@ export function TasksDialog({
 }: {
   repo: Repo;
   trackers: Tracker[];
+  /** Trackers it manages show where they came from and can't be removed here. */
+  org: Org | null;
   /** Changes whenever the daemon says tasks changed. */
   tasksVersion: number;
   client: DaemonClient;
@@ -96,16 +99,22 @@ export function TasksDialog({
               <li key={t.id} className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1">
                 <span aria-hidden className={`size-1.5 rounded-full ${t.last_error ? "bg-bad" : "bg-ok"}`} />
                 <span title={t.last_error ?? (t.last_synced_at ? `Synced ${new Date(t.last_synced_at).toLocaleTimeString()}` : undefined)}>{t.name}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (confirm(`Disconnect ${t.name}? Workspaces already started from it are kept.`)) void run({ type: "tracker.remove", tracker_id: t.id });
-                  }}
-                  className="text-faint hover:text-bad"
-                  aria-label={`Disconnect ${t.name}`}
-                >
-                  ✕
-                </button>
+                {t.org_id ? (
+                  <span className="text-[11.5px] text-faint" title="Managed by your organization in Bantu Connect">
+                    From {org?.id === t.org_id ? org.name : "your organization"}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm(`Disconnect ${t.name}? Workspaces already started from it are kept.`)) void run({ type: "tracker.remove", tracker_id: t.id });
+                    }}
+                    className="text-faint hover:text-bad"
+                    aria-label={`Disconnect ${t.name}`}
+                  >
+                    ✕
+                  </button>
+                )}
               </li>
             ))}
             <li>

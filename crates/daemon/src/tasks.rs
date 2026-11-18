@@ -89,12 +89,14 @@ fn curl_config(
     config
 }
 
-async fn http(
+/// One HTTP request through `curl`: the status, the body as JSON (`null` if
+/// it isn't JSON) and the raw body.
+pub(crate) async fn http_status(
     method: &str,
     url: &str,
     headers: &[(&str, String)],
     body: Option<&Value>,
-) -> Result<Value> {
+) -> Result<(u16, Value, String)> {
     let mut child = tokio::process::Command::new("curl")
         .args([
             "-sS",
@@ -125,8 +127,18 @@ async fn http(
     let (body, status) = text.rsplit_once('\n').unwrap_or(("", &text));
     let status: u16 = status.trim().parse().unwrap_or(0);
     let value: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    Ok((status, value, body.to_string()))
+}
+
+async fn http(
+    method: &str,
+    url: &str,
+    headers: &[(&str, String)],
+    body: Option<&Value>,
+) -> Result<Value> {
+    let (status, value, raw) = http_status(method, url, headers, body).await?;
     if !(200..300).contains(&status) {
-        bail!("HTTP {status}: {}", api_error(&value, body));
+        bail!("HTTP {status}: {}", api_error(&value, &raw));
     }
     Ok(value)
 }
@@ -135,7 +147,7 @@ async fn http(
 /// `{"message": "401 Unauthorized"}`, or `message` as an object for validation
 /// errors (https://docs.gitlab.com/api/rest/troubleshooting/), and
 /// `error_description` when a token lacks a scope.
-fn api_error(value: &Value, raw: &str) -> String {
+pub(crate) fn api_error(value: &Value, raw: &str) -> String {
     let messages: Vec<String> = value["errorMessages"]
         .as_array()
         .into_iter()
@@ -158,7 +170,7 @@ fn api_error(value: &Value, raw: &str) -> String {
 }
 
 /// HTTPS, or plain HTTP to this machine for testing.
-fn valid_site(site: &str) -> bool {
+pub(crate) fn valid_site(site: &str) -> bool {
     let Some((scheme, rest)) = site.split_once("://") else {
         return false;
     };
@@ -751,14 +763,14 @@ fn task_branch(prefix: &str, task: &Task) -> String {
 // ---- The daemon's side -----------------------------------------------------------
 
 impl Daemon {
-    fn token_path(&self, tracker_id: &str) -> PathBuf {
+    pub(crate) fn token_path(&self, tracker_id: &str) -> PathBuf {
         self.config
             .home
             .join("trackers")
             .join(format!("{tracker_id}.token"))
     }
 
-    fn save_token(&self, tracker_id: &str, token: &str) -> Result<()> {
+    pub(crate) fn save_token(&self, tracker_id: &str, token: &str) -> Result<()> {
         let path = self.token_path(tracker_id);
         std::fs::create_dir_all(path.parent().context("no parent")?)?;
         let mut options = std::fs::OpenOptions::new();
@@ -856,6 +868,7 @@ impl Daemon {
             created_at: now(),
             last_synced_at: None,
             last_error: None,
+            org_id: None,
         };
         let mut client = self.client(&tracker).await?;
         client.token = token.clone();
@@ -877,13 +890,35 @@ impl Daemon {
         Ok(tracker)
     }
 
+    /// Disconnects a tracker the member added. Ones from their organization
+    /// stay until an admin removes them or the member leaves.
     pub async fn remove_tracker(&self, id: &str) -> CmdResult<()> {
+        let tracker = self.require_tracker(id).await?;
+        if tracker.org_id.is_some() {
+            let org = self.store.org().await?.map(|o| o.name);
+            return Err(CommandError::Conflict(format!(
+                "{} is managed by your organization{}, so it can't be removed here. \
+                 An admin can remove it in Bantu Connect, or you can leave the organization.",
+                tracker.name,
+                org.map(|n| format!(" ({n})")).unwrap_or_default()
+            )));
+        }
+        self.drop_tracker(id).await
+    }
+
+    /// Removes a tracker, its token and its tasks, whoever manages it.
+    pub(crate) async fn drop_tracker(&self, id: &str) -> CmdResult<()> {
         self.require_tracker(id).await?;
         self.store.delete_tracker(id).await?;
         let _ = std::fs::remove_file(self.token_path(id));
         self.task_sync.tasks.lock().await.remove(id);
         self.task_sync.me.lock().await.remove(id);
         Ok(())
+    }
+
+    /// Forgets whose credentials a tracker uses, so the next sync asks again.
+    pub(crate) async fn forget_tracker_account(&self, id: &str) {
+        self.task_sync.me.lock().await.remove(id);
     }
 
     /// Every known task, newest first, with the workspaces working on them.
@@ -1134,7 +1169,7 @@ impl Daemon {
     pub(crate) async fn delete_repo_trackers(&self, repo_id: &str) -> Result<()> {
         for t in self.store.trackers().await? {
             if t.repo_id == repo_id {
-                let _ = self.remove_tracker(&t.id).await;
+                let _ = self.drop_tracker(&t.id).await;
             }
         }
         Ok(())
@@ -1157,6 +1192,7 @@ mod tests {
             created_at: String::new(),
             last_synced_at: None,
             last_error: None,
+            org_id: None,
         }
     }
 

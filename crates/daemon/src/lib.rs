@@ -19,6 +19,7 @@ pub mod mcp;
 pub mod names;
 pub mod ops;
 pub mod orchestrate;
+pub mod org;
 pub mod permissions;
 pub mod platform;
 pub mod pr_watch;
@@ -119,6 +120,7 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     daemon.start_push()?;
     daemon.start_loops().await?;
     daemon.start_task_sync();
+    daemon.start_org_sync();
     daemon.start_github_accounts();
     daemon.start_pr_watch();
     let state = AppState {

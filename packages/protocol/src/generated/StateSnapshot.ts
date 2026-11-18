@@ -2,6 +2,7 @@
 import type { DiffComment } from "./DiffComment";
 import type { InboxItem } from "./InboxItem";
 import type { Loop } from "./Loop";
+import type { Org } from "./Org";
 import type { PermissionRequest } from "./PermissionRequest";
 import type { Preferences } from "./Preferences";
 import type { Repo } from "./Repo";
@@ -33,4 +34,12 @@ spotlights: Array<Spotlight>, loops: Array<Loop>, trackers: Array<Tracker>,
 /**
  * Pull requests for workspaces' branches, for the fleet board.
  */
-pull_requests: Array<WorkspacePr>, preferences: Preferences, };
+pull_requests: Array<WorkspacePr>, preferences: Preferences, 
+/**
+ * The organization this daemon belongs to through Bantu Connect.
+ */
+org: Org | null, 
+/**
+ * Why the last membership ended, when the connector removed it.
+ */
+org_ended: string | null, };

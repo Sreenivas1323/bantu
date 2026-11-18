@@ -7,8 +7,11 @@
 # Prompts containing "slow" take 3 s, "edit" changes files, "permission"
 # asks Bantu for approval through the PermissionRequest hook, and a failed
 # check report makes it "fix" things by writing fixed.txt.
-# Set BANTU_FAKE_CLAUDE_LOG to record each invocation's arguments.
+# Set BANTU_FAKE_CLAUDE_LOG to record each invocation's arguments, and
+# BANTU_FAKE_CLAUDE_ENV to record the Claude settings in its environment
+# (ANTHROPIC_*, CLAUDE_CODE_*, AWS_*, CLOUD_ML_*), one line per invocation.
 { printf '%s ' "$@" | tr '\n' ' '; echo; } >> "${BANTU_FAKE_CLAUDE_LOG:-/dev/null}"
+{ env | grep -E '^(ANTHROPIC|CLAUDE_CODE|AWS|CLOUD_ML)_' | sort | tr '\n' ' '; echo; } >> "${BANTU_FAKE_CLAUDE_ENV:-/dev/null}"
 case "$1 $2" in
   "--version "*) echo "9.9.9 (Claude Code)"; exit 0 ;;
   "auth status") echo '{"loggedIn":true,"authMethod":"claude.ai","email":"dev@example.com","orgName":"Example","subscriptionType":"max"}'; exit 0 ;;
