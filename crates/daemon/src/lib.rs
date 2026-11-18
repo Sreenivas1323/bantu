@@ -5,6 +5,7 @@ pub mod acp;
 pub mod activity;
 pub mod agents;
 pub mod auto_review;
+pub mod browser;
 pub mod checks;
 pub mod codex;
 pub mod discover;
@@ -61,6 +62,8 @@ pub struct Config {
     pub opencode_bin: PathBuf,
     pub gemini_bin: PathBuf,
     pub cursor_bin: PathBuf,
+    /// Runs the Playwright MCP server for chats with the browser on.
+    pub npx_bin: PathBuf,
     /// Extra `Host` names to accept besides loopback, e.g. a Tailscale or
     /// CloudFront hostname that forwards to this daemon.
     pub allowed_hosts: Vec<String>,

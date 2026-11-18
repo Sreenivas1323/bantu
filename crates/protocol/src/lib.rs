@@ -360,6 +360,10 @@ pub struct Session {
     /// Claude's fast mode: faster output at a higher cost.
     #[serde(default)]
     pub fast: bool,
+    /// A headless browser (Playwright MCP) limited to the workspace's ports.
+    /// New chats start with the repo's `[browser] enabled`.
+    #[serde(default)]
+    pub browser: bool,
     /// The chat this one was forked from.
     #[serde(default)]
     pub forked_from: Option<String>,
@@ -430,6 +434,11 @@ pub enum ChatItem {
     },
     /// Bantu-side problems: the agent couldn't start, crashed, or was cancelled.
     Error {
+        message: String,
+    },
+    /// Something the user should know that didn't stop the turn, e.g. why a
+    /// chat has no browser.
+    Notice {
         message: String,
     },
 }
@@ -848,6 +857,9 @@ pub enum Command {
         effort: Option<String>,
         #[serde(default)]
         fast: Option<bool>,
+        /// Turns this chat's browser on or off.
+        #[serde(default)]
+        browser: Option<bool>,
     },
     /// Restore the workspace files to the checkpoint taken just before `turn`
     /// started. The conversation is kept; the agent is told on its next turn.

@@ -146,6 +146,8 @@ function Item({
           {item.message}
         </div>
       );
+    case "notice":
+      return <p className="border-l-2 border-warn/60 pl-3 text-[12.5px] text-muted">{item.message}</p>;
   }
 }
 

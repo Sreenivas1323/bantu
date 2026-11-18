@@ -16,7 +16,11 @@ agent: AgentKind | null, model: string | null, permission_mode: PermissionMode |
 /**
  * An empty string goes back to the agent's default.
  */
-effort: string | null, fast: boolean | null, } | { "type": "session.rewind", session_id: string, turn: number, } | { "type": "agent.login", agent: AgentKind, method: LoginMethod | null, } | { "type": "permission.respond", request_id: string, allow: boolean, 
+effort: string | null, fast: boolean | null, 
+/**
+ * Turns this chat's browser on or off.
+ */
+browser: boolean | null, } | { "type": "session.rewind", session_id: string, turn: number, } | { "type": "agent.login", agent: AgentKind, method: LoginMethod | null, } | { "type": "permission.respond", request_id: string, allow: boolean, 
 /**
  * Shown to the agent when denying, e.g. what to do instead.
  */

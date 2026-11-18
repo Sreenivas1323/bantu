@@ -310,9 +310,11 @@ impl Daemon {
                 permission_mode,
                 effort,
                 fast,
+                browser,
             } => {
                 self.update_session(&session_id, title, model, permission_mode)
                     .await?;
+                self.set_session_browser(&session_id, browser).await?;
                 serde_json::to_value(self.tune_session(&session_id, effort, fast).await?)
             }
         };

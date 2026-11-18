@@ -156,12 +156,12 @@ impl Store {
         sqlx::query(
             "INSERT INTO sessions (id, workspace_id, agent, title, model, permission_mode, status,
                                    queued, turns, total_cost_usd, agent_session_id, created_at,
-                                   effort, fast, forked_from)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   effort, fast, forked_from, browser)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title, model = excluded.model,
                 permission_mode = excluded.permission_mode, status = excluded.status,
-                effort = excluded.effort, fast = excluded.fast,
+                effort = excluded.effort, fast = excluded.fast, browser = excluded.browser,
                 queued = excluded.queued, turns = excluded.turns,
                 total_cost_usd = excluded.total_cost_usd",
         )
@@ -180,6 +180,7 @@ impl Store {
         .bind(&s.effort)
         .bind(s.fast)
         .bind(&s.forked_from)
+        .bind(s.browser)
         .execute(&mut *tx)
         .await?;
         let data = EventData::SessionUpdated { session: s.clone() };
@@ -862,6 +863,7 @@ fn session_from_row(r: &SqliteRow) -> Result<Session> {
             .with_context(|| format!("unknown permission mode {mode:?}"))?,
         effort: r.get("effort"),
         fast: r.get("fast"),
+        browser: r.get("browser"),
         forked_from: r.get("forked_from"),
         status: match status.as_str() {
             "running" => SessionStatus::Running,

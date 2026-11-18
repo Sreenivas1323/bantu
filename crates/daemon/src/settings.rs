@@ -22,6 +22,21 @@ pub struct Settings {
     pub prompts: Prompts,
     #[serde(default)]
     pub review: ReviewSettings,
+    #[serde(default)]
+    pub browser: BrowserSettings,
+}
+
+/// A headless browser for agents, limited to the workspace's own ports. Off
+/// by default: it adds tools to every turn and downloads Playwright.
+///
+/// ```toml
+/// [browser]
+/// enabled = true  # new chats start with the browser on
+/// ```
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct BrowserSettings {
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 /// Automatic review by another agent. Off by default, because it spends quota.

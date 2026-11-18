@@ -71,6 +71,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Launch Stack links for both AWS templates ([AWS.md](AWS.md#launch-stack)), from a public S3 bucket; CloudFormation validates both from there
 - [x] Guides: Tailscale Serve, Cloudflare Tunnel, SSH ([REMOTE.md](REMOTE.md)); `--allowed-host` instead of all-or-nothing
 - [x] Port forwarding for dev-server previews: HTTP and WebSockets through a separate origin, with short-lived per-port grants
+- [x] A browser for agents (Playwright MCP, opt-in per repo or per chat): headless, in-memory profile, limited to the workspace's own ports, for Claude, chats continued in the terminal and ACP agents. The exact flags were run by hand against Playwright MCP 0.0.85 with Google Chrome: the workspace's ports load, the internet and other ports are blocked, redirects to either fail, and screenshots come back as images. Dev-server WebSockets (hot reload) through the proxy exemption weren't tried. The tests use fake agents and never start a browser, and no real Claude or ACP agent has driven it yet
 
 ## M4 — Beyond (weeks 8–10)
 
