@@ -42,7 +42,8 @@ gh secret set APPLE_API_KEY -R $R       # the key ID
 gh secret set APPLE_API_ISSUER -R $R    # the issuer ID shown above the keys list
 ```
 
-The next tagged release is then signed and notarized.
+The next tagged release is then signed and notarized. If the API key, its ID or the issuer ID
+is missing, the app is signed but not notarized, and the release run shows a warning.
 
 ## Launch Stack templates
 
