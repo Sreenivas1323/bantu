@@ -27,6 +27,8 @@ type Props = {
   onOpenLoops: (repoId: string) => void;
   onOpenTasks: (repoId: string) => void;
   onOpenImport: () => void;
+  onShowBoard: () => void;
+  boardSelected: boolean;
 };
 
 export function Sidebar(props: Props) {
@@ -44,6 +46,21 @@ export function Sidebar(props: Props) {
         </button>
       </div>
       <AddRepo onAdd={props.onAddRepo} client={props.client} />
+      {repos.length > 0 && (
+        <button
+          type="button"
+          onClick={props.onShowBoard}
+          aria-current={props.boardSelected ? "page" : undefined}
+          className={`mx-1.5 mt-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-left ${props.boardSelected ? "bg-raised" : "hover:bg-raised/60"}`}
+        >
+          <span aria-hidden className="flex gap-0.5">
+            <span className="size-1.5 rounded-full bg-warn" />
+            <span className="size-1.5 rounded-full bg-accent" />
+            <span className="size-1.5 rounded-full bg-ok" />
+          </span>
+          Board
+        </button>
+      )}
       <nav className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
         {repos.length === 0 && <p className="px-2 py-3 text-faint">No repositories yet.</p>}
         {repos.map((repo) => (

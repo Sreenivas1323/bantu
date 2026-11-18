@@ -18,6 +18,7 @@ pub mod ops;
 pub mod orchestrate;
 pub mod permissions;
 pub mod platform;
+pub mod pr_watch;
 pub mod preview;
 pub mod push;
 pub mod radar;
@@ -97,6 +98,7 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     daemon.start_push()?;
     daemon.start_loops().await?;
     daemon.start_task_sync();
+    daemon.start_pr_watch();
     let state = AppState {
         daemon: daemon.clone(),
         token_hash: http::hash_token(&token).into(),

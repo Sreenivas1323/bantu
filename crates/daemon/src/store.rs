@@ -795,6 +795,8 @@ fn event_kind(data: &EventData) -> &'static str {
         EventData::SpotlightUpdated { .. } => "spotlight.updated",
         EventData::ImportUpdated { .. } => "import.updated",
         EventData::TrackerUpdated { .. } => "tracker.updated",
+        EventData::PrUpdated { .. } => "pr.updated",
+        EventData::PrRemoved { .. } => "pr.removed",
         EventData::TrackerRemoved { .. } => "tracker.removed",
         EventData::TasksChanged { .. } => "tasks.changed",
         EventData::LoopUpdated { .. } => "loop.updated",

@@ -522,6 +522,25 @@ pub struct PullRequest {
     pub checks_pending: u32,
 }
 
+/// A workspace's pull request as the fleet board sees it, refreshed in the
+/// background for every workspace at once.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct WorkspacePr {
+    pub workspace_id: String,
+    pub pull_request: PullRequest,
+    /// `false` when it conflicts with its base; `None` while GitHub is still
+    /// working it out.
+    pub mergeable: Option<bool>,
+    pub head_sha: String,
+    pub updated_at: Option<String>,
+    /// Automatic follow-ups sent to the agent since you last wrote in this
+    /// workspace. Only with `[pr] follow_up = true`.
+    pub follow_ups: u32,
+    /// Follow-up reached its limit, so it's waiting for you.
+    pub needs_you: bool,
+}
+
 /// One CI check on the workspace's pull request.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
@@ -1154,6 +1173,12 @@ pub enum EventData {
     },
     #[serde(rename = "loop.deleted")]
     LoopDeleted { loop_id: String },
+    /// A workspace's pull request changed: CI, reviews, conflicts or state.
+    #[serde(rename = "pr.updated")]
+    PrUpdated { pr: WorkspacePr },
+    /// The workspace no longer has a pull request on its branch.
+    #[serde(rename = "pr.removed")]
+    PrRemoved { workspace_id: String },
     #[serde(rename = "tracker.updated")]
     TrackerUpdated { tracker: Tracker },
     #[serde(rename = "tracker.removed")]
@@ -1197,6 +1222,8 @@ impl EventData {
             | Self::SpotlightUpdated { .. }
             | Self::ImportUpdated { .. }
             | Self::TrackerUpdated { .. }
+            | Self::PrUpdated { .. }
+            | Self::PrRemoved { .. }
             | Self::TrackerRemoved { .. }
             | Self::TasksChanged { .. }
             | Self::LoopUpdated { .. }
@@ -1265,6 +1292,9 @@ pub struct StateSnapshot {
     pub loops: Vec<Loop>,
     #[serde(default)]
     pub trackers: Vec<Tracker>,
+    /// Pull requests for workspaces' branches, for the fleet board.
+    #[serde(default)]
+    pub pull_requests: Vec<WorkspacePr>,
     pub preferences: Preferences,
 }
 
@@ -1381,6 +1411,7 @@ mod tests {
             "WorkspaceChecks",
             "WorkspaceConflict",
             "WorkspaceDiff",
+            "WorkspacePr",
             "WorkspaceSource",
             "WorkspaceState",
         ] {

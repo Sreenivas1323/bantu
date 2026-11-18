@@ -236,6 +236,7 @@ async fn get_state(State(state): State<AppState>) -> Result<Json<StateSnapshot>,
         spotlights: store.spotlights().await?,
         loops: store.loops().await?,
         trackers: store.trackers().await?,
+        pull_requests: state.daemon.pull_requests().await,
         preferences: store.preferences().await?,
     }))
 }

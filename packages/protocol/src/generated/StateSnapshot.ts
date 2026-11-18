@@ -11,6 +11,7 @@ import type { Terminal } from "./Terminal";
 import type { Tracker } from "./Tracker";
 import type { Workspace } from "./Workspace";
 import type { WorkspaceConflict } from "./WorkspaceConflict";
+import type { WorkspacePr } from "./WorkspacePr";
 
 export type StateSnapshot = { protocol_version: number, daemon_version: string, last_seq: number, repos: Array<Repo>, workspaces: Array<Workspace>, sessions: Array<Session>, comments: Array<DiffComment>, terminals: Array<Terminal>, 
 /**
@@ -28,4 +29,8 @@ conflicts: Array<WorkspaceConflict>,
 /**
  * Workspaces currently shown in their repo's main checkout.
  */
-spotlights: Array<Spotlight>, loops: Array<Loop>, trackers: Array<Tracker>, preferences: Preferences, };
+spotlights: Array<Spotlight>, loops: Array<Loop>, trackers: Array<Tracker>, 
+/**
+ * Pull requests for workspaces' branches, for the fleet board.
+ */
+pull_requests: Array<WorkspacePr>, preferences: Preferences, };

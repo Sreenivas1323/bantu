@@ -7,6 +7,7 @@ import type {
   InboxItem,
   Loop,
   Tracker,
+  WorkspacePr,
   LogStream,
   PermissionRequest,
   Preferences,
@@ -47,6 +48,8 @@ export type DaemonState = {
   conflicts: Record<string, WorkspaceConflict[]>;
   loops: Record<string, Loop>;
   trackers: Record<string, Tracker>;
+  /** Pull requests by workspace id, for the board. */
+  pullRequests: Record<string, WorkspacePr>;
   /** Bumped when any tracker's tasks change, so views fetch them again. */
   tasksVersion: number;
   /** The latest import from each tool. Not in the snapshot: it's only for the dialog. */
@@ -73,6 +76,7 @@ export const emptyState: DaemonState = {
   spotlights: {},
   loops: {},
   trackers: {},
+  pullRequests: {},
   tasksVersion: 0,
   imports: {},
   preferences: { claude_user_setup: false, loadouts: [] },
@@ -106,6 +110,7 @@ export function reducer(state: DaemonState, action: Action): DaemonState {
         spotlights: Object.fromEntries(snapshot.spotlights.map((s) => [s.repo_id, s])),
         loops: Object.fromEntries(snapshot.loops.map((l) => [l.id, l])),
         trackers: Object.fromEntries(snapshot.trackers.map((t) => [t.id, t])),
+        pullRequests: Object.fromEntries(snapshot.pull_requests.map((p) => [p.workspace_id, p])),
         tasksVersion: state.tasksVersion + 1,
         imports: state.imports,
         preferences: snapshot.preferences,
@@ -214,6 +219,12 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
     }
     case "import.updated":
       return { ...next, imports: { ...state.imports, [data.status.source]: data.status } };
+    case "pr.updated":
+      return { ...next, pullRequests: { ...state.pullRequests, [data.pr.workspace_id]: data.pr } };
+    case "pr.removed": {
+      const { [data.workspace_id]: _gone, ...pullRequests } = state.pullRequests;
+      return { ...next, pullRequests };
+    }
     case "tracker.updated":
       return { ...next, trackers: { ...state.trackers, [data.tracker.id]: data.tracker } };
     case "tracker.removed": {

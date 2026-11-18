@@ -15,5 +15,7 @@
     "noEmit": true,
     "types": ["vite/client", "node"]
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts"],
+  // Tests run under `bun test`, which type-checks them itself.
+  "exclude": ["src/**/*.test.ts"]
 }

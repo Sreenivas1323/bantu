@@ -96,3 +96,8 @@ The full plan is in [TEAMS.md](TEAMS.md).
 - [ ] The org service: sign-in and roles, a team board, analytics in team totals only; self-hosted or hosted
 - [ ] Shared agents on the org's cloud: an agent queue, a test agent, deployments and live versions
 - [ ] A support agent that watches production and files deduplicated tickets
+
+## Alpha 4 — Fleet
+
+- [x] Board: every workspace in lanes worked out from facts (Needs you, Working, In review, Ready to merge, Idle), as the home view; PR state for every workspace from one `gh pr list` per repo every 90 seconds
+- [x] PR follow-up (`[pr] follow_up = true`): conflicts, failed CI and review comments go back to the PR's agent, at most 3 rounds without you — the decision logic is unit-tested; the `gh` side hasn't run against a real PR yet

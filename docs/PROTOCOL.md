@@ -343,6 +343,27 @@ A `Loop` runs an agent on its own: `{ id, repo_id, name, trigger, prompt, agent,
 - **GitHub triggers need a label**, because labels take triage rights while anyone can open an issue, and an issue's text goes into the agent's prompt. They refuse `bypass_permissions` and don't check out forks' PRs. The first poll records what's already open, so turning a loop on doesn't start a run for every old issue.
 - **Alerts.** A finished loop run sends no push alert, but one that asks for approval still does.
 
+### Pull requests and the board
+
+`StateSnapshot.pull_requests` holds a `WorkspacePr` for each ready workspace whose branch has a pull request: `{ workspace_id, pull_request, mergeable, head_sha, updated_at, follow_ups, needs_you }`. The daemon fetches every repo's PRs with one `gh pr list` every 90 seconds, and sends `pr.updated` and `pr.removed` when they change. Without `gh`, or for a repo with no GitHub remote, there are none.
+
+The app's board places each workspace in a lane from these facts, in this order: **Needs you** (setup failed, an approval or question waiting, or PR follow-up gave up), **Working** (an agent running or the workspace being set up), **In review** (an open PR that's a draft, conflicts, has CI running or failing, or waits for a review), **Ready to merge** (an open PR with CI passing and no review blocking it), and **Idle** (everything else, with the reason).
+
+With this in `.bantu/settings.toml`, read from the main checkout like the other settings that make Bantu act on its own:
+
+```toml
+[pr]
+follow_up = true
+```
+
+the daemon also sends the PR's agent what needs doing:
+
+- **Conflicts** with the base branch: once per commit, first.
+- **Failed CI**, with the failing jobs' logs, once the checks have finished: once per commit.
+- **New review comments**, from anyone but the PR's author: once per batch.
+
+It only does this while that workspace has no agent working and nothing waiting on you, and sends it to the newest chat that can edit files. After 3 automatic follow-ups without a message from you, it stops, sends an inbox notice, and the board shows the workspace under *Needs you*. Your next message in the workspace starts the count again. What's been handled is kept across restarts.
+
 ### Tasks
 
 A repo can be connected to task trackers. `StateSnapshot.trackers` lists them (`Tracker`: `{ id, kind, repo_id, name, site, scope, account, created_at, last_synced_at, last_error }`), and `GET /v1/tasks` returns their open tasks.
@@ -519,6 +540,8 @@ These agents speak the [Agent Client Protocol](https://agentclientprotocol.com):
 | `comment.deleted` | `comment_id`, `workspace_id` | |
 | `permission.requested` | `request` | An agent is waiting for approval |
 | `permission.resolved` | `request_id`, `session_id`, `workspace_id`, `allowed` | Answered, stopped or timed out |
+| `pr.updated` | `pr` | A workspace's pull request changed (full `WorkspacePr`) |
+| `pr.removed` | `workspace_id` | Its branch no longer has a pull request |
 | `tracker.updated` | `tracker` | A tracker was connected, or synced (full object) |
 | `tracker.removed` | `tracker_id` | |
 | `tasks.changed` | `tracker_id` | Its tasks changed; fetch `GET /v1/tasks` |

@@ -57,3 +57,4 @@ export type { Task } from "./generated/Task";
 export type { TaskRef } from "./generated/TaskRef";
 export type { Tracker } from "./generated/Tracker";
 export type { TrackerKind } from "./generated/TrackerKind";
+export type { WorkspacePr } from "./generated/WorkspacePr";

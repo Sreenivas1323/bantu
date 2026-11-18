@@ -22,6 +22,20 @@ pub struct Settings {
     pub prompts: Prompts,
     #[serde(default)]
     pub review: ReviewSettings,
+    #[serde(default)]
+    pub pr: PrSettings,
+}
+
+/// What happens after an agent opens a pull request.
+///
+/// ```toml
+/// [pr]
+/// follow_up = true  # Failed CI, review comments and conflicts go back to the agent.
+/// ```
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct PrSettings {
+    #[serde(default)]
+    pub follow_up: bool,
 }
 
 /// Automatic review by another agent. Off by default, because it spends quota.

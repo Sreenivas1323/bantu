@@ -48,6 +48,7 @@ pub struct Daemon {
     pub(crate) preview: crate::preview::Preview,
     pub(crate) auto_review: crate::auto_review::AutoReview,
     pub(crate) task_sync: crate::tasks::TaskSync,
+    pub(crate) pr_watch: crate::pr_watch::PrWatch,
     pub(crate) radar: crate::radar::Radar,
     pub(crate) activity: crate::activity::Tracker,
 }
@@ -66,6 +67,7 @@ impl Daemon {
             preview: Default::default(),
             auto_review: Default::default(),
             task_sync: Default::default(),
+            pr_watch: Default::default(),
             radar: Default::default(),
             activity: Default::default(),
         }
@@ -110,6 +112,7 @@ impl Daemon {
             Command::SessionSend { session_id, text } => {
                 let session = self.send_message(&session_id, text).await?;
                 self.reset_review_rounds(&session.workspace_id).await;
+                self.reset_pr_rounds(&session.workspace_id).await;
                 serde_json::to_value(session)
             }
             Command::SessionCancel { session_id } => {
