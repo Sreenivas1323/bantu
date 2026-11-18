@@ -24,6 +24,8 @@ pub struct Settings {
     pub review: ReviewSettings,
     #[serde(default)]
     pub pr: PrSettings,
+    #[serde(default)]
+    pub browser: BrowserSettings,
 }
 
 /// What happens after an agent opens a pull request.
@@ -36,6 +38,19 @@ pub struct Settings {
 pub struct PrSettings {
     #[serde(default)]
     pub follow_up: bool,
+}
+
+/// A headless browser for agents, limited to the workspace's own ports. Off
+/// by default: it adds tools to every turn and downloads Playwright.
+///
+/// ```toml
+/// [browser]
+/// enabled = true  # new chats start with the browser on
+/// ```
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct BrowserSettings {
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 /// Automatic review by another agent. Off by default, because it spends quota.

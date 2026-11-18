@@ -94,6 +94,8 @@ impl Harness {
             opencode_bin: acp_bin.clone(),
             gemini_bin: acp_bin.clone(),
             cursor_bin: acp_bin,
+            // Only chats with the browser on look for it.
+            npx_bin: home.path().join("no-npx"),
             allowed_hosts: vec!["box.tail1234.ts.net".into()],
             preview_url: None,
             cf_access: None,
@@ -4640,4 +4642,176 @@ async fn tasks_sync_with_gitlab() {
         .await
         .unwrap()
         .contains("glpat-secret"));
+}
+
+/// The `--mcp-config` JSON of the last Claude turn.
+fn last_mcp_config(calls: &str) -> Value {
+    let line = calls
+        .lines()
+        .rfind(|l| l.contains("--mcp-config"))
+        .expect("no turn yet");
+    let rest = line.split_once("--mcp-config ").unwrap().1;
+    serde_json::Deserializer::from_str(rest)
+        .into_iter::<Value>()
+        .next()
+        .unwrap()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn browser_is_opt_in_and_limited_to_the_workspace_ports() {
+    let (_dir, repo_path) = fixture();
+    // Never run: the fake agents don't start MCP servers, so no Playwright
+    // or browser is downloaded here.
+    let npx_dir = tempfile::tempdir().unwrap();
+    let npx = npx_dir.path().join("npx");
+    std::fs::write(&npx, "#!/bin/sh\nexit 1\n").unwrap();
+    let fake_npx = npx.clone();
+    let h = Harness::start_with(move |c| c.npx_bin = fake_npx).await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let calls = || std::fs::read_to_string(&h.claude_calls).unwrap_or_default();
+    let send = |text: &'static str, id: String, turns: u32| {
+        let h = &h;
+        async move {
+            h.command(
+                json!({"type":"session.send","session_id":id,"text":text}),
+                None,
+            )
+            .await;
+            h.wait_session(&id, |s| s.status == SessionStatus::Idle && s.turns == turns)
+                .await
+        }
+    };
+
+    // Off by default: only Bantu's own server.
+    assert!(!session.browser);
+    send("hello", session.id.clone(), 1).await;
+    let config = last_mcp_config(&calls());
+    assert!(config["mcpServers"]["bantu"].is_object(), "{config}");
+    assert!(config["mcpServers"]["browser"].is_null(), "{config}");
+    assert!(!calls().contains("playwright"));
+
+    // On for this chat: Playwright, headless and isolated, limited to the
+    // workspace's 10 ports, and the agent is told where its app runs.
+    let (status, res) = h
+        .command(
+            json!({"type":"session.update","session_id":session.id,"browser":true}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["browser"], true);
+    send("check the page", session.id.clone(), 2).await;
+    let config = last_mcp_config(&calls());
+    assert!(config["mcpServers"]["bantu"].is_object(), "{config}");
+    let browser = &config["mcpServers"]["browser"];
+    assert_eq!(browser["type"], "stdio");
+    assert_eq!(browser["command"], npx.to_str().unwrap());
+    let args: Vec<&str> = browser["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        &args[..4],
+        ["-y", "@playwright/mcp@latest", "--headless", "--isolated"]
+    );
+    let flag = |name: &str| args[args.iter().position(|a| *a == name).unwrap() + 1];
+    let mut origins: Vec<&str> = flag("--allowed-origins").split(';').collect();
+    origins.sort();
+    let p = ws.port_base;
+    let mut want: Vec<String> = (p..p + 10)
+        .flat_map(|port| {
+            ["http", "https"].into_iter().flat_map(move |scheme| {
+                ["localhost", "127.0.0.1"]
+                    .into_iter()
+                    .map(move |host| format!("{scheme}://{host}:{port}"))
+            })
+        })
+        .collect();
+    want.sort();
+    assert_eq!(origins, want);
+    assert!(!flag("--proxy-bypass").contains(&format!(":{}", p + 10)));
+    // Screenshots stay out of the worktree.
+    assert!(!flag("--output-dir").starts_with(&ws.path));
+    let last = calls().lines().last().unwrap().to_string();
+    assert!(last.contains("mcp__bantu mcp__browser"), "{last}");
+    assert!(last.contains(&format!("http://localhost:{p}")), "{last}");
+
+    // The repo's setting turns it on for new chats, Claude's and ACP agents'.
+    std::fs::write(
+        repo_path.join(".bantu/settings.toml"),
+        "[browser]\nenabled = true\n",
+    )
+    .unwrap();
+    let (_, res) = h
+        .command(
+            json!({"type":"session.create","workspace_id":ws.id,"agent":"opencode"}),
+            None,
+        )
+        .await;
+    let acp: Session = serde_json::from_value(res["result"].clone()).unwrap();
+    assert!(acp.browser);
+    send("hello", acp.id.clone(), 1).await;
+    let new_session = h
+        .acp_calls()
+        .lines()
+        .find(|l| l.contains(r#""method":"session/new""#))
+        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+        .unwrap();
+    let servers = new_session["params"]["mcpServers"].as_array().unwrap();
+    let browser = servers.iter().find(|s| s["name"] == "browser").unwrap();
+    assert_eq!(browser["command"], npx.to_str().unwrap());
+    assert!(browser["args"]
+        .to_string()
+        .contains(&format!("http://127.0.0.1:{}", p + 9)));
+    assert!(h.acp_calls().contains(&format!("http://localhost:{p}")));
+
+    // Without npx the turn still runs, and the chat says why, once.
+    std::fs::remove_file(&npx).unwrap();
+    send("again", session.id.clone(), 3).await;
+    send("and again", session.id.clone(), 4).await;
+    assert!(last_mcp_config(&calls())["mcpServers"]["browser"].is_null());
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    let notices: Vec<&String> = items
+        .iter()
+        .filter_map(|i| match i {
+            ChatItem::Notice { message } => Some(message),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(notices.len(), 1, "{items:?}");
+    assert!(
+        notices[0].contains("isn't on the daemon's PATH"),
+        "{}",
+        notices[0]
+    );
+    let finished = items
+        .iter()
+        .filter(|i| {
+            matches!(
+                i,
+                ChatItem::TurnEnd {
+                    is_error: false,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(finished, 4, "{items:?}");
 }

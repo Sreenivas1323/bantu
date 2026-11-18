@@ -34,7 +34,7 @@ export function Composer({
   disabledReason: string | null;
   onSend: (text: string) => Promise<boolean>;
   onStop: () => Promise<void>;
-  onUpdate: (change: { model?: string; permission_mode?: PermissionMode; effort?: string; fast?: boolean }) => Promise<void>;
+  onUpdate: (change: { model?: string; permission_mode?: PermissionMode; effort?: string; fast?: boolean; browser?: boolean }) => Promise<void>;
   /** Saves this chat's agent and settings under a name. */
   onSaveLoadout: () => void;
 }) {
@@ -166,6 +166,15 @@ export function Composer({
                 Fast
               </button>
             )}
+            <button
+              type="button"
+              aria-pressed={session.browser}
+              onClick={() => void onUpdate({ browser: !session.browser })}
+              title="Browser: the agent can open and screenshot its own app on this workspace's ports, in a headless browser. Needs npx."
+              className={`rounded-md border px-1.5 py-1 text-[12px] ${session.browser ? "border-accent/60 text-accent" : "border-line text-muted hover:text-fg"}`}
+            >
+              Browser
+            </button>
             <button
               type="button"
               onClick={onSaveLoadout}

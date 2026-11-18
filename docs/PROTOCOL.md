@@ -175,6 +175,7 @@ One chat with an agent in a workspace. Every workspace gets one automatically wh
 | `permission_mode` | `PermissionMode` | See below |
 | `effort` | string \| null | `low`, `medium`, `high`, `xhigh` or `max`; `null` uses the agent's default. Claude and Codex only (Codex treats `max` as `xhigh`) |
 | `fast` | boolean | Claude's fast mode |
+| `browser` | boolean | The agent gets a headless browser limited to the workspace's ports; see [Browser](#browser). New chats start with the repo's `[browser] enabled` |
 | `forked_from` | string \| null | The chat this one was forked from |
 | `status` | `"idle" \| "running"` | |
 | `queued` | number | Messages waiting for the current turn to finish |
@@ -200,11 +201,12 @@ One transcript entry, normalized across agents and tagged by `kind`:
 | `assistant` | `text` | Markdown |
 | `thinking` | `text` | Only when the model's thinking is visible |
 | `tool_use` | `id`, `name`, `input` | e.g. `Bash {command}`, `Edit {file_path, …}` |
-| `tool_result` | `tool_use_id`, `content`, `is_error` | Text output, truncated to 20,000 characters |
+| `tool_result` | `tool_use_id`, `content`, `is_error` | Text output, truncated to 20,000 characters. Images (such as screenshots) become `[image]`; the agent still sees them |
 | `turn_end` | `is_error`, `duration_ms`, `cost_usd`, `input_tokens`, `output_tokens` | `input_tokens` includes cache reads and writes |
 | `rewound` | `to_turn` | Files were restored to before `to_turn` |
 | `terminal_session` | `imported` | The chat continued in a terminal; `imported` entries read back from the agent's transcript come just before this one |
 | `error` | `message` | Bantu-side problems: the agent couldn't start, crashed, or was stopped (`"Stopped"`) |
+| `notice` | `message` | Something to know that didn't stop the turn, e.g. why a chat with the browser on has none |
 
 ### `StreamDelta`
 `{ session_id, workspace_id, turn, text }`: a fragment of assistant text, only on the live stream (see above).
@@ -285,7 +287,7 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `session.fork` | `session_id` | `Session` | Starts a new chat that continues from where this one is now; see below. 409 while a turn is running. |
 | `session.send` | `session_id`, `text` | `Session` | Sends a message. If a turn is running it's queued (`queued` goes up) and runs afterwards, in order. |
 | `session.cancel` | `session_id` | `Session` | Stops the running turn (it ends with an `error` item `"Stopped"`), drops queued messages, and denies pending permission requests. |
-| `session.update` | `session_id`, `title?`, `model?`, `permission_mode?`, `effort?`, `fast?` | `Session` | Changes settings; they apply from the next turn. An empty `effort` goes back to the default. |
+| `session.update` | `session_id`, `title?`, `model?`, `permission_mode?`, `effort?`, `fast?`, `browser?` | `Session` | Changes settings; they apply from the next turn. An empty `effort` goes back to the default. |
 | `session.rewind` | `session_id`, `turn` | `Session` | Restores the workspace files to the checkpoint taken just before `turn` started; see below. 409 while the agent is running. |
 | `permission.respond` | `request_id`, `allow`, `message?` | — | Answers a `PermissionRequest`. `message` tells the agent why it was denied. 404 if already answered. |
 | `inbox.respond` | `item_id`, `answer` | — | Answers a question in the inbox. 404 if already handled. |
@@ -448,7 +450,7 @@ claude -p --output-format stream-json --verbose --include-partial-messages \
   --session-id <uuid> | --resume <uuid> \
   --append-system-prompt <workspace context> [--model <m>] \
   [--setting-sources project,local --strict-mcp-config] \
-  --settings <PermissionRequest hook JSON> --mcp-config <Bantu MCP server>
+  --settings <PermissionRequest hook JSON> --mcp-config <Bantu MCP server [+ browser]>
 ```
 
 - **One process per turn.** The prompt goes in over stdin. The first turn uses `--session-id`; every later turn uses `--resume` with the same id, so the conversation continues. A daemon restart never strands a process: turns that were running are marked with an `error` item `"Interrupted by a daemon restart"`, and the next message simply resumes.
@@ -504,6 +506,24 @@ Every turn gets Bantu's MCP server (`POST /v1/mcp?session=<id>`, authenticated w
 
 A chat in plan mode can't use `create_workspace`, `send_message`, `integrate_workspaces` or `update_task`. A chat that doesn't bypass permissions can't `send_message` to one that does.
 
+### Browser
+
+A chat with `browser` on gives its agent a headless browser, so it can open its own app, click through it and take screenshots. It's off by default, because it adds about 25 tools to every turn and needs Node.js. Turn it on for one chat with the **Browser** button next to the model and effort pickers (`session.update` with `browser`), or for every new chat in a repo with `[browser] enabled = true` in `.bantu/settings.toml`. The repo setting only decides where new chats start; each chat keeps its own switch after that.
+
+- **The server** is [Playwright MCP](https://github.com/microsoft/playwright-mcp), which the agent's CLI starts over stdio as an MCP server named `browser`:
+  ```
+  npx -y @playwright/mcp@latest --headless --isolated \
+    --allowed-origins "http://localhost:<p>;https://localhost:<p>;http://127.0.0.1:<p>;…" \
+    --proxy-server http://127.0.0.1:9 --proxy-bypass "localhost:<p>,127.0.0.1:<p>,…" \
+    --output-dir <temp dir>/bantu-browser/<workspace id>
+  ```
+  `<p>` runs from `BANTU_PORT` to `BANTU_PORT+9`. Claude gets it in `--mcp-config` (with `mcp__browser` in `--allowedTools`, except in plan mode), and so does a chat continued in the terminal. ACP agents get it in `session/new` and `session/load`.
+- **Only the workspace's own ports.** `--headless --isolated` means no window and a profile kept in memory, so none of the user's cookies or logins. Playwright's `--allowed-origins` blocks other requests from the page, but its docs say it isn't a security boundary, and it doesn't cover redirects. So Bantu also points the browser at a proxy that isn't there (`127.0.0.1:9`), and exempts only the workspace's ports. A redirect to the internet or to another workspace then fails too (`ERR_PROXY_CONNECTION_FAILED`). The browser is a convenience, not a sandbox: the agent's own shell and fetch tools still reach the network as before, and so does Playwright MCP's `browser_run_code_unsafe` tool, which runs code in the server's own Node process.
+- **The agent is told** where its app runs, in one line of its briefing: run the dev server on `http://localhost:$BANTU_PORT` and open that.
+- **Screenshots** go to the agent as images, and to a temporary folder, not the worktree. Bantu's chat shows the tool's text and `[image]` in place of the picture.
+- **Without `npx`** (no Node.js on the daemon's `PATH`), the turn runs without a browser and the chat gets one `notice` saying why. Set `BANTU_NPX_BIN` to use another `npx`.
+- **The first turn** downloads Playwright MCP through `npx`, which can take longer than the agent waits for an MCP server; the next turn then has it. The browser is the installed Google Chrome, Playwright MCP's default. That's the only setup it has been tried with.
+
 ### Chat and terminal on one conversation
 
 `session.open_terminal` runs `claude --resume <id>` (or `--session-id` before the first turn) or `codex resume <id>` in a PTY, with the same workspace context, model and permission mode as the chat. Bantu's MCP server stays available; the permission hook doesn't apply, because the agent's terminal UI asks for itself.
@@ -520,7 +540,7 @@ These agents speak the [Agent Client Protocol](https://agentclientprotocol.com):
 
 - **Commands**: `opencode acp`, `gemini --acp` and `agent acp`. Override the binaries with `BANTU_OPENCODE_BIN`, `BANTU_GEMINI_BIN` and `BANTU_CURSOR_BIN`.
 - **Client capabilities**: Bantu advertises neither `fs` nor `terminal`, so agents use their own file and shell tools inside the worktree.
-- **Bantu's MCP server** is passed to agents that advertise `mcpCapabilities.http`. The token travels over stdin, never in argv.
+- **Bantu's MCP server** is passed to agents that advertise `mcpCapabilities.http`. The token travels over stdin, never in argv. The [browser](#browser), when it's on, is passed as a stdio server, which every ACP agent supports.
 - **Workspace context** is prepended to the first prompt, because ACP has no system prompt.
 - **Permission modes** are enforced in the client on `session/request_permission`: `bypass_permissions` allows everything; `plan` allows only `read`, `search`, `fetch` and `think` tools; `accept_edits` allows `edit` tools and asks about the rest; `auto` and `ask` always ask. If the agent advertises a matching mode (such as `plan`, `autoEdit` or `yolo`), it's selected with `session/set_mode` too. An agent decides for itself which tools need permission, so this can only restrict what it asks about.
 - **Models** are selected with `session/set_model` when the agent advertises `models`.
@@ -581,6 +601,13 @@ resolve_conflicts = "Prefer rebasing over merge commits."
 rename_branch = "Branches look like team/short-description."
 ```
 
+A headless browser for agents is off by default. This turns it on for new chats (see [Browser](#browser)):
+
+```toml
+[browser]
+enabled = true
+```
+
 Automatic review by another agent is off by default, because it spends quota. It's described under [Automatic review](#automatic-review).
 
 ```toml
@@ -589,7 +616,7 @@ auto = true
 agent = "codex"   # defaults to Codex for Claude's work, and Claude for everyone else's
 ```
 
-Bantu looks for `setup` and `run` first in the worktree (the branch's committed config), then in the main checkout. Settings that make the daemon act on its own (`check`, `archive`, `[prompts]` and `[review]`) come only from the main checkout, because an agent allowed to edit files could otherwise run any command without a prompt, or turn off its own review. A branch's changes to them apply once they're merged. While Spotlight is active, those settings come from the base branch instead. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.
+Bantu looks for `setup` and `run` first in the worktree (the branch's committed config), then in the main checkout. Settings that make the daemon act on its own (`check`, `archive`, `[prompts]`, `[review]` and `[browser]`) come only from the main checkout, because an agent allowed to edit files could otherwise run any command without a prompt, or turn off its own review. A branch's changes to them apply once they're merged. While Spotlight is active, those settings come from the base branch instead. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.
 
 Scripts run in the user's login shell (`$SHELL -lc`) in the workspace directory, with these environment variables:
 

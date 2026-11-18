@@ -271,6 +271,7 @@ export function ChatPanel({
             permission_mode: change.permission_mode ?? null,
             effort: change.effort ?? null,
             fast: change.fast ?? null,
+            browser: change.browser ?? null,
           });
         }}
         onSaveLoadout={() => void saveLoadout()}

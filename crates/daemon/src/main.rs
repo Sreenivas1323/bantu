@@ -43,6 +43,9 @@ struct Args {
     /// Cursor's CLI, driven over the Agent Client Protocol.
     #[arg(long, env = "BANTU_CURSOR_BIN", default_value = "agent")]
     cursor_bin: PathBuf,
+    /// Runs the Playwright MCP server for chats with the browser on.
+    #[arg(long, env = "BANTU_NPX_BIN", default_value = "npx")]
+    npx_bin: PathBuf,
     /// Accept non-loopback binds and any Host header. Prefer --allowed-host.
     #[arg(long)]
     allow_remote: bool,
@@ -215,6 +218,7 @@ async fn main() -> Result<()> {
         opencode_bin: args.opencode_bin,
         gemini_bin: args.gemini_bin,
         cursor_bin: args.cursor_bin,
+        npx_bin: args.npx_bin,
         allowed_hosts,
     };
     let web_dir = config.web_dir.clone();

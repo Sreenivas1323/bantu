@@ -424,6 +424,7 @@ impl Daemon {
                 permission_mode: chat.permission_mode,
                 effort: None,
                 fast: false,
+                browser: false,
                 forked_from: None,
                 status: SessionStatus::Idle,
                 queued: 0,

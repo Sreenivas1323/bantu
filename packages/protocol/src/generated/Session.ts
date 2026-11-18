@@ -18,6 +18,11 @@ effort: string | null,
  */
 fast: boolean, 
 /**
+ * A headless browser (Playwright MCP) limited to the workspace's ports.
+ * New chats start with the repo's `[browser] enabled`.
+ */
+browser: boolean, 
+/**
  * The chat this one was forked from.
  */
 forked_from: string | null, status: SessionStatus, 
