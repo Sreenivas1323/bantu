@@ -119,7 +119,10 @@ jobs:
             echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
             echo "KEYCHAIN_PASSWORD=$(openssl rand -hex 16)"
           } >> "$GITHUB_ENV"
-          if [ -n "$APPLE_API_PRIVATE_KEY" ]; then
+          # Notarizing needs all three API secrets; signing alone still helps.
+          if [ -n "$APPLE_API_PRIVATE_KEY" ] && { [ -z "$APPLE_API_KEY" ] || [ -z "$APPLE_API_ISSUER" ]; }; then
+            echo "::warning::Signing without notarizing: set APPLE_API_KEY and APPLE_API_ISSUER too (docs/RELEASING.md)."
+          elif [ -n "$APPLE_API_PRIVATE_KEY" ]; then
             key="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY.p8"
             echo "$APPLE_API_PRIVATE_KEY" | base64 --decode > "$key"
             {
