@@ -156,6 +156,8 @@ cross-checked against [Agent Orchestrator](https://github.com/OrchestratorInc/ag
 | A browser for agents, limited to the workspace's own ports (`[browser]` or per chat) | ✅ (tested with Playwright MCP and Chrome; no real agent has driven it yet) |
 | Automatic cross-agent review before "Ready" (opt-in) | ✅ |
 | Tasks from GitHub Issues, GitLab, Jira and ClickUp: start a workspace from a task; notes and the PR or MR link go back to it | ✅ (GitLab, Jira and ClickUp tested only against local fakes of their APIs) |
+| Organizations: Bantu Connect (GitHub sign-in, invites, shared tracker connections, org Claude access, team totals) and joining from Bantu | ✅ (tested end to end on Cloudflare's local runtime; not deployed yet) |
+| Per-repo GitHub logins: each repo uses the signed-in `gh` login that can see it | ✅ |
 | Loops: agents on a schedule or from GitHub labels | ✅ (GitHub polling not yet run against a real repo) |
 | Import workspaces and chats from Conductor and Pane | ✅ |
 | Burst runs on Vercel Sandbox or Cloudflare Containers | ✅ (not yet run against either service) |
