@@ -87,7 +87,7 @@ Your global Claude setup (plugins, hooks, skills, MCP servers and `~/.claude/CLA
 of Bantu chats by default, because it loads into every turn. On one heavily customised setup, a
 one-line reply went from about 53k input tokens to about 17k. The repo's own `CLAUDE.md` and
 `.claude/settings.json` still load. To bring your global setup back, turn on **Load my Claude setup
-in Bantu chats** in the accounts dialog. This is on `main` and isn't in v0.1.0-alpha.3 yet.
+in Bantu chats** in the accounts dialog.
 
 ## Why
 
@@ -151,6 +151,9 @@ cross-checked against [Agent Orchestrator](https://github.com/OrchestratorInc/ag
 | Definition of done: a repo `check` runs after agent edits; failures go back to the agent | ✅ |
 | One-click review in a read-only chat (Claude or Codex) | ✅ |
 | Orchestrator board, merging child workspaces into one branch | ✅ |
+| Fleet board: every workspace in lanes (Needs you, Working, In review, Ready to merge, Idle) from live facts | ✅ |
+| PR follow-up: conflicts, failed CI and review comments go back to the PR's agent (`[pr] follow_up`) | ✅ (decision logic unit-tested; not yet run on a real failing PR) |
+| A browser for agents, limited to the workspace's own ports (`[browser]` or per chat) | ✅ (tested with Playwright MCP and Chrome; no real agent has driven it yet) |
 | Automatic cross-agent review before "Ready" (opt-in) | ✅ |
 | Tasks from GitHub Issues, GitLab, Jira and ClickUp: start a workspace from a task; notes and the PR or MR link go back to it | ✅ (GitLab, Jira and ClickUp tested only against local fakes of their APIs) |
 | Loops: agents on a schedule or from GitHub labels | ✅ (GitHub polling not yet run against a real repo) |
