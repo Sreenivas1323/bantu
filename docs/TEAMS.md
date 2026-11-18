@@ -67,6 +67,10 @@ Each step is useful on its own, and each step works for one person before it wor
 The first piece that needs a server, so it's built to run anywhere: Cloudflare (Workers and D1)
 or a container on the org's cloud. The hosted version is this same service.
 
+The first version is **Bantu Connect** ([CONNECT.md](CONNECT.md), not deployed yet): GitHub
+sign-in, orgs and invites, linking each member's Bantu with a one-time code, shared Jira,
+ClickUp and GitLab connections, the org's Claude access settings, and team totals.
+
 - [ ] Sign-in with GitHub or Google, or Cloudflare Access; owner, admin and member roles.
 - [ ] A team board across trackers: assign a task to a person or to the agent queue.
 - [ ] Analytics in team totals: tasks done, cycle time, check pass rate, review verdicts, agent
