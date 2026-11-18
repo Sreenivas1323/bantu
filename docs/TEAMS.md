@@ -20,9 +20,10 @@ deployments and report production problems. Market research behind it:
 - **Agents for the work around the code.** Testing, watching deployments and live versions, and a
   support agent that notices production problems and files tickets worth reading. Individual users
   get these too.
-- **Self-hosted or hosted.** Each org can run all of it in its own cloud account. The project also
-  hosts it for teams that don't want to. Both run the same open-source code, and nothing in
-  self-hosted Bantu depends on the hosted service.
+- **Free, self-hosted or hosted.** Each org can run all of it in its own cloud account. The project
+  also hosts a free connector for teams that don't want to run one: it signs people in and keeps
+  tasks and the board in sync, while agents, code and compute stay in the team's own cloud
+  accounts. Both run the same open-source code, and nothing self-hosted depends on the hosted one.
 
 ## Where Bantu stands out
 
@@ -96,15 +97,14 @@ per-person usage. Bantu can only promise it adds no per-person data of its own.
 ## Decisions made
 
 - **Trackers:** GitHub Issues, GitLab, Jira and ClickUp first. Wherever the org or the person chooses.
-- **Hosting:** each org can run Bantu in its own accounts, and the project also hosts it.
+- **Hosting:** each org can run Bantu in its own accounts. The project also hosts a connector for
+  free: sign-in, the team board and keeping everyone in sync. Agents, code and compute always run
+  in the team's own cloud accounts and agent subscriptions, never on the project's machines.
 - **Analytics:** team totals only.
 - **Not forking Pane or Conductor.** Pane is AGPL-3.0 with a required attribution, and both ship
   almost daily. Bantu works alongside them; it already imports their workspaces and chats.
 
 ## Still to decide
 
-- **Is the hosted version paid?** The site and README say there's no paid tier and the project
-  runs no servers. Those need to change when hosting launches, and the rule in
-  [ARCHITECTURE.md](ARCHITECTURE.md) now allows it on the conditions above.
 - **Multi-user daemons.** Shared cloud daemons need more than one person's sign-in on one daemon.
   That's the biggest change in the plan, and it lands in step 4.

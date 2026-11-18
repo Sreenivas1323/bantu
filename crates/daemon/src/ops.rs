@@ -303,6 +303,20 @@ impl Daemon {
                 workspace_id,
                 agent,
             } => serde_json::to_value(self.review_workspace(&workspace_id, agent).await?),
+            Command::RepoSetGithubAccount { repo_id, account } => {
+                let mut repo = self.require_repo(&repo_id).await?;
+                repo.github_account = account.filter(|a| !a.trim().is_empty());
+                if let Some(login) = &repo.github_account {
+                    if crate::gh::token(login).await.is_none() {
+                        return Err(CommandError::BadRequest(format!(
+                            "{login} isn't signed in to gh on this machine; run `gh auth login`"
+                        )));
+                    }
+                }
+                self.store.set_repo_github_account(&repo).await?;
+                self.register_github_account(&repo).await;
+                serde_json::to_value(repo)
+            }
             Command::WorkspaceIntegrate {
                 workspace_id,
                 session_id,
@@ -389,8 +403,14 @@ impl Daemon {
                 .map_err(anyhow::Error::from)?,
             root_path: root_str,
             created_at: now(),
+            github_account: None,
         };
+        let mut repo = repo;
+        if let Some(remote) = &repo.remote_url {
+            repo.github_account = crate::gh::detect(remote).await;
+        }
         self.store.insert_repo(&repo).await?;
+        self.register_github_account(&repo).await;
         Ok(repo)
     }
 
@@ -487,6 +507,37 @@ impl Daemon {
         };
         self.store.upsert_workspace(&ws).await?;
         Ok(ws)
+    }
+
+    /// Points `gh` in this repo's checkout and workspaces at its login.
+    pub(crate) async fn register_github_account(&self, repo: &Repo) {
+        let paths = [
+            PathBuf::from(&repo.root_path),
+            self.config.workspaces_dir.join(&repo.name),
+        ];
+        crate::gh::set_account(&paths, repo.github_account.as_deref()).await;
+    }
+
+    /// Existing repos: remember their logins, and look for one for any
+    /// GitHub repo the active login can't see. Runs in the background.
+    pub fn start_github_accounts(self: &Arc<Self>) {
+        let this = self.clone();
+        tokio::spawn(async move {
+            let Ok(repos) = this.store.repos().await else {
+                return;
+            };
+            for mut repo in repos {
+                if repo.github_account.is_none() {
+                    if let Some(remote) = repo.remote_url.clone() {
+                        if let Some(login) = crate::gh::detect(&remote).await {
+                            repo.github_account = Some(login);
+                            let _ = this.store.set_repo_github_account(&repo).await;
+                        }
+                    }
+                }
+                this.register_github_account(&repo).await;
+            }
+        });
     }
 
     async fn require_repo(&self, repo_id: &str) -> CmdResult<Repo> {
@@ -975,6 +1026,8 @@ impl Daemon {
             .args(&shell_args)
             .current_dir(&ws.path)
             .env("BANTU_PORT", ws.port_base.to_string())
+            // The GitHub login this repo uses, for gh and git push.
+            .envs(crate::gh::cached_env(std::path::Path::new(&ws.path)))
             .env("BANTU_WORKSPACE_ID", &ws.id)
             .env("BANTU_WORKSPACE_NAME", &ws.name)
             .env("BANTU_WORKSPACE_PATH", &ws.path)
@@ -1165,10 +1218,9 @@ pub struct SourcePlan {
 }
 
 pub(crate) async fn gh_json(dir: &Path, args: &[&str]) -> Option<serde_json::Value> {
-    let out = tokio::process::Command::new("gh")
+    let out = crate::gh::command(dir)
+        .await
         .args(args)
-        .current_dir(dir)
-        .env("GH_PROMPT_DISABLED", "1")
         .output()
         .await
         .ok()?;

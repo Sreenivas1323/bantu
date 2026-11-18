@@ -9,7 +9,6 @@ use bantu_protocol::{
     WorkspaceChecks,
 };
 use serde_json::Value;
-use tokio::process::Command;
 
 use crate::ops::{CommandError, Daemon};
 use crate::review::parse_pr;
@@ -113,10 +112,9 @@ impl Daemon {
 /// `gh` output as JSON. `gh pr checks` exits non-zero while checks are pending
 /// or failing but still prints its JSON, so only the output decides.
 async fn gh_value(dir: &str, args: &[&str]) -> Option<Value> {
-    let out = Command::new("gh")
+    let out = crate::gh::command(std::path::Path::new(dir))
+        .await
         .args(args)
-        .current_dir(dir)
-        .env("GH_PROMPT_DISABLED", "1")
         .output()
         .await
         .ok()?;

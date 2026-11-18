@@ -715,10 +715,9 @@ impl Client {
 }
 
 async fn gh_run(dir: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let out = tokio::process::Command::new("gh")
+    let out = crate::gh::command(std::path::Path::new(dir))
+        .await
         .args(args)
-        .current_dir(dir)
-        .env("GH_PROMPT_DISABLED", "1")
         .output()
         .await
         .context("couldn't run gh; is it installed?")?;

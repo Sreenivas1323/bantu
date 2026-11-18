@@ -64,8 +64,8 @@ impl Store {
     pub async fn insert_repo(&self, repo: &Repo) -> Result<Event> {
         let (guard, mut tx) = self.begin().await?;
         sqlx::query(
-            "INSERT INTO repos (id, name, root_path, default_branch, remote_url, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO repos (id, name, root_path, default_branch, remote_url, created_at, github_account)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&repo.id)
         .bind(&repo.name)
@@ -73,9 +73,21 @@ impl Store {
         .bind(&repo.default_branch)
         .bind(&repo.remote_url)
         .bind(&repo.created_at)
+        .bind(&repo.github_account)
         .execute(&mut *tx)
         .await?;
         let data = EventData::RepoAdded { repo: repo.clone() };
+        self.finish(guard, tx, data).await
+    }
+
+    pub async fn set_repo_github_account(&self, repo: &Repo) -> Result<Event> {
+        let (guard, mut tx) = self.begin().await?;
+        sqlx::query("UPDATE repos SET github_account = ? WHERE id = ?")
+            .bind(&repo.github_account)
+            .bind(&repo.id)
+            .execute(&mut *tx)
+            .await?;
+        let data = EventData::RepoUpdated { repo: repo.clone() };
         self.finish(guard, tx, data).await
     }
 
@@ -780,6 +792,7 @@ impl Store {
 fn event_kind(data: &EventData) -> &'static str {
     match data {
         EventData::RepoAdded { .. } => "repo.added",
+        EventData::RepoUpdated { .. } => "repo.updated",
         EventData::RepoRemoved { .. } => "repo.removed",
         EventData::WorkspaceUpdated { .. } => "workspace.updated",
         EventData::WorkspaceLog { .. } => "workspace.log",
@@ -815,6 +828,7 @@ fn repo_from_row(r: &SqliteRow) -> Repo {
         default_branch: r.get("default_branch"),
         remote_url: r.get("remote_url"),
         created_at: r.get("created_at"),
+        github_account: r.get("github_account"),
     }
 }
 

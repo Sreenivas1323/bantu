@@ -10,6 +10,7 @@ pub mod catalogue;
 pub mod checks;
 pub mod codex;
 pub mod discover;
+pub mod gh;
 pub mod http;
 pub mod import;
 pub mod inbox;
@@ -118,6 +119,7 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     daemon.start_push()?;
     daemon.start_loops().await?;
     daemon.start_task_sync();
+    daemon.start_github_accounts();
     daemon.start_pr_watch();
     let state = AppState {
         daemon: daemon.clone(),
