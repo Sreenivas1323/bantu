@@ -296,7 +296,7 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `loop.update` | `loop_id`, `enabled?`, `prompt?` | `Loop` | Pauses, resumes or changes a loop. |
 | `loop.delete` | `loop_id` | — | Existing runs' workspaces are kept. |
 | `loop.run` | `loop_id` | `Workspace` | Starts a run now. 409 if the last run is still working or the repo has 10 active workspaces. |
-| `tracker.add` | `repo_id`, `kind`, `site?`, `scope?`, `account?`, `token?` | `Tracker` | Connects a repo to GitHub Issues, Jira or ClickUp; see [Tasks](#tasks). 400 if signing in or reading tasks fails. |
+| `tracker.add` | `repo_id`, `kind`, `site?`, `scope?`, `account?`, `token?` | `Tracker` | Connects a repo to GitHub Issues, GitLab, Jira or ClickUp; see [Tasks](#tasks). 400 if signing in or reading tasks fails. |
 | `tracker.remove` | `tracker_id` | — | Workspaces started from it are kept. |
 | `tasks.refresh` | `tracker_id?` | `Task[]` | Fetches now instead of waiting for the next sync. |
 | `task.start` | `tracker_id`, `task_id` | `Workspace` | A workspace for the task, with the agent given the task once it's ready. |
@@ -350,12 +350,15 @@ A repo can be connected to task trackers. `StateSnapshot.trackers` lists them (`
 | `kind` | Needs | `scope` |
 |---|---|---|
 | `github` | `gh`, signed in | A label, or empty for all open issues |
+| `gitlab` | `token` (personal access token with the `api` scope); `site` only for self-managed GitLab (default `https://gitlab.com`) | The project's path (`group/project`, `group/sub/project`) or numeric id, optionally followed by a label: `acme/web ~agent`, or `acme/web ~"needs agent"` for a name with spaces. The `~` is optional; commas separate labels an issue must all have. |
 | `jira` | `site` (`https://<you>.atlassian.net`), `account` (your email), `token` (API token) | A project key, or a JQL query |
 | `clickup` | `token` (personal API token) | A list id |
 
+GitLab support uses REST API v4 (`GET /user`, `GET /projects/:id/issues?state=opened`, `POST /projects/:id/issues/:iid/notes`, `GET /projects/:id/merge_requests?source_branch=…&state=opened`), with the token in the `PRIVATE-TOKEN` header. A `read_api` token can list issues but can't post notes, so it needs `api`. Keys are `#<iid>`, and `mine` means you're one of the issue's assignees. So far it's tested only against a local fake of the GitLab API, not a real instance.
+
 - **Sync.** Open tasks are fetched every 3 minutes, and on `tasks.refresh`. A `tasks.changed` event says when a tracker's tasks changed; fetch `GET /v1/tasks` again. `Task.mine` is true when it's assigned to the person whose credentials Bantu uses.
 - **Starting.** `task.start` creates a workspace on a branch named after the task (`bantu/web-12-fix-login`), names its chat after the task, and sends the agent the task. The description is marked as information written in the tracker, not instructions. `Workspace.task` records the link.
-- **Reporting back.** The agent can post notes with the `update_task` MCP tool. Once the workspace's branch has a pull request, its link is posted to the task, once.
+- **Reporting back.** The agent can post notes with the `update_task` MCP tool. Once the workspace's branch has a pull request, its link is posted to the task, once. For GitLab trackers that's the branch's open merge request, found through GitLab's API (other trackers find the pull request with `gh`), and the agent is asked to put `Closes #N` in the MR description; for GitHub it's `Fixes #N`.
 - **Tokens** are stored in `$BANTU_HOME/trackers/<id>.token`, readable only by the user, and are never in the event log, the snapshot or any response. HTTP goes through `curl` with its arguments on stdin, so tokens aren't in the process list. `site` must be HTTPS (plain HTTP only to `127.0.0.1`, for testing).
 
 ### Importing from Conductor and Pane

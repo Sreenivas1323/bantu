@@ -42,11 +42,12 @@ Each step is useful on its own, and each step works for one person before it wor
 
 ### 1. Tasks, both ways
 
-- [x] Connect a repo to GitHub Issues, Jira or ClickUp; open tasks sync every 3 minutes
-  ([PROTOCOL.md](PROTOCOL.md#tasks)).
+- [x] Connect a repo to GitHub Issues, GitLab, Jira or ClickUp; open tasks sync every 3 minutes
+  ([PROTOCOL.md](PROTOCOL.md#tasks)). GitLab works with gitlab.com and self-managed instances, but
+  so far it's tested only against a local fake of its API.
 - [x] Start a task: a workspace on a branch named after it, and the agent given the task.
 - [x] Progress back to the task: notes through the `update_task` MCP tool, and the pull
-  request link once it exists.
+  request (or GitLab merge request) link once it exists.
 - [ ] Status back to the task: In Progress when work starts, In Review when there's a pull request,
   using each tracker's own transitions.
 - [ ] Assign to an agent: a label or assignee (e.g. `bantu`) puts a task in the agent queue, like
@@ -94,7 +95,7 @@ per-person usage. Bantu can only promise it adds no per-person data of its own.
 
 ## Decisions made
 
-- **Trackers:** GitHub Issues, Jira and ClickUp first. Wherever the org or the person chooses.
+- **Trackers:** GitHub Issues, GitLab, Jira and ClickUp first. Wherever the org or the person chooses.
 - **Hosting:** each org can run Bantu in its own accounts, and the project also hosts it.
 - **Analytics:** team totals only.
 - **Not forking Pane or Conductor.** Pane is AGPL-3.0 with a required attribution, and both ship

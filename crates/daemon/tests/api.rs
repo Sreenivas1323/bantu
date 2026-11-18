@@ -4366,3 +4366,278 @@ async fn tasks_sync_with_jira_and_clickup() {
         .all(|t| t["tracker_id"] != jira_id.as_str()));
     assert_eq!(h.state().await.trackers.len(), 1);
 }
+
+#[tokio::test]
+async fn tasks_sync_with_gitlab() {
+    use axum::extract::{Path as UrlPath, Query};
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::routing::get;
+    use axum::Json;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    // GitLab's REST API v4, as far as Bantu uses it.
+    type Notes = Arc<Mutex<Vec<(String, String, Value)>>>;
+    let notes: Notes = Default::default();
+    let mr_open = Arc::new(AtomicBool::new(false));
+    let authed = |h: &HeaderMap| {
+        h.get("private-token").and_then(|v| v.to_str().ok()) == Some("glpat-secret")
+    };
+    let denied = || {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"message": "401 Unauthorized"})),
+        )
+    };
+    let (n1, mr) = (notes.clone(), mr_open.clone());
+    let fake = axum::Router::new()
+        .route(
+            "/api/v4/user",
+            get(move |h: HeaderMap| async move {
+                if !authed(&h) {
+                    return denied();
+                }
+                (StatusCode::OK, Json(json!({"id": 7, "username": "me"})))
+            }),
+        )
+        .route(
+            "/api/v4/projects/{project}/issues",
+            get(
+                move |h: HeaderMap,
+                      UrlPath(project): UrlPath<String>,
+                      Query(q): Query<HashMap<String, String>>| async move {
+                    if !authed(&h) {
+                        return denied();
+                    }
+                    if project != "acme/web" {
+                        return (
+                            StatusCode::NOT_FOUND,
+                            Json(json!({"message": "404 Project Not Found"})),
+                        );
+                    }
+                    assert_eq!(q.get("state").map(String::as_str), Some("opened"));
+                    assert_eq!(q.get("labels").map(String::as_str), Some("needs agent"));
+                    (
+                        StatusCode::OK,
+                        Json(json!([
+                            {"id": 501, "iid": 12, "title": "Fix the login redirect", "state": "opened",
+                             "description": "Users land on a blank page.",
+                             "web_url": "https://gitlab.example/acme/web/-/issues/12",
+                             "updated_at": "2026-11-02T10:00:00.000Z",
+                             "assignees": [{"id": 7, "username": "me", "name": "Me"}]},
+                            {"id": 502, "iid": 13, "title": "Someone else's", "state": "opened",
+                             "description": null, "web_url": "https://gitlab.example/acme/web/-/issues/13",
+                             "updated_at": "2026-11-01T10:00:00.000Z",
+                             "assignees": [{"id": 8, "username": "ana", "name": "Ana"}]}
+                        ])),
+                    )
+                },
+            ),
+        )
+        .route(
+            "/api/v4/projects/{project}/issues/{iid}/notes",
+            axum::routing::post(
+                move |h: HeaderMap,
+                      UrlPath((project, iid)): UrlPath<(String, String)>,
+                      Json(body): Json<Value>| async move {
+                    if !authed(&h) {
+                        return denied();
+                    }
+                    n1.lock().unwrap().push((project, iid, body));
+                    (StatusCode::CREATED, Json(json!({"id": 1})))
+                },
+            ),
+        )
+        .route(
+            "/api/v4/projects/{project}/merge_requests",
+            get(
+                move |h: HeaderMap,
+                      UrlPath(project): UrlPath<String>,
+                      Query(q): Query<HashMap<String, String>>| async move {
+                    if !authed(&h) {
+                        return denied();
+                    }
+                    assert_eq!(project, "acme/web");
+                    assert_eq!(q.get("state").map(String::as_str), Some("opened"));
+                    let branch = q.get("source_branch").cloned().unwrap_or_default();
+                    if !mr.load(Ordering::SeqCst) {
+                        return (StatusCode::OK, Json(json!([])));
+                    }
+                    (
+                        StatusCode::OK,
+                        Json(json!([{"iid": 4, "state": "opened", "source_branch": branch,
+                            "web_url": "https://gitlab.example/acme/web/-/merge_requests/4"}])),
+                    )
+                },
+            ),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let site = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, fake).await.unwrap() });
+
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let gitlab = |scope: &str, token: &str| {
+        json!({"type":"tracker.add","repo_id":repo.id,"kind":"gitlab","site":site,
+               "scope":scope,"token":token})
+    };
+
+    // A wrong token, or a project that isn't there, is caught before anything is saved.
+    let (status, res) = h
+        .command(gitlab("acme/web ~\"needs agent\"", "wrong"), None)
+        .await;
+    assert_eq!(status, 400, "{res}");
+    assert!(
+        res["error"].as_str().unwrap().contains("401 Unauthorized"),
+        "{res}"
+    );
+    let (status, res) = h
+        .command(gitlab("acme/nope ~\"needs agent\"", "glpat-secret"), None)
+        .await;
+    assert_eq!(status, 400, "{res}");
+    assert!(res["error"].as_str().unwrap().contains("404"), "{res}");
+    let (status, _) = h.command(gitlab("", "glpat-secret"), None).await;
+    assert_eq!(status, 400, "needs a project");
+    assert!(h.state().await.trackers.is_empty());
+
+    let (status, res) = h
+        .command(gitlab("acme/web ~\"needs agent\"", "glpat-secret"), None)
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let tracker_id = res["result"]["id"].as_str().unwrap().to_string();
+    assert_eq!(res["result"]["kind"], "gitlab");
+
+    // The token never reaches clients, and only the user can read it.
+    let state_text = h
+        .http
+        .get(format!("{}/v1/state", h.base))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(!state_text.contains("glpat-secret"));
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = h._dirs[0]
+            .path()
+            .join("trackers")
+            .join(format!("{tracker_id}.token"));
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    let tasks = || async {
+        h.http
+            .get(format!("{}/v1/tasks", h.base))
+            .bearer_auth(&h.token)
+            .send()
+            .await
+            .unwrap()
+            .json::<Vec<Value>>()
+            .await
+            .unwrap()
+    };
+    let list = tasks().await;
+    let keys: Vec<&str> = list.iter().map(|t| t["key"].as_str().unwrap()).collect();
+    assert_eq!(keys, ["#12", "#13"], "newest first");
+    assert_eq!(list[0]["mine"], true);
+    assert_eq!(list[1]["mine"], false);
+    assert_eq!(
+        list[0]["url"],
+        "https://gitlab.example/acme/web/-/issues/12"
+    );
+    assert_eq!(list[0]["id"], "12");
+
+    // Starting a task gives the agent the task, and tells it how GitLab links an MR.
+    let (status, res) = h
+        .command(
+            json!({"type":"task.start","tracker_id":tracker_id,"task_id":"12"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    assert!(ws.branch.starts_with("bantu/12-fix"), "{}", ws.branch);
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws.id)
+        {
+            if s.turns >= 1 {
+                break s;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(
+        items.iter().any(|i| matches!(i, ChatItem::User { text }
+            if text.contains("GitLab task #12") && text.contains("blank page") && text.contains("Closes #12"))),
+        "{items:?}"
+    );
+
+    // Its agent posts notes to the issue.
+    let res: Value = h
+        .http
+        .post(format!("{}/v1/mcp?session={}", h.base, session.id))
+        .bearer_auth(&h.hook_token)
+        .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+            "params":{"name":"update_task","arguments":{"text":"Found it: the redirect drops the path."}}}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        res["result"]["content"][0]["text"], "Posted to GitLab #12.",
+        "{res}"
+    );
+    {
+        let notes = notes.lock().unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(
+            (notes[0].0.as_str(), notes[0].1.as_str()),
+            ("acme/web", "12")
+        );
+        assert_eq!(notes[0].2["body"], "Found it: the redirect drops the path.");
+    }
+
+    // No merge request yet: nothing is posted. Once one is open, its link is posted once.
+    h.daemon.post_pull_requests().await;
+    assert_eq!(notes.lock().unwrap().len(), 1);
+    mr_open.store(true, Ordering::SeqCst);
+    h.daemon.post_pull_requests().await;
+    h.daemon.post_pull_requests().await;
+    {
+        let notes = notes.lock().unwrap();
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert_eq!(
+            notes[1].2["body"],
+            "Merge request from Bantu: https://gitlab.example/acme/web/-/merge_requests/4"
+        );
+    }
+    assert!(!h
+        .http
+        .get(format!("{}/v1/state", h.base))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap()
+        .contains("glpat-secret"));
+}
