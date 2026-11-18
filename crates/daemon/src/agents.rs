@@ -21,7 +21,10 @@ use crate::ops::{CommandError, Daemon};
 use crate::platform::{self, shell_quote};
 use crate::terminals::TerminalSpec;
 
-const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+/// `--version` only labels the agent, so a CLI that hangs on it (Droid does on
+/// some machines) mustn't hold up the whole list.
+const VERSION_TIMEOUT: Duration = Duration::from_secs(3);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl Daemon {
     /// Every agent in the catalogue, probed in parallel.
@@ -33,11 +36,13 @@ impl Daemon {
     async fn agent_status(&self, spec: &AgentSpec) -> AgentStatus {
         let bin = self.config.agent_bin(spec.kind);
         let mut status = empty(spec);
-        let Some((_, out)) = run(&bin, &["--version"]).await.filter(|(ok, _)| *ok) else {
+        if !on_path(&bin) {
             return status;
-        };
+        }
         status.installed = true;
-        status.version = parse_version(spec.kind, &out);
+        if let Some((true, out)) = run_for(&bin, &["--version"], VERSION_TIMEOUT).await {
+            status.version = parse_version(spec.kind, &out);
+        }
         match spec.sign_in {
             SignIn::Claude => {
                 if let Some((_, out)) = run(&bin, &["auth", "status", "--json"]).await {
@@ -248,14 +253,29 @@ pub fn apply_codex_login(status: &mut AgentStatus, ok: bool, out: &str) {
     }
 }
 
+/// Whether the agent's program exists: a path that's a file, or a name found
+/// on `PATH`.
+fn on_path(bin: &std::path::Path) -> bool {
+    let program = platform::program(bin);
+    if program.components().count() > 1 {
+        return program.is_file();
+    }
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(&program).is_file()))
+}
+
 /// Runs a probe with a timeout; `(success, stdout)`, or `None` if it can't start.
 async fn run(bin: &std::path::Path, args: &[&str]) -> Option<(bool, String)> {
+    run_for(bin, args, PROBE_TIMEOUT).await
+}
+
+async fn run_for(bin: &std::path::Path, args: &[&str], limit: Duration) -> Option<(bool, String)> {
     let out = tokio::process::Command::new(crate::platform::program(bin))
         .args(args)
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true)
         .output();
-    let out = tokio::time::timeout(PROBE_TIMEOUT, out).await.ok()?.ok()?;
+    let out = tokio::time::timeout(limit, out).await.ok()?.ok()?;
     let mut text = String::from_utf8_lossy(&out.stdout).to_string();
     if text.trim().is_empty() {
         // Some CLIs print status to stderr.
@@ -268,6 +288,17 @@ async fn run(bin: &std::path::Path, args: &[&str]) -> Option<(bool, String)> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn finds_programs_by_path_or_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("agent-cli");
+        std::fs::write(&file, "").unwrap();
+        assert!(on_path(&file));
+        assert!(!on_path(&dir.path().join("missing")));
+        assert!(on_path(std::path::Path::new("sh")), "found on PATH");
+        assert!(!on_path(std::path::Path::new("surely-not-a-real-cli-name")));
+    }
 
     #[test]
     fn reads_claude_and_codex_status() {
