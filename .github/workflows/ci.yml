@@ -80,6 +80,9 @@ jobs:
       - name: cloudflare-sandbox typecheck and tests
         working-directory: deploy/cloudflare-sandbox
         run: bun install --frozen-lockfile && bun run typecheck && bun test
+      - name: Bantu Connect typecheck and tests
+        working-directory: services/connect
+        run: bun install --frozen-lockfile && bun run typecheck && bun test
 
   web:
     name: Web

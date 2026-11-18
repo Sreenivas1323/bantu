@@ -1,0 +1,19 @@
+{
+  "name": "@bantu/connect",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bunx wrangler@^4.148.0 dev",
+    "deploy": "bunx wrangler@^4.148.0 deploy",
+    "migrate:local": "bunx wrangler@^4.148.0 d1 migrations apply bantu-connect --local",
+    "migrate": "bunx wrangler@^4.148.0 d1 migrations apply bantu-connect --remote",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261106.1",
+    "@types/bun": "^1.4.4",
+    "typescript": "^7.0.2"
+  }
+}
