@@ -97,9 +97,11 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .row-actions { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
 .row-actions select { width: auto; padding: 0.3rem 0.5rem; }
 
-.notice { border: 1px solid var(--rule); border-left: 4px solid var(--wait); background: var(--paper-2); border-radius: 8px; padding: 0.8rem 1rem; margin: 1rem 0; max-width: 44rem; }
-.notice.ok-n { border-left-color: var(--ok); }
-.notice.err { border-left-color: var(--bad); }
+/* Notices carry Bantu's status dot rather than a coloured side bar. */
+.notice { position: relative; border: 1px solid var(--rule); background: var(--paper-2); border-radius: 8px; padding: 0.8rem 1rem 0.8rem 2.1rem; margin: 1rem 0; max-width: 44rem; }
+.notice::before { content: ""; position: absolute; left: 1rem; top: 1.3rem; width: 7px; height: 7px; border-radius: 50%; background: var(--wait); }
+.notice.ok-n::before { background: var(--ok); }
+.notice.err::before { background: var(--bad); }
 .notice p { margin: 0.3rem 0; }
 .secret { display: block; font: 600 1.05rem/1.4 var(--mono); padding: 0.7rem 0.9rem; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; overflow-wrap: anywhere; user-select: all; }
 .code { font: 600 clamp(1.8rem, 6vw, 2.6rem)/1.2 var(--mono); letter-spacing: 0.08em; }
