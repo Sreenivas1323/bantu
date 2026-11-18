@@ -8,8 +8,8 @@ use std::process::Command as Proc;
 use std::time::Duration;
 
 use bantu_protocol::{
-    ChatItem, Event, EventData, Repo, Session, SessionStatus, StateSnapshot, Workspace,
-    WorkspaceState,
+    AgentKind, AgentMode, ChatItem, Event, EventData, Repo, Session, SessionStatus, StateSnapshot,
+    Workspace, WorkspaceState,
 };
 use futures::StreamExt;
 use serde_json::{json, Value};
@@ -91,9 +91,20 @@ impl Harness {
             claude_bin,
             codex_bin,
             claude_config_dir: home.path().join("claude-config"),
-            opencode_bin: acp_bin.clone(),
-            gemini_bin: acp_bin.clone(),
-            cursor_bin: acp_bin,
+            // The fake stands in for every ACP agent. Terminal-only agents
+            // point at a missing binary, so a real install never interferes.
+            agent_bins: bantud::catalogue::AGENTS
+                .iter()
+                .filter(|s| !matches!(s.kind, AgentKind::Claude | AgentKind::Codex))
+                .map(|s| {
+                    let bin = if s.mode == AgentMode::Acp {
+                        acp_bin.clone()
+                    } else {
+                        home.path().join(format!("missing-{}", s.bin))
+                    };
+                    (s.kind, bin)
+                })
+                .collect(),
             // Only chats with the browser on look for it.
             npx_bin: home.path().join("no-npx"),
             allowed_hosts: vec!["box.tail1234.ts.net".into()],
@@ -2158,6 +2169,172 @@ async fn acp_sessions() {
             .any(|i| matches!(i, ChatItem::Assistant { text } if text == "acp: decision deny")),
         "{items:?}"
     );
+}
+
+/// The agents added from the catalogue. The fake ACP agent stands in for
+/// Goose here; no real Goose (or any other new agent) runs in these tests.
+#[tokio::test]
+async fn catalogue_agents_chat_and_run_in_terminals() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+
+    let agents: Vec<Value> = h
+        .http
+        .get(format!("{}/v1/agents", h.base))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(agents.len(), AgentKind::ALL.len());
+    let goose = agents.iter().find(|a| a["agent"] == "goose").unwrap();
+    assert_eq!(goose["name"], "Goose");
+    assert_eq!(goose["mode"], "acp");
+    assert_eq!(goose["installed"], true, "{goose}");
+    assert_eq!(goose["version"], "9.9.9");
+    let aider = agents.iter().find(|a| a["agent"] == "aider").unwrap();
+    assert_eq!(aider["mode"], "terminal");
+    assert_eq!(aider["installed"], false);
+    assert!(aider["install_hint"].as_str().unwrap().contains("aider"));
+
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+
+    // A full structured chat over ACP.
+    let (status, res) = h
+        .command(
+            json!({"type":"session.create","workspace_id":ws.id,"agent":"goose"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let session: Session = serde_json::from_value(res["result"].clone()).unwrap();
+    assert_eq!(session.agent, AgentKind::Goose);
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"hello goose"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    // The first prompt carries the workspace context, then the message.
+    assert!(
+        items
+            .iter()
+            .any(|i| matches!(i, ChatItem::Assistant { text }
+            if text.starts_with("acp: ") && text.ends_with("hello goose"))),
+        "{items:?}"
+    );
+    assert!(h.acp_calls().contains(r#""method":"session/prompt""#));
+
+    // Terminal-only agents can't hold a chat, but open in a terminal.
+    let (status, res) = h
+        .command(
+            json!({"type":"session.create","workspace_id":ws.id,"agent":"aider"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400, "{res}");
+    let (status, res) = h
+        .command(
+            json!({"type":"terminal.open","workspace_id":ws.id,"agent":"aider"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["kind"], "agent");
+    assert_eq!(res["result"]["title"], "Aider");
+    assert!(
+        res["result"]["command"]
+            .as_str()
+            .unwrap()
+            .contains("missing-aider"),
+        "{res}"
+    );
+}
+
+/// `[agents]` in the main checkout's settings picks each role's agent.
+#[tokio::test]
+async fn repo_agent_roles_pick_the_agent() {
+    let (_dir, repo_path) = fixture();
+    std::fs::write(
+        repo_path.join(".bantu/settings.toml"),
+        "[agents]\nworker = \"goose\"\norchestrator = \"codex\"\n[review]\nagent = \"gemini\"\n",
+    )
+    .unwrap();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+
+    // The workspace's first chat, and any new chat without an agent, is the worker.
+    let first = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws.id)
+        {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(first.agent, AgentKind::Goose);
+    let create = |extra: Value| {
+        let mut cmd = json!({"type":"session.create","workspace_id":ws.id});
+        cmd.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        cmd
+    };
+    let (status, res) = h.command(create(json!({})), None).await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["agent"], "goose");
+    // An explicit agent still wins.
+    let (_, res) = h.command(create(json!({"agent":"claude"})), None).await;
+    assert_eq!(res["result"]["agent"], "claude");
+    // A lead chat gets the orchestrator.
+    let (_, res) = h
+        .command(create(json!({"role":"orchestrator"})), None)
+        .await;
+    assert_eq!(res["result"]["agent"], "codex");
+    // `[review] agent` still works as the reviewer.
+    let (status, res) = h
+        .command(
+            json!({"type":"workspace.review","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["agent"], "gemini");
+
+    // The roles are trusted settings: a branch can't pick its own agents.
+    std::fs::write(
+        Path::new(&ws.path).join(".bantu/settings.toml"),
+        "[agents]\nworker = \"cursor\"\n",
+    )
+    .unwrap();
+    let (_, res) = h.command(create(json!({})), None).await;
+    assert_eq!(res["result"]["agent"], "goose");
 }
 
 #[tokio::test]

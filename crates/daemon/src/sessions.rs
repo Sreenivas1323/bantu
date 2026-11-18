@@ -71,6 +71,20 @@ impl Daemon {
                 ws.state.as_str()
             )));
         }
+        let agent = match agent {
+            Some(agent) => agent,
+            None => {
+                let role = self.default_role(&ws).await;
+                self.role_agent(&ws, role).await
+            }
+        };
+        let spec = crate::catalogue::spec(agent);
+        if !spec.chat() {
+            return Err(CommandError::BadRequest(format!(
+                "{} runs in a terminal only; open it with terminal.open and `agent`",
+                spec.name
+            )));
+        }
         // The repo's setting is where new chats start; each chat can change it.
         let browser = self
             .trusted_settings(&ws)
@@ -79,7 +93,7 @@ impl Daemon {
         let session = Session {
             id: new_id(),
             workspace_id: ws.id,
-            agent: agent.unwrap_or(AgentKind::Claude),
+            agent,
             title: DEFAULT_TITLE.into(),
             model: model.filter(|m| !m.trim().is_empty()),
             permission_mode: permission_mode.unwrap_or_default(),
@@ -772,8 +786,12 @@ impl Daemon {
                 };
                 (&self.config.codex_bin, cmd, prompt)
             }
-            AgentKind::Opencode | AgentKind::Gemini | AgentKind::Cursor => {
-                unreachable!("ACP agents return above")
+            // ACP agents returned above; the rest only run in a terminal.
+            other => {
+                return Err(anyhow!(
+                    "{} runs in a terminal only",
+                    crate::catalogue::spec(other).name
+                ))
             }
         };
         let mut child = cmd
@@ -840,7 +858,7 @@ impl Daemon {
                             }
                             items
                         }
-                        AgentKind::Opencode | AgentKind::Gemini | AgentKind::Cursor => vec![],
+                        _ => vec![],
                     };
                     for item in items {
                         if let ChatItem::TurnEnd { cost_usd, .. } = &item {

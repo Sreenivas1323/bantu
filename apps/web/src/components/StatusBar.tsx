@@ -22,6 +22,31 @@ const tone: Record<ConnStatus, string> = {
   signin: "bg-warn",
 };
 
+/**
+ * One entry for every installed agent, however many there are, so the bar
+ * never overflows. The dot warns when one isn't signed in; the dialog has
+ * the details.
+ */
+function AgentsEntry({ agents, onOpen }: { agents: AgentStatus[]; onOpen: () => void }) {
+  const installed = agents.filter((a) => a.installed);
+  if (installed.length === 0) return null;
+  const allReady = installed.every((a) => a.logged_in);
+  const [first, ...rest] = installed;
+  const label = `${agentLabel(first.agent)}${first.agent === "claude" || first.agent === "codex" ? ` · ${accountKind(first)}` : ""}`;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={installed.map((a) => `${a.name}: ${accountKind(a)}`).join("\n")}
+      className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-raised hover:text-fg max-md:hidden"
+    >
+      <span className={`size-1.5 rounded-full ${allReady ? "bg-ok" : "bg-warn"}`} />
+      {label}
+      {rest.length > 0 && <span className="text-faint">+{rest.length} agents</span>}
+    </button>
+  );
+}
+
 export function StatusBar({
   status,
   lastSeq,
@@ -64,22 +89,7 @@ export function StatusBar({
       </span>
       {daemonVersion && <span className="max-md:hidden">bantud {daemonVersion}</span>}
       <span className="tabular-nums max-md:hidden">seq {lastSeq}</span>
-      {agents
-        ?.filter((a) => a.installed)
-        .map((a) => (
-          <button
-            key={a.agent}
-            type="button"
-            onClick={onOpenAccounts}
-            title={[a.account, a.organization].filter(Boolean).join(" · ") || "Agent account"}
-            className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-raised hover:text-fg max-md:hidden"
-          >
-            <span className={`size-1.5 rounded-full ${a.logged_in ? "bg-ok" : "bg-warn"}`} />
-            {agentLabel(a.agent)}
-            {/* ACP agents can't report an account, so there's nothing more to say. */}
-            {(a.agent === "claude" || a.agent === "codex") && ` · ${accountKind(a)}`}
-          </button>
-        ))}
+      {agents && <AgentsEntry agents={agents} onOpen={onOpenAccounts} />}
       {error && (
         <button type="button" onClick={onDismissError} className="min-w-0 truncate text-bad" title="Dismiss">
           {error}

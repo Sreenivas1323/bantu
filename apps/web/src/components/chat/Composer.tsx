@@ -10,13 +10,10 @@ const MODES: { value: PermissionMode; label: string }[] = [
   { value: "bypass_permissions", label: "Bypass permissions" },
 ];
 
-const MODELS: Record<Session["agent"], string[]> = {
+// ACP agents list their own models; type one with Custom.
+const MODELS: Partial<Record<Session["agent"], string[]>> = {
   claude: ["opus", "sonnet", "haiku"],
   codex: ["gpt-5-codex", "gpt-5"],
-  // ACP agents list their own models; type one with Custom.
-  opencode: [],
-  gemini: [],
-  cursor: [],
 };
 const CUSTOM = "__custom__";
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -82,7 +79,7 @@ export function Composer({
   };
 
   const model = session.model ?? "";
-  const known = MODELS[session.agent];
+  const known = MODELS[session.agent] ?? [];
   const modelOptions = model && !known.includes(model) ? [...known, model] : known;
 
   return (

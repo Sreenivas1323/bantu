@@ -23,8 +23,8 @@ bantud: ONE Rust binary, the same on macOS, Linux, EC2, a sandbox (Windows later
   ├─ agent sessions     normalized ChatItems; message queue; cancel; permission requests
   │     claude      (the user's `claude` CLI, stream-json, one process per turn)   ← today
   │     codex       (`codex exec --json`, one process per turn)
-  │     acp         (OpenCode, Gemini, Cursor: JSON-RPC over stdio, one process per turn)
-  │     terminal    (any CLI in a pty; a chat continued in its agent's own UI)
+  │     acp         (OpenCode, Gemini, Cursor, Goose, Qwen, Copilot, Kiro, …: JSON-RPC over stdio)
+  │     terminal    (any CLI in a pty; terminal-only agents like Aider and Amp; a chat continued in its agent's own UI)
   ├─ permissions        Claude PermissionRequest HTTP hook → approval in any client
   ├─ review             diff vs merge-base (throwaway index), line comments → agent, PR status via gh
   ├─ pty manager        portable-pty, 512 KB scrollback replayed to every viewer, process-group kill

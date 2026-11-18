@@ -187,8 +187,8 @@ export function WorkspaceView({
           <button
             type="button"
             onClick={async (e) => {
-              // Shift-click asks Codex for a second opinion.
-              const agent = e.shiftKey ? "codex" : "claude";
+              // The repo's reviewer ([agents] reviewer, else Claude); Shift-click asks Codex for a second opinion.
+              const agent = e.shiftKey ? "codex" : null;
               const res = await run({ type: "workspace.review", workspace_id: workspace.id, agent });
               const s = res?.result as Session | undefined;
               if (s?.id) {
@@ -196,7 +196,7 @@ export function WorkspaceView({
                 setTab("chat");
               }
             }}
-            title="Start a read-only chat that reviews these changes (Shift-click: review with Codex)"
+            title="Start a read-only chat that reviews these changes with the repo's reviewer agent (Shift-click: review with Codex)"
             className="rounded-md border border-line px-2.5 py-1 text-[12px] text-muted hover:bg-raised hover:text-fg"
           >
             Review

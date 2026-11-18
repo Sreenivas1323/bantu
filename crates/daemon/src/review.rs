@@ -128,8 +128,16 @@ impl Daemon {
             .map_err(|_| {
                 CommandError::Conflict("couldn't find where this branch started".into())
             })?;
+        // Without a choice, the repo's `[agents] reviewer` reviews.
+        let agent = match agent {
+            Some(agent) => agent,
+            None => {
+                self.role_agent(&ws, bantu_protocol::AgentRole::Reviewer)
+                    .await
+            }
+        };
         let session = self
-            .create_session(workspace_id, agent, None, Some(PermissionMode::Plan))
+            .create_session(workspace_id, Some(agent), None, Some(PermissionMode::Plan))
             .await?;
         let session = self
             .update_session(&session.id, Some("Review".into()), None, None)

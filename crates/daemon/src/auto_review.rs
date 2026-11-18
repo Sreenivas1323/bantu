@@ -160,10 +160,8 @@ impl Daemon {
         }
 
         let agent = settings
-            .review
-            .agent
-            .as_deref()
-            .and_then(AgentKind::parse)
+            .agents
+            .for_role(bantu_protocol::AgentRole::Reviewer, &settings.review)
             .unwrap_or(if s.agent == AgentKind::Claude {
                 AgentKind::Codex
             } else {

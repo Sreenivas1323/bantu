@@ -5,6 +5,9 @@
 //! setup = "bun install"
 //! archive = "docker compose down"
 //! check = "bun run typecheck && bun test"
+//!
+//! [agents]
+//! worker = "codex"
 //! ```
 //!
 //! `.conductor/settings.toml` is read as a fallback so Conductor users can
@@ -12,6 +15,7 @@
 
 use std::path::Path;
 
+use bantu_protocol::{AgentKind, AgentRole};
 use serde::Deserialize;
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -26,6 +30,56 @@ pub struct Settings {
     pub pr: PrSettings,
     #[serde(default)]
     pub browser: BrowserSettings,
+    #[serde(default)]
+    pub agents: AgentRoles,
+}
+
+/// Which agent this repo uses for each role. Agent ids are the `AgentKind`
+/// values (`claude`, `codex`, `goose`, ...).
+///
+/// ```toml
+/// [agents]
+/// worker = "codex"         # new chats
+/// orchestrator = "claude"  # a lead chat that starts other workspaces
+/// reviewer = "gemini"      # review chats; replaces [review] agent
+/// ```
+///
+/// Only agents Bantu can chat with count: a terminal-only agent or an unknown
+/// id is ignored (with a warning), and the default applies.
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct AgentRoles {
+    pub worker: Option<String>,
+    pub orchestrator: Option<String>,
+    pub reviewer: Option<String>,
+}
+
+impl AgentRoles {
+    /// The configured agent for `role`. The reviewer falls back to the older
+    /// `[review] agent`, which still works as an alias.
+    pub fn for_role(&self, role: AgentRole, review: &ReviewSettings) -> Option<AgentKind> {
+        let name = match role {
+            AgentRole::Worker => self.worker.as_deref(),
+            AgentRole::Orchestrator => self.orchestrator.as_deref(),
+            AgentRole::Reviewer => self.reviewer.as_deref().or(review.agent.as_deref()),
+        }?
+        .trim();
+        if name.is_empty() {
+            return None;
+        }
+        match AgentKind::parse(name) {
+            Some(kind) if crate::catalogue::spec(kind).chat() => Some(kind),
+            Some(_) => {
+                tracing::warn!(
+                    "[agents] {name:?} only runs in a terminal, so it can't hold a chat"
+                );
+                None
+            }
+            None => {
+                tracing::warn!("[agents] unknown agent {name:?}");
+                None
+            }
+        }
+    }
 }
 
 /// What happens after an agent opens a pull request.
@@ -60,6 +114,8 @@ pub struct BrowserSettings {
 /// auto = true
 /// agent = "codex"  # Defaults to Codex for Claude's work, and Claude for others'.
 /// ```
+///
+/// `agent` is an alias for `[agents] reviewer`, which wins when both are set.
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct ReviewSettings {
     #[serde(default)]
@@ -196,6 +252,48 @@ mod tests {
         // Blank and missing prompts leave the built-in one alone.
         assert_eq!(prompts.apply(PromptKind::CreatePr, "PR.".into()), "PR.");
         assert_eq!(prompts.apply(PromptKind::FixChecks, "Fix.".into()), "Fix.");
+    }
+
+    #[test]
+    fn agent_roles() {
+        let s = parse(
+            "[agents]\nworker = \"goose\"\norchestrator = \" codex \"\nreviewer = \"gemini\"\n\
+             [review]\nagent = \"claude\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            s.agents.for_role(AgentRole::Worker, &s.review),
+            Some(AgentKind::Goose)
+        );
+        assert_eq!(
+            s.agents.for_role(AgentRole::Orchestrator, &s.review),
+            Some(AgentKind::Codex)
+        );
+        // [agents] reviewer wins over the older [review] agent.
+        assert_eq!(
+            s.agents.for_role(AgentRole::Reviewer, &s.review),
+            Some(AgentKind::Gemini)
+        );
+
+        // [review] agent still works on its own.
+        let s = parse("[review]\nauto = true\nagent = \"codex\"\n").unwrap();
+        assert_eq!(
+            s.agents.for_role(AgentRole::Reviewer, &s.review),
+            Some(AgentKind::Codex)
+        );
+        assert_eq!(s.agents.for_role(AgentRole::Worker, &s.review), None);
+
+        // Terminal-only, unknown and blank agents are ignored.
+        let s = parse("[agents]\nworker = \"aider\"\norchestrator = \"nope\"\nreviewer = \"\"\n")
+            .unwrap();
+        for role in [
+            AgentRole::Worker,
+            AgentRole::Orchestrator,
+            AgentRole::Reviewer,
+        ] {
+            assert_eq!(s.agents.for_role(role, &s.review), None);
+        }
+        assert!(parse("").unwrap().agents.worker.is_none());
     }
 
     #[test]

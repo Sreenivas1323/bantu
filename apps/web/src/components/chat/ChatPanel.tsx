@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import type { AgentKind, AgentStatus, Command, CommandResponse, InboxItem, Loadout, PermissionRequest, Session, Terminal, Workspace } from "@bantu/protocol";
+import type { AgentKind, AgentRole, AgentStatus, Command, CommandResponse, InboxItem, Loadout, PermissionRequest, Session, Terminal, Workspace } from "@bantu/protocol";
 import { QuestionCard } from "../InboxDialog.tsx";
 import type { ChatEntry, DaemonState } from "../../lib/store.ts";
-import { agentLabel, AGENT_KINDS } from "../../lib/useAgents.ts";
+import { agentLabel } from "../../lib/useAgents.ts";
+import { AgentPicker, type AgentChoice } from "./AgentPicker.tsx";
 import { Composer } from "./Composer.tsx";
 import { PermissionCard } from "./PermissionCard.tsx";
 import { Transcript } from "./Transcript.tsx";
@@ -54,16 +55,33 @@ export function ChatPanel({
   }, [pendingNew, sessions]);
 
   const ready = workspace.state === "ready";
-  const newChat = async (agent: AgentKind) => {
-    const res = await run({ type: "session.create", workspace_id: workspace.id, agent, model: null, permission_mode: null, effort: null, fast: null });
+  /** `agent: null` lets the daemon pick the repo's agent for `role`. */
+  const newChat = async (agent: AgentKind | null, role: AgentRole | null = null) => {
+    const res = await run({ type: "session.create", workspace_id: workspace.id, agent, role, model: null, permission_mode: null, effort: null, fast: null });
     const created = res?.result as Session | undefined;
     if (created?.id) setPendingNew(created.id);
+  };
+  const pickAgent = async (choice: AgentChoice) => {
+    switch (choice.kind) {
+      case "default":
+        return newChat(null);
+      case "lead":
+        return newChat(null, "orchestrator");
+      case "chat":
+        return newChat(choice.agent);
+      case "terminal": {
+        const res = await run({ type: "terminal.open", workspace_id: workspace.id, cols: null, rows: null, command: null, agent: choice.agent });
+        const t = res?.result as Terminal | undefined;
+        if (t?.id) onShowTerminal(t.id);
+      }
+    }
   };
   const newFromLoadout = async (l: Loadout) => {
     const res = await run({
       type: "session.create",
       workspace_id: workspace.id,
       agent: l.agent,
+      role: null,
       model: l.model,
       permission_mode: l.permission_mode,
       effort: l.effort,
@@ -113,14 +131,12 @@ export function ChatPanel({
           <div>
             <p>No chat in this workspace yet.</p>
             <div className="mt-3 flex justify-center gap-2">
-              <button type="button" onClick={() => void newChat("claude")} className="pressable rounded-md bg-accent px-3 py-1.5 font-medium text-bg">
-                Start a Claude chat
-              </button>
-              {AGENT_KINDS.filter((a) => a !== "claude" && isInstalled(agents, a)).map((a) => (
-                <button key={a} type="button" onClick={() => void newChat(a)} className="rounded-md border border-line px-3 py-1.5 text-muted hover:text-fg">
-                  {agentLabel(a)}
-                </button>
-              ))}
+              <AgentPicker
+                agents={agents}
+                onPick={(c) => void pickAgent(c)}
+                primaryLabel="Start a chat"
+                primaryClassName="pressable rounded-md bg-accent px-3 py-1.5 font-medium text-bg"
+              />
             </div>
           </div>
         ) : (
@@ -158,18 +174,7 @@ export function ChatPanel({
             ))}
           {ready && (
             <span className="ml-1 flex shrink-0 items-center gap-0.5 text-muted">
-              <span className="px-1">+ New chat:</span>
-              {AGENT_KINDS.filter((a) => a === "claude" || isInstalled(agents, a)).map((agent) => (
-                <button
-                  key={agent}
-                  type="button"
-                  onClick={() => void newChat(agent)}
-                  className="rounded px-2 py-1 hover:bg-raised hover:text-fg"
-                  title={`New ${agentLabel(agent)} chat in this workspace (uses your own login)`}
-                >
-                  {agentLabel(agent)}
-                </button>
-              ))}
+              <AgentPicker agents={agents} onPick={(c) => void pickAgent(c)} />
               {loadouts.map((l) => (
                 <button
                   key={l.name}
@@ -280,16 +285,10 @@ export function ChatPanel({
   );
 }
 
-/** Codex stays visible while status is loading, as it was before more agents existed. */
-function isInstalled(agents: AgentStatus[] | null, agent: AgentKind) {
-  const status = agents?.find((a) => a.agent === agent);
-  return status ? status.installed : agent === "codex";
-}
-
 /** Shown when the chat's agent can't run: not installed or not signed in. */
 function AgentSetupNotice({ status, onOpenAccounts }: { status: AgentStatus | undefined; onOpenAccounts: () => void }) {
   if (!status || (status.installed && status.logged_in)) return null;
-  const name = status.agent === "claude" ? "Claude Code" : agentLabel(status.agent);
+  const name = status.agent === "claude" ? "Claude Code" : status.name;
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-5 pb-2">
       <p className="flex-1 rounded-md border border-warn/40 bg-warn/5 px-3 py-2 text-[12.5px] text-warn">
