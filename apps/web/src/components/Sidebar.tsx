@@ -125,7 +125,10 @@ function RepoGroup({
   return (
     <section className="mt-2">
       <div className="group flex items-center gap-1 px-2 py-1">
-        <span className="min-w-0 flex-1 truncate text-xs font-medium uppercase tracking-wide text-muted" title={repo.root_path}>
+        <span
+          className="min-w-0 flex-1 truncate text-xs font-medium uppercase tracking-wide text-muted"
+          title={repo.github_account ? `${repo.root_path}\nGitHub: ${repo.github_account}` : repo.root_path}
+        >
           {repo.name}
         </span>
         <button

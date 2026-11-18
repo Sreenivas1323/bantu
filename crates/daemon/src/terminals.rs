@@ -295,6 +295,10 @@ impl Daemon {
             Some(ws) => {
                 cmd.cwd(&ws.path);
                 cmd.env("BANTU_PORT", ws.port_base.to_string());
+                // The GitHub login this repo uses, for gh and git push.
+                if let Some((key, token)) = crate::gh::cached_env(std::path::Path::new(&ws.path)) {
+                    cmd.env(key, token);
+                }
                 // For dev servers that take a base path, so previews fully work.
                 cmd.env(
                     "BANTU_PREVIEW_BASE",

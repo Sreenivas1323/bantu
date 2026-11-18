@@ -141,6 +141,7 @@ This is Claude Code's `PermissionRequest` HTTP hook (see [Agent sessions](#agent
 | `root_path` | string | Absolute path to the main checkout |
 | `default_branch` | string | e.g. `main` |
 | `remote_url` | string \| null | `origin` URL, if any |
+| `github_account` | string \| null | The signed-in `gh` login this repo uses when the active one can't see it; see [GitHub logins](#github-logins) |
 | `created_at` | string | RFC 3339 |
 
 ### `Workspace`
@@ -275,6 +276,7 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `workspace.create` | `repo_id`, `name?`, `base_ref?` | `Workspace` (`creating`) | Creates a worktree and branch; see below. |
 | `workspace.archive` | `workspace_id` | `Workspace` (`archiving`) | Stops its agents and terminals, then archives; see below. |
 | `workspace.run` | `workspace_id` | `Terminal` | Starts the repo's run script in a `run` terminal, or returns the one already running. 400 if there's no run script. |
+| `repo.set_github_account` | `repo_id`, `account?` | `Repo` | Uses this signed-in `gh` login for the repo; see [GitHub logins](#github-logins). 400 if it isn't signed in. |
 | `workspace.integrate` | `workspace_id`, `session_id?` | `IntegrationResult` | Merges finished child workspaces into this one's branch; see below. 409 if the lead is busy or has uncommitted changes. |
 | `workspace.spotlight` | `workspace_id` | `Spotlight` | Shows the workspace's work in the repo's main checkout; see below. 409 if the main checkout has uncommitted changes. |
 | `repo.spotlight_stop` | `repo_id` | — | Returns the main checkout to its branch. 409 if it has uncommitted changes. |
@@ -345,6 +347,10 @@ A `Loop` runs an agent on its own: `{ id, repo_id, name, trigger, prompt, agent,
 - **Missed runs aren't caught up on.** If the daemon or machine was off at the scheduled time, the next run is the next one due.
 - **GitHub triggers need a label**, because labels take triage rights while anyone can open an issue, and an issue's text goes into the agent's prompt. They refuse `bypass_permissions` and don't check out forks' PRs. The first poll records what's already open, so turning a loop on doesn't start a run for every old issue.
 - **Alerts.** A finished loop run sends no push alert, but one that asks for approval still does.
+
+### GitHub logins
+
+Bantu runs `gh` for pull requests, checks and GitHub Issues. When a repo is added (and at startup, for repos added before), Bantu asks each signed-in `gh` login in turn, starting with the active one, whether it can see the repo's GitHub remote. If only another login can, it records that login as `Repo.github_account`. From then on, `gh` in the repo's checkout and workspaces runs with that login's token in `GH_TOKEN`, and the repo's agents, terminals and scripts get it too, so `gh pr create` and `git push` (through `gh auth setup-git`) act as that login. The active login is never changed. `repo.set_github_account { repo_id, account }` picks one by hand; `account: null` goes back to the active login. `repo.updated` reports the change.
 
 ### Pull requests and the board
 
@@ -596,6 +602,7 @@ These agents speak the [Agent Client Protocol](https://agentclientprotocol.com):
 | `comment.deleted` | `comment_id`, `workspace_id` | |
 | `permission.requested` | `request` | An agent is waiting for approval |
 | `permission.resolved` | `request_id`, `session_id`, `workspace_id`, `allowed` | Answered, stopped or timed out |
+| `repo.updated` | `repo` | A repo's details changed, such as its GitHub login |
 | `pr.updated` | `pr` | A workspace's pull request changed (full `WorkspacePr`) |
 | `pr.removed` | `workspace_id` | Its branch no longer has a pull request |
 | `tracker.updated` | `tracker` | A tracker was connected, or synced (full object) |

@@ -169,6 +169,7 @@ function applyEvent(state: DaemonState, ev: Event): DaemonState {
   const data = ev.data;
   switch (data.type) {
     case "repo.added":
+    case "repo.updated":
       return { ...next, repos: { ...state.repos, [data.repo.id]: data.repo } };
     case "repo.removed": {
       const { [data.repo_id]: _removed, ...repos } = state.repos;

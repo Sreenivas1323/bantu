@@ -497,6 +497,8 @@ impl Daemon {
             .args(&shell_args)
             .current_dir(&ws.path)
             .env("BANTU_PORT", ws.port_base.to_string())
+            // The GitHub login this repo uses, for gh and git push.
+            .envs(crate::gh::cached_env(std::path::Path::new(&ws.path)))
             .env("BANTU_WORKSPACE_PATH", &ws.path)
             .env("CI", "1")
             .stdin(Stdio::null())
@@ -797,6 +799,8 @@ impl Daemon {
         let mut child = cmd
             .current_dir(&ws.path)
             .env("BANTU_PORT", ws.port_base.to_string())
+            // The GitHub login this repo uses, for gh and git push.
+            .envs(crate::gh::cached_env(std::path::Path::new(&ws.path)))
             .env("BANTU_WORKSPACE_ID", &ws.id)
             .env("BANTU_WORKSPACE_NAME", &ws.name)
             .env("BANTU_WORKSPACE_PATH", &ws.path)

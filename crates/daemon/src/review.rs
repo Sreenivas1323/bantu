@@ -358,7 +358,8 @@ impl Daemon {
         if repo.remote_url.is_none() {
             return Ok(None);
         }
-        let out = tokio::process::Command::new("gh")
+        let out = crate::gh::command(std::path::Path::new(&repo.root_path))
+            .await
             .args([
                 "pr",
                 "view",
@@ -366,8 +367,6 @@ impl Daemon {
                 "--json",
                 "number,url,title,state,isDraft,reviewDecision,statusCheckRollup",
             ])
-            .current_dir(&repo.root_path)
-            .env("GH_PROMPT_DISABLED", "1")
             .output()
             .await;
         let out = match out {
@@ -396,10 +395,9 @@ struct FailingCheck {
 
 /// Runs `gh` in `dir`; `None` if it's missing or produced nothing usable.
 async fn gh(dir: &str, args: &[&str]) -> Option<String> {
-    let out = tokio::process::Command::new("gh")
+    let out = crate::gh::command(std::path::Path::new(dir))
+        .await
         .args(args)
-        .current_dir(dir)
-        .env("GH_PROMPT_DISABLED", "1")
         .output()
         .await
         .ok()?;

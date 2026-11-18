@@ -22,6 +22,10 @@ pub struct Repo {
     pub default_branch: String,
     pub remote_url: Option<String>,
     pub created_at: String,
+    /// The signed-in `gh` login this repo's GitHub calls use, when it isn't
+    /// the active one (the repo is only visible to another account).
+    #[serde(default)]
+    pub github_account: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -1155,6 +1159,14 @@ pub enum Command {
         #[serde(default)]
         agent: Option<AgentKind>,
     },
+    /// Use a particular signed-in `gh` login for this repo's GitHub calls, or
+    /// `None` for the active one. Bantu picks one itself when a repo is added.
+    #[serde(rename = "repo.set_github_account")]
+    RepoSetGithubAccount {
+        repo_id: String,
+        #[serde(default)]
+        account: Option<String>,
+    },
     /// Merge this workspace's finished children into its branch, locally. On a
     /// conflict the merge is aborted, and `session_id`'s agent takes over if set.
     #[serde(rename = "workspace.integrate")]
@@ -1227,6 +1239,9 @@ pub enum LogStream {
 #[serde(tag = "type")]
 #[ts(export)]
 pub enum EventData {
+    /// A repo's details changed, such as the GitHub login it uses.
+    #[serde(rename = "repo.updated")]
+    RepoUpdated { repo: Repo },
     #[serde(rename = "repo.added")]
     RepoAdded { repo: Repo },
     #[serde(rename = "repo.removed")]
@@ -1326,6 +1341,7 @@ impl EventData {
     pub fn workspace_id(&self) -> Option<&str> {
         match self {
             Self::RepoAdded { .. }
+            | Self::RepoUpdated { .. }
             | Self::RepoRemoved { .. }
             | Self::ConflictsUpdated { .. }
             | Self::SpotlightUpdated { .. }
