@@ -17,7 +17,7 @@ Wire types are defined in Rust in [`crates/protocol/src/lib.rs`](../crates/proto
 | | |
 |---|---|
 | Default address | `127.0.0.1:47800` (`--host`, `--port`). Non-loopback hosts are refused unless `--allow-remote` is passed; expose a daemon remotely through Tailscale Serve, Cloudflare Tunnel or CloudFront instead. Requests whose `Host` isn't loopback are rejected too (DNS-rebinding protection). |
-| Data dir | `~/.bantu` (override with `BANTU_HOME`): `bantu.db` (SQLite) and `local-token` (mode 0600) |
+| Data dir | `~/.bantu` (override with `BANTU_HOME`): `bantu.db` (SQLite) and `local-token` (mode 0600); `org.token` and `org-claude-env.json` (mode 0600) while in an [organization](#organizations-bantu-connect) |
 | Auth | `Authorization: Bearer <token>`, or `?token=<token>` on the query string (needed for `EventSource` and browser WebSockets, which can't set headers) |
 | Token | `bantud --print-token` prints it |
 | Web app | The daemon serves the built web app at `/` (`--web-dir` or `BANTU_WEB_DIR`) |
@@ -61,7 +61,10 @@ All bodies are JSON (`content-type: application/json`). Errors are JSON too: `{ 
   "comments": [DiffComment, ...],
   "terminals": [Terminal, ...],
   "permissions": [PermissionRequest, ...],
-  "inbox": [InboxItem, ...]
+  "inbox": [InboxItem, ...],
+  "trackers": [Tracker, ...],
+  "org": Org | null,
+  "org_ended": string | null
 }
 ```
 Render this, then open `/v1/events?since=42`. The snapshot carries no logs or transcripts; fetch those per workspace from `/history`. `terminals`, `permissions` and `inbox` live in the daemon's memory and are empty after a restart.
@@ -302,7 +305,7 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `loop.delete` | `loop_id` | — | Existing runs' workspaces are kept. |
 | `loop.run` | `loop_id` | `Workspace` | Starts a run now. 409 if the last run is still working or the repo has 10 active workspaces. |
 | `tracker.add` | `repo_id`, `kind`, `site?`, `scope?`, `account?`, `token?` | `Tracker` | Connects a repo to GitHub Issues, GitLab, Jira or ClickUp; see [Tasks](#tasks). 400 if signing in or reading tasks fails. |
-| `tracker.remove` | `tracker_id` | — | Workspaces started from it are kept. |
+| `tracker.remove` | `tracker_id` | — | Workspaces started from it are kept. 409 for a tracker from the member's organization. |
 | `tasks.refresh` | `tracker_id?` | `Task[]` | Fetches now instead of waiting for the next sync. |
 | `task.start` | `tracker_id`, `task_id` | `Workspace` | A workspace for the task, with the agent given the task once it's ready. |
 | `import.scan` | `source`, `path?` | `ImportPreview` | Shows what an import from `conductor` or `pane` would bring across. `path` overrides where the tool's database normally is. |
@@ -313,6 +316,9 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `terminal.open` | `workspace_id`, `cols?`, `rows?`, `command?`, `agent?` | `Terminal` | Opens an interactive login shell in the worktree, or runs `command` (any CLI) there. With `agent` and no `command`, it runs that agent's own terminal UI (titled with its name); this is how terminal-only agents are used. |
 | `session.open_terminal` | `session_id`, `cols?`, `rows?` | `Terminal` | Continues a Claude or Codex chat in the agent's own terminal UI; see below. Returns the existing terminal if it's already open. 409 while a turn is running. |
 | `terminal.close` | `terminal_id` | — | Hangs up the terminal's whole process group and forgets it. |
+| `org.join` | `link` | `Org` | Joins an organization with a Bantu Connect join link; see [Organizations](#organizations-bantu-connect). 400 for a bad, unknown or expired link, 409 if already in one. |
+| `org.sync` | — | `Org` \| `null` | Fetches the org's settings now. `null` if there's no org, or the connector removed this machine. |
+| `org.leave` | — | — | Leaves the org and removes its trackers and Claude settings. 400 if there's no org. |
 | `preferences.update` | `claude_user_setup?`, `loadouts?` | `Preferences` | Changes daemon-wide preferences (also in `StateSnapshot.preferences`; changes arrive as `preferences.updated`). |
 
 ```json
@@ -375,7 +381,7 @@ It only does this while that workspace has no agent working and nothing waiting 
 
 ### Tasks
 
-A repo can be connected to task trackers. `StateSnapshot.trackers` lists them (`Tracker`: `{ id, kind, repo_id, name, site, scope, account, created_at, last_synced_at, last_error }`), and `GET /v1/tasks` returns their open tasks.
+A repo can be connected to task trackers. `StateSnapshot.trackers` lists them (`Tracker`: `{ id, kind, repo_id, name, site, scope, account, created_at, last_synced_at, last_error, org_id }`), and `GET /v1/tasks` returns their open tasks. `org_id` is set on trackers that come from the member's [organization](#organizations-bantu-connect); members can't remove those.
 
 | `kind` | Needs | `scope` |
 |---|---|---|
@@ -390,6 +396,55 @@ GitLab support uses REST API v4 (`GET /user`, `GET /projects/:id/issues?state=op
 - **Starting.** `task.start` creates a workspace on a branch named after the task (`bantu/web-12-fix-login`), names its chat after the task, and sends the agent the task. The description is marked as information written in the tracker, not instructions. `Workspace.task` records the link.
 - **Reporting back.** The agent can post notes with the `update_task` MCP tool. Once the workspace's branch has a pull request, its link is posted to the task, once. For GitLab trackers that's the branch's open merge request, found through GitLab's API (other trackers find the pull request with `gh`), and the agent is asked to put `Closes #N` in the MR description; for GitHub it's `Fixes #N`.
 - **Tokens** are stored in `$BANTU_HOME/trackers/<id>.token`, readable only by the user, and are never in the event log, the snapshot or any response. HTTP goes through `curl` with its arguments on stdin, so tokens aren't in the process list. `site` must be HTTPS (plain HTTP only to `127.0.0.1`, for testing).
+
+### Organizations (Bantu Connect)
+
+A daemon can belong to one organization through its **Bantu Connect** service, and then follows the org's settings. `StateSnapshot.org` is the `Org`, or `null`; `org.updated` (`{ org, ended }`) says when it changes.
+
+`Org`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id`, `name`, `slug` | string | |
+| `member` | `{ login, role }` | Your login, and `owner`, `admin` or `member` |
+| `connector` | string | The Connect service's address, from the join link |
+| `joined_at` | string | RFC 3339 |
+| `last_synced_at` | string \| null | The last good sync |
+| `last_error` | string \| null | Why the last sync failed. The last known settings stay in place |
+| `claude` | `{ mode, plan, env_keys }` | `mode` (`ClaudeAccessMode`) is `own`, `team`, `api_key`, `bedrock` or `vertex`; `plan` names the plan in `team` mode; `env_keys` are the names (never the values) of the variables Bantu sets on Claude Code |
+
+`StateSnapshot.org_ended` (and `ended` in `org.updated`) says why the last membership ended when it wasn't the member's choice, e.g. after a 401. Joining again clears it.
+
+- **Joining.** `org.join { link }` takes a join link, `https://<connector>/c/<code>`. The connector can sit under a path (`https://example.com/connect/c/<code>`). Links must be HTTPS; plain HTTP is accepted only to `127.0.0.1`, for testing. The daemon posts `{ code, name }` (`name` is the machine's hostname) to `<connector>/api/daemon/join`. A 400 or 410 (an unknown, expired or used code) is a 400 here with a plain message, and nothing is stored. 409 if the daemon is already in an org.
+- **The daemon token** goes in `$BANTU_HOME/org.token` (mode 0600). It's sent only as `Authorization: Bearer` to the connector, through `curl` with its arguments on stdin, and is never in the event log, the snapshot or any response.
+- **Sync.** `GET <connector>/api/daemon/sync` right after joining, every 5 minutes, on `org.sync`, and soon after `repo.add`. `org.sync` returns the `Org`, or `null` if the connector says this machine isn't a member any more.
+- **Network errors and other failures** (anything but 2xx and 401) keep the last known trackers and Claude settings, and set `last_error`.
+- **A 401** means the token was revoked or the member was removed. Bantu cleans up as for leaving and sets `org_ended`. It doesn't call `leave`.
+- **Leaving.** `org.leave` posts to `<connector>/api/daemon/leave` (a failure there is logged, and the daemon leaves anyway), deletes the token, and removes the org's trackers (with their tokens and tasks) and Claude settings. Workspaces started from the org's tasks are kept. 400 if there's no org.
+
+**Connections become trackers.** Each of the org's connections (`jira`, `clickup` or `gitlab`) becomes a `Tracker` with `org_id` set to the org's id, id `org-<connection id>-<repo id>`, and its token in the usual `$BANTU_HOME/trackers/<id>.token`. A connection attaches to the local repos its scope obviously points at:
+
+- a repo whose folder name is the connection's name, a Jira project key (`WEB` → `web`), or a GitLab project's last segment (`acme/web` → `web`), ignoring case;
+- for GitLab, a repo whose `origin` is that project (`git@gitlab.com:acme/web.git`).
+
+With no match, it attaches to every repo, so nothing an admin connects is hidden. Repos added later are picked up by the next sync. `tracker.remove` refuses org trackers with 409 ("managed by your organization"); they go when an admin drops them from Connect (the next sync removes them) or the member leaves. A connection with a non-HTTPS `site` or an unusable id is skipped.
+
+**Claude access.** In any mode but `own`, the org's `claude.env` is set on every Claude Code process Bantu starts: chat turns (including reviews and automatic review, which are chats) and every PTY terminal (shells, agent terminals and chats continued in a terminal, so `claude` run there gets it too). Only variables that configure Claude Code and its providers pass: names made of `A-Z`, `0-9` and `_` starting with `ANTHROPIC_`, `CLAUDE_CODE_`, `AWS_`, `CLOUD_ML_`, `GOOGLE_`, `VERTEX_REGION_`, `DISABLE_` or `OTEL_`. Others (such as `PATH`) are dropped, with a warning in the daemon log. The values are kept in `$BANTU_HOME/org-claude-env.json` (mode 0600) so they survive a restart. In `own` mode nothing is set. In `team` mode the app shows the plan's name and asks the member to sign in to Claude with their work account in the accounts dialog.
+
+**Team totals.** After a good sync, if yesterday (UTC) hasn't been sent, the daemon posts `{ day: "YYYY-MM-DD", counts }` to `<connector>/api/daemon/totals`. That happens once a day, and on startup when a day was missed. `counts` are numbers only, computed from the local store:
+
+| Count | From |
+|---|---|
+| `workspaces_started` | Workspaces created that day, not counting imported ones |
+| `prs_opened` | Pull requests the board first saw that day (`pr.updated`) |
+| `prs_merged` | Pull requests first seen merged that day |
+| `checks_passed`, `checks_failed` | `check` chat items |
+| `agent_turns` | `turn_end` chat items |
+| `cost_usd` | The sum of their `cost_usd` |
+
+No names, repos, branches or text are sent. Only the last day is sent; earlier missed days aren't caught up on.
+
+So far this is tested only against a fake connector in the daemon's API tests, not the real Connect service.
 
 ### Importing from Conductor and Pane
 
@@ -464,7 +519,7 @@ claude -p --output-format stream-json --verbose --include-partial-messages \
 - **Output** is parsed line by line into `ChatItem`s (`session.item` events). Partial text becomes `delta` frames.
 - **Workspace context** is appended to the system prompt: the workspace name, branch, base, and its reserved ports.
 - **Lean context.** Unless `preferences.claude_user_setup` is on, turns skip the user's global Claude setup (`~/.claude/settings.json`, its plugins, hooks and skills, user MCP servers and `~/.claude/CLAUDE.md`). A trivial turn then sends about 17k input tokens instead of about 53k with a heavily customised setup. The repo's `CLAUDE.md`, `.claude/settings.json` and `.claude/settings.local.json` still load, and so do Bantu's hook and MCP server.
-- **Environment**: `BANTU_PORT`, `BANTU_WORKSPACE_ID`, `BANTU_WORKSPACE_NAME`, `BANTU_WORKSPACE_PATH`, `BANTU_SESSION_ID`.
+- **Environment**: `BANTU_PORT`, `BANTU_WORKSPACE_ID`, `BANTU_WORKSPACE_NAME`, `BANTU_WORKSPACE_PATH`, `BANTU_SESSION_ID`, plus the organization's Claude settings when its mode isn't `own` (see [Organizations](#organizations-bantu-connect)).
 - **Permission prompts.** `--settings` installs a `PermissionRequest` HTTP hook pointing at `POST /v1/hooks/permission?session=<id>`.
   - The hook token travels in the `BANTU_HOOK_TOKEN` environment variable (referenced as `$BANTU_HOOK_TOKEN` in the hook's headers), never in argv.
   - The daemon publishes a `permission.requested` event and waits for `permission.respond`, a stop, or about 10 minutes, whichever comes first.
@@ -607,6 +662,7 @@ These agents speak the [Agent Client Protocol](https://agentclientprotocol.com):
 | `pr.removed` | `workspace_id` | Its branch no longer has a pull request |
 | `tracker.updated` | `tracker` | A tracker was connected, or synced (full object) |
 | `tracker.removed` | `tracker_id` | |
+| `org.updated` | `org`, `ended` | Joined, synced, left or removed from an organization. `org` is `null` without one; `ended` says why it was removed |
 | `tasks.changed` | `tracker_id` | Its tasks changed; fetch `GET /v1/tasks` |
 | `loop.updated` | `loop` | A loop was created or changed, including after a run (full object) |
 | `loop.deleted` | `loop_id` | |

@@ -238,6 +238,8 @@ async fn get_state(State(state): State<AppState>) -> Result<Json<StateSnapshot>,
         trackers: store.trackers().await?,
         pull_requests: state.daemon.pull_requests().await,
         preferences: store.preferences().await?,
+        org: store.org().await?,
+        org_ended: store.org_ended().await?,
     }))
 }
 
