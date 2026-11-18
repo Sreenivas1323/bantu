@@ -56,6 +56,8 @@ impl Daemon {
         let resume = self.can_resume(&s.id).await?;
         let (command, transcript_offset) = match s.agent {
             AgentKind::Claude => {
+                let browser = self.browser_for_turn(&s, &ws, s.turns.max(1)).await;
+                let context = crate::browser::with_note(workspace_context(&ws), browser.as_ref());
                 let bin = platform::call(&shell_quote(&self.config.claude_bin.to_string_lossy()));
                 let mut parts = vec![
                     bin,
@@ -64,7 +66,7 @@ impl Daemon {
                     "--permission-mode".to_string(),
                     crate::sessions::claude_permission_mode(s.permission_mode).to_string(),
                     "--append-system-prompt".to_string(),
-                    shell_quote(&workspace_context(&ws)),
+                    shell_quote(&context),
                 ];
                 if let Some(m) = &s.model {
                     parts.extend(["--model".to_string(), shell_quote(m)]);
@@ -82,7 +84,9 @@ impl Daemon {
                         "--strict-mcp-config".to_string(),
                     ]);
                 }
-                if let Some(mcp) = self.mcp_config(&s.id) {
+                if let Some(mcp) =
+                    crate::browser::with_browser(self.mcp_config(&s.id), browser.as_ref())
+                {
                     parts.extend(["--mcp-config".to_string(), shell_quote(&mcp)]);
                 }
                 let offset = find_transcript(&self.config.claude_config_dir, &agent_id)
@@ -99,7 +103,7 @@ impl Daemon {
                 };
                 (command, 0)
             }
-            AgentKind::Opencode | AgentKind::Gemini | AgentKind::Cursor => {
+            _ => {
                 return Err(CommandError::BadRequest(format!(
                     "{} can't reopen this conversation in a terminal yet; open its CLI from the \
                      Terminal tab instead",

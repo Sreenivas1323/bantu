@@ -48,6 +48,7 @@ pub struct Daemon {
     pub(crate) preview: crate::preview::Preview,
     pub(crate) auto_review: crate::auto_review::AutoReview,
     pub(crate) task_sync: crate::tasks::TaskSync,
+    pub(crate) pr_watch: crate::pr_watch::PrWatch,
     pub(crate) radar: crate::radar::Radar,
     pub(crate) activity: crate::activity::Tracker,
 }
@@ -66,6 +67,7 @@ impl Daemon {
             preview: Default::default(),
             auto_review: Default::default(),
             task_sync: Default::default(),
+            pr_watch: Default::default(),
             radar: Default::default(),
             activity: Default::default(),
         }
@@ -94,11 +96,19 @@ impl Daemon {
             Command::SessionCreate {
                 workspace_id,
                 agent,
+                role,
                 model,
                 permission_mode,
                 effort,
                 fast,
             } => {
+                let agent = match (agent, role) {
+                    (None, Some(role)) => {
+                        let ws = self.require_workspace(&workspace_id).await?;
+                        Some(self.role_agent(&ws, role).await)
+                    }
+                    (agent, _) => agent,
+                };
                 let session = self
                     .create_session(&workspace_id, agent, model, permission_mode)
                     .await?;
@@ -110,6 +120,7 @@ impl Daemon {
             Command::SessionSend { session_id, text } => {
                 let session = self.send_message(&session_id, text).await?;
                 self.reset_review_rounds(&session.workspace_id).await;
+                self.reset_pr_rounds(&session.workspace_id).await;
                 serde_json::to_value(session)
             }
             Command::SessionCancel { session_id } => {
@@ -249,10 +260,17 @@ impl Daemon {
                 cols,
                 rows,
                 command,
-            } => serde_json::to_value(
-                self.open_terminal(&workspace_id, cols, rows, command)
-                    .await?,
-            ),
+                agent,
+            } => serde_json::to_value(match (agent, command) {
+                (Some(agent), None) => {
+                    self.open_agent_terminal(&workspace_id, agent, cols, rows)
+                        .await?
+                }
+                (_, command) => {
+                    self.open_terminal(&workspace_id, cols, rows, command)
+                        .await?
+                }
+            }),
             Command::SessionOpenTerminal {
                 session_id,
                 cols,
@@ -310,9 +328,11 @@ impl Daemon {
                 permission_mode,
                 effort,
                 fast,
+                browser,
             } => {
                 self.update_session(&session_id, title, model, permission_mode)
                     .await?;
+                self.set_session_browser(&session_id, browser).await?;
                 serde_json::to_value(self.tune_session(&session_id, effort, fast).await?)
             }
         };

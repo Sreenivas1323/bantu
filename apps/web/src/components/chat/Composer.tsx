@@ -10,13 +10,10 @@ const MODES: { value: PermissionMode; label: string }[] = [
   { value: "bypass_permissions", label: "Bypass permissions" },
 ];
 
-const MODELS: Record<Session["agent"], string[]> = {
+// ACP agents list their own models; type one with Custom.
+const MODELS: Partial<Record<Session["agent"], string[]>> = {
   claude: ["opus", "sonnet", "haiku"],
   codex: ["gpt-5-codex", "gpt-5"],
-  // ACP agents list their own models; type one with Custom.
-  opencode: [],
-  gemini: [],
-  cursor: [],
 };
 const CUSTOM = "__custom__";
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -34,7 +31,7 @@ export function Composer({
   disabledReason: string | null;
   onSend: (text: string) => Promise<boolean>;
   onStop: () => Promise<void>;
-  onUpdate: (change: { model?: string; permission_mode?: PermissionMode; effort?: string; fast?: boolean }) => Promise<void>;
+  onUpdate: (change: { model?: string; permission_mode?: PermissionMode; effort?: string; fast?: boolean; browser?: boolean }) => Promise<void>;
   /** Saves this chat's agent and settings under a name. */
   onSaveLoadout: () => void;
 }) {
@@ -82,7 +79,7 @@ export function Composer({
   };
 
   const model = session.model ?? "";
-  const known = MODELS[session.agent];
+  const known = MODELS[session.agent] ?? [];
   const modelOptions = model && !known.includes(model) ? [...known, model] : known;
 
   return (
@@ -166,6 +163,15 @@ export function Composer({
                 Fast
               </button>
             )}
+            <button
+              type="button"
+              aria-pressed={session.browser}
+              onClick={() => void onUpdate({ browser: !session.browser })}
+              title="Browser: the agent can open and screenshot its own app on this workspace's ports, in a headless browser. Needs npx."
+              className={`rounded-md border px-1.5 py-1 text-[12px] ${session.browser ? "border-accent/60 text-accent" : "border-line text-muted hover:text-fg"}`}
+            >
+              Browser
+            </button>
             <button
               type="button"
               onClick={onSaveLoadout}

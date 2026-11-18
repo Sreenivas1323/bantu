@@ -21,7 +21,7 @@ use tokio::sync::{Mutex, Notify};
 
 use crate::ops::{new_id, CommandError, Daemon};
 use crate::store::now;
-use crate::{acp, codex, platform};
+use crate::{acp, browser, codex, platform};
 
 /// Tool output beyond this is cut; the agent already saw the full text.
 const MAX_TOOL_RESULT_CHARS: usize = 20_000;
@@ -71,15 +71,35 @@ impl Daemon {
                 ws.state.as_str()
             )));
         }
+        let agent = match agent {
+            Some(agent) => agent,
+            None => {
+                let role = self.default_role(&ws).await;
+                self.role_agent(&ws, role).await
+            }
+        };
+        let spec = crate::catalogue::spec(agent);
+        if !spec.chat() {
+            return Err(CommandError::BadRequest(format!(
+                "{} runs in a terminal only; open it with terminal.open and `agent`",
+                spec.name
+            )));
+        }
+        // The repo's setting is where new chats start; each chat can change it.
+        let browser = self
+            .trusted_settings(&ws)
+            .await
+            .is_ok_and(|settings| settings.browser.enabled);
         let session = Session {
             id: new_id(),
             workspace_id: ws.id,
-            agent: agent.unwrap_or(AgentKind::Claude),
+            agent,
             title: DEFAULT_TITLE.into(),
             model: model.filter(|m| !m.trim().is_empty()),
             permission_mode: permission_mode.unwrap_or_default(),
             effort: None,
             fast: false,
+            browser,
             forked_from: None,
             status: SessionStatus::Idle,
             queued: 0,
@@ -144,6 +164,20 @@ impl Daemon {
             s.fast = fast;
         }
         self.store.upsert_session(&s, &agent_id).await?;
+        Ok(s)
+    }
+
+    /// Turns the chat's browser on or off, from the next turn.
+    pub async fn set_session_browser(
+        &self,
+        session_id: &str,
+        browser: Option<bool>,
+    ) -> CmdResult<Session> {
+        let (mut s, agent_id) = self.require_session(session_id).await?;
+        if let Some(browser) = browser.filter(|b| *b != s.browser) {
+            s.browser = browser;
+            self.store.upsert_session(&s, &agent_id).await?;
+        }
         Ok(s)
     }
 
@@ -639,6 +673,7 @@ impl Daemon {
                 s.permission_mode = fresh.permission_mode;
                 s.effort = fresh.effort;
                 s.fast = fresh.fast;
+                s.browser = fresh.browser;
             }
             match next {
                 Some(n) => {
@@ -678,6 +713,8 @@ impl Daemon {
 
         let (bin, mut cmd, prompt) = match s.agent {
             AgentKind::Claude => {
+                let browser = self.browser_for_turn(s, &ws, turn).await;
+                let context = browser::with_note(workspace_context(&ws), browser.as_ref());
                 let mut cmd =
                     tokio::process::Command::new(platform::program(&self.config.claude_bin));
                 cmd.args(["-p", "--output-format", "stream-json", "--verbose"])
@@ -687,7 +724,7 @@ impl Daemon {
                         "--permission-mode",
                         claude_permission_mode(s.permission_mode),
                     ])
-                    .args(["--append-system-prompt", &workspace_context(&ws)]);
+                    .args(["--append-system-prompt", &context]);
                 if let Some(source) = &fork_source {
                     // A copy of the parent's conversation, under this chat's id.
                     cmd.args([
@@ -720,11 +757,15 @@ impl Daemon {
                 if let Some(settings) = with_fast_mode(settings, s.fast) {
                     cmd.args(["--settings", &settings]);
                 }
-                if let Some(mcp) = self.mcp_config(&s.id) {
+                if let Some(mcp) = browser::with_browser(self.mcp_config(&s.id), browser.as_ref()) {
                     // Bantu's own tools are always allowed; they only act on
-                    // this repo's workspaces.
+                    // this repo's workspaces. So is the browser, outside plan
+                    // mode: it can only reach this workspace's ports.
                     cmd.args(["--mcp-config", &mcp])
                         .args(["--allowedTools", "mcp__bantu"]);
+                    if browser.is_some() && s.permission_mode != PermissionMode::Plan {
+                        cmd.arg(format!("mcp__{}", browser::SERVER_NAME));
+                    }
                 }
                 (&self.config.claude_bin, cmd, text.to_string())
             }
@@ -745,8 +786,12 @@ impl Daemon {
                 };
                 (&self.config.codex_bin, cmd, prompt)
             }
-            AgentKind::Opencode | AgentKind::Gemini | AgentKind::Cursor => {
-                unreachable!("ACP agents return above")
+            // ACP agents returned above; the rest only run in a terminal.
+            other => {
+                return Err(anyhow!(
+                    "{} runs in a terminal only",
+                    crate::catalogue::spec(other).name
+                ))
             }
         };
         let mut child = cmd
@@ -813,7 +858,7 @@ impl Daemon {
                             }
                             items
                         }
-                        AgentKind::Opencode | AgentKind::Gemini | AgentKind::Cursor => vec![],
+                        _ => vec![],
                     };
                     for item in items {
                         if let ChatItem::TurnEnd { cost_usd, .. } = &item {
@@ -1084,6 +1129,20 @@ mod tests {
             vec![ChatItem::ToolResult {
                 tool_use_id: "t1".into(),
                 content: "a.txt".into(),
+                is_error: false
+            }]
+        );
+
+        // MCP screenshots (Playwright's browser) keep their text, not the base64.
+        let shot = json!({"type":"user","message":{"content":[
+            {"type":"tool_result","tool_use_id":"t2","content":[
+                {"type":"text","text":"- [Screenshot of viewport](/tmp/page.png)"},
+                {"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo"}}]}]}});
+        assert_eq!(
+            parse_stream_line(&shot),
+            vec![ChatItem::ToolResult {
+                tool_use_id: "t2".into(),
+                content: "- [Screenshot of viewport](/tmp/page.png)\n[image]".into(),
                 is_error: false
             }]
         );

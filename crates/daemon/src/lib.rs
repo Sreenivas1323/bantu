@@ -5,6 +5,8 @@ pub mod acp;
 pub mod activity;
 pub mod agents;
 pub mod auto_review;
+pub mod browser;
+pub mod catalogue;
 pub mod checks;
 pub mod codex;
 pub mod discover;
@@ -18,6 +20,7 @@ pub mod ops;
 pub mod orchestrate;
 pub mod permissions;
 pub mod platform;
+pub mod pr_watch;
 pub mod preview;
 pub mod push;
 pub mod radar;
@@ -31,10 +34,12 @@ pub mod tasks;
 pub mod terminal_driver;
 pub mod terminals;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use bantu_protocol::AgentKind;
 
 pub use http::AppState;
 pub use ops::Daemon;
@@ -57,10 +62,11 @@ pub struct Config {
     /// Where Claude Code keeps its data (`CLAUDE_CONFIG_DIR`, usually `~/.claude`).
     /// Conversations continued in a terminal are read back from here.
     pub claude_config_dir: PathBuf,
-    /// Agents driven over the Agent Client Protocol.
-    pub opencode_bin: PathBuf,
-    pub gemini_bin: PathBuf,
-    pub cursor_bin: PathBuf,
+    /// Binaries for the other agents in the [`catalogue`], where they differ
+    /// from the default name on `PATH` (`BANTU_<ID>_BIN`).
+    pub agent_bins: BTreeMap<AgentKind, PathBuf>,
+    /// Runs the Playwright MCP server for chats with the browser on.
+    pub npx_bin: PathBuf,
     /// Extra `Host` names to accept besides loopback, e.g. a Tailscale or
     /// CloudFront hostname that forwards to this daemon.
     pub allowed_hosts: Vec<String>,
@@ -68,6 +74,21 @@ pub struct Config {
     pub preview_url: Option<String>,
     /// Require a Cloudflare Access sign-in on requests for public hostnames.
     pub cf_access: Option<access::AccessConfig>,
+}
+
+impl Config {
+    /// The program that runs `agent`'s CLI.
+    pub fn agent_bin(&self, agent: AgentKind) -> PathBuf {
+        match agent {
+            AgentKind::Claude => self.claude_bin.clone(),
+            AgentKind::Codex => self.codex_bin.clone(),
+            _ => self
+                .agent_bins
+                .get(&agent)
+                .cloned()
+                .unwrap_or_else(|| PathBuf::from(catalogue::spec(agent).bin)),
+        }
+    }
 }
 
 pub struct Started {
@@ -97,6 +118,7 @@ pub async fn start(config: Config, allow_remote: bool) -> Result<Started> {
     daemon.start_push()?;
     daemon.start_loops().await?;
     daemon.start_task_sync();
+    daemon.start_pr_watch();
     let state = AppState {
         daemon: daemon.clone(),
         token_hash: http::hash_token(&token).into(),

@@ -1,11 +1,12 @@
 # Competitive research
 
-Bantu learns from two products that do something similar:
+Bantu learns from three products that do something similar:
 
 - **[Conductor](https://www.conductor.build)** is a proprietary Mac app. It's free for local use. Its pricing page lists no plans as of November 2026 ([teams.md](teams.md)).
 - **[Pane](https://github.com/greenfield-inc/Pane)** is AGPL-3.0, built on Electron, terminal-first and self-hosted.
+- **[Orchestrator](https://orchestrator.inc)** (formerly Agent Orchestrator, `ao`) is Apache-2.0, with a Go backend, desktop apps for macOS, Windows and Linux, and native iPhone and Android apps. A lead agent plans and starts workers in worktrees; a board places sessions in lanes (Working, Needs you, In review, Ready to merge) from live facts; it routes failed CI, review comments and conflicts back to each PR's agent; and it supports 38 agents. Free locally, $20–40/month for cloud sandboxes and more agents. Trackers: GitHub and GitLab only. Bantu's alpha 4 took the board, PR follow-up, more agents and per-repo agent roles from it (checked 2026-11-18).
 
-**Rule: we copy features, never code or assets.** Everything here comes from public docs,
+**Rule: we copy features, never code or assets.** Orchestrator's license would allow reusing code, but its backend is Go; where Bantu takes data from it (such as agents' command lines), the source says so. Everything here comes from public docs,
 changelogs and release notes.
 
 | File | What |

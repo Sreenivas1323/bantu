@@ -5,6 +5,7 @@ import { afterExit } from "../lib/motion.ts";
 
 const KINDS: { kind: TrackerKind; label: string }[] = [
   { kind: "github", label: "GitHub Issues" },
+  { kind: "gitlab", label: "GitLab" },
   { kind: "jira", label: "Jira" },
   { kind: "clickup", label: "ClickUp" },
 ];
@@ -85,7 +86,7 @@ export function TasksDialog({
       <div className="flex flex-col gap-3 p-4">
         {trackers.length === 0 && !adding && (
           <p className="text-[12.5px] text-muted">
-            Connect GitHub Issues, Jira or ClickUp to work on tasks from there. Starting one gives an agent its own workspace, and it posts progress and the
+            Connect GitHub Issues, GitLab, Jira or ClickUp to work on tasks from there. Starting one gives an agent its own workspace, and it posts progress and the
             pull request back to the task.
           </p>
         )}
@@ -200,11 +201,15 @@ function ConnectTracker({ repoId, run, onDone }: { repoId: string; run: (command
   const [scope, setScope] = useState("");
   const [account, setAccount] = useState("");
   const [token, setToken] = useState("");
+  const [labelFilter, setLabelFilter] = useState("");
   const [busy, setBusy] = useState(false);
 
   const field = "w-full rounded-md border border-line bg-bg px-2 py-1 text-[16px] sm:text-[13px]";
   const label = "flex flex-col gap-1 text-[12.5px] text-muted";
-  const ready = kind === "github" || (kind === "jira" ? site && account && token && scope : token && scope);
+  const ready = kind === "github" || (kind === "jira" ? site && account && token && scope : token && scope.trim());
+  // GitLab's scope is the project, then optionally ` ~"label"` (see tasks.rs).
+  const gitlabScope = labelFilter.trim() ? `${scope.trim()} ~"${labelFilter.trim().replace(/^~/, "").replace(/"/g, "")}"` : scope.trim();
+  const gitlabSite = (site.trim() || "https://gitlab.com").replace(/\/+$/, "");
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -215,8 +220,8 @@ function ConnectTracker({ repoId, run, onDone }: { repoId: string; run: (command
         type: "tracker.add",
         repo_id: repoId,
         kind,
-        site: kind === "jira" ? site : null,
-        scope: scope || null,
+        site: kind === "jira" || (kind === "gitlab" && site.trim()) ? site : null,
+        scope: (kind === "gitlab" ? gitlabScope : scope) || null,
         account: kind === "jira" ? account : null,
         token: kind === "github" ? null : token,
       });
@@ -275,6 +280,31 @@ function ConnectTracker({ repoId, run, onDone }: { repoId: string; run: (command
           <p className="text-[12px] text-faint sm:col-span-2">Create a token at id.atlassian.com → Security → API tokens.</p>
         </div>
       )}
+      {kind === "gitlab" && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className={label}>
+            Project path
+            <input value={scope} onChange={(e) => setScope(e.target.value)} placeholder="group/project" spellCheck={false} className={`${field} font-mono`} />
+          </label>
+          <label className={label}>
+            Only issues with this label (optional)
+            <input value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)} placeholder="e.g. agent" className={field} />
+          </label>
+          <label className={label}>
+            Site (optional)
+            <input value={site} onChange={(e) => setSite(e.target.value)} placeholder="https://gitlab.com" spellCheck={false} className={field} />
+          </label>
+          <label className={label}>
+            Personal access token
+            <input value={token} onChange={(e) => setToken(e.target.value)} type="password" autoComplete="off" placeholder="glpat-…" className={field} />
+          </label>
+          <p className="text-[12px] text-faint sm:col-span-2">
+            Create one at <span className="font-mono">{gitlabSite}/-/user_settings/personal_access_tokens</span> (avatar → Edit profile → Access tokens) with the{" "}
+            <span className="font-mono">api</span> scope. <span className="font-mono">read_api</span> can read issues but can't post notes. The project
+            path is what follows the site in the project's URL; a numeric project id works too.
+          </p>
+        </div>
+      )}
       {kind === "clickup" && (
         <div className="grid gap-2 sm:grid-cols-2">
           <label className={label}>
@@ -290,7 +320,9 @@ function ConnectTracker({ repoId, run, onDone }: { repoId: string; run: (command
           </p>
         </div>
       )}
-      <p className="text-[12px] text-faint">The token stays on the machine running Bantu, readable only by you, and is never sent to the app.</p>
+      {kind !== "github" && (
+        <p className="text-[12px] text-faint">The token stays on the machine running Bantu, readable only by you, and is never sent to the app.</p>
+      )}
       <button type="submit" disabled={busy || !ready} className="pressable self-start rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-bg disabled:opacity-40">
         {busy ? "Checking…" : "Connect"}
       </button>

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bantu_protocol::{
-    AgentKind, ChatItem, Loop, LoopTrigger, PermissionMode, Session, SessionStatus, Workspace,
+    ChatItem, Loop, LoopTrigger, PermissionMode, Session, SessionStatus, Workspace,
     WorkspaceSource, WorkspaceState,
 };
 use chrono::{DateTime, Datelike, Local, Timelike, Utc};
@@ -372,8 +372,13 @@ impl Daemon {
     ) -> Result<(), String> {
         let ws = self.wait_ready(workspace_id, READY_TIMEOUT).await?;
         let err = |e: CommandError| e.to_string();
-        let session = match (l.agent, self.first_session(&ws.id).await) {
-            (AgentKind::Claude, Some(first)) => self
+        // Reuse the workspace's first chat when it runs the loop's agent.
+        let first = self
+            .first_session(&ws.id)
+            .await
+            .filter(|s| s.agent == l.agent);
+        let session = match first {
+            Some(first) => self
                 .update_session(
                     &first.id,
                     Some(l.name.clone()),

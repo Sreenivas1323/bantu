@@ -89,6 +89,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      - run: bun run test:web
       - run: bun run build:web
       - name: Landing page builds
         run: bun run build

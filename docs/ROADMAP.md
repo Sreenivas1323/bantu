@@ -71,6 +71,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Launch Stack links for both AWS templates ([AWS.md](AWS.md#launch-stack)), from a public S3 bucket; CloudFormation validates both from there
 - [x] Guides: Tailscale Serve, Cloudflare Tunnel, SSH ([REMOTE.md](REMOTE.md)); `--allowed-host` instead of all-or-nothing
 - [x] Port forwarding for dev-server previews: HTTP and WebSockets through a separate origin, with short-lived per-port grants
+- [x] A browser for agents (Playwright MCP, opt-in per repo or per chat): headless, in-memory profile, limited to the workspace's own ports, for Claude, chats continued in the terminal and ACP agents. The exact flags were run by hand against Playwright MCP 0.0.85 with Google Chrome: the workspace's ports load, the internet and other ports are blocked, redirects to either fail, and screenshots come back as images. Dev-server WebSockets (hot reload) through the proxy exemption weren't tried. The tests use fake agents and never start a browser, and no real Claude or ACP agent has driven it yet
 
 ## M4 — Beyond (weeks 8–10)
 
@@ -90,9 +91,14 @@ Feature-by-feature status against Conductor and Pane lives in
 
 The full plan is in [TEAMS.md](TEAMS.md).
 
-- [x] Tasks from GitHub Issues, Jira and ClickUp: sync, start a workspace from a task, and progress and the pull request posted back (`update_task`) — tested against local fakes of the Jira and ClickUp APIs, not yet against real accounts
+- [x] Tasks from GitHub Issues, GitLab, Jira and ClickUp: sync, start a workspace from a task, and progress and the pull request (GitLab: merge request) posted back (`update_task`) — tested against local fakes of the GitLab, Jira and ClickUp APIs, not yet against real accounts
 - [ ] Task status written back (In Progress, In Review), and assigning a task to an agent
 - [ ] A shared team pack: skills, prompts, checks and allowed models from one git repo
 - [ ] The org service: sign-in and roles, a team board, analytics in team totals only; self-hosted or hosted
 - [ ] Shared agents on the org's cloud: an agent queue, a test agent, deployments and live versions
 - [ ] A support agent that watches production and files deduplicated tickets
+
+## Alpha 4 — Fleet
+
+- [x] Board: every workspace in lanes worked out from facts (Needs you, Working, In review, Ready to merge, Idle), as the home view; PR state for every workspace from one `gh pr list` per repo every 90 seconds
+- [x] PR follow-up (`[pr] follow_up = true`): conflicts, failed CI and review comments go back to the PR's agent, at most 3 rounds without you — the decision logic is unit-tested; the `gh` side hasn't run against a real PR yet

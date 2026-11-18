@@ -2,6 +2,8 @@
 // `index_exports_every_binding` in crates/protocol fails if a type is missing here.
 export type { Activity } from "./generated/Activity";
 export type { AgentKind } from "./generated/AgentKind";
+export type { AgentMode } from "./generated/AgentMode";
+export type { AgentRole } from "./generated/AgentRole";
 export type { AgentStatus } from "./generated/AgentStatus";
 export type { ChatItem } from "./generated/ChatItem";
 export type { Command } from "./generated/Command";
@@ -57,3 +59,4 @@ export type { Task } from "./generated/Task";
 export type { TaskRef } from "./generated/TaskRef";
 export type { Tracker } from "./generated/Tracker";
 export type { TrackerKind } from "./generated/TrackerKind";
+export type { WorkspacePr } from "./generated/WorkspacePr";

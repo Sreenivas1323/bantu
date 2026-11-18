@@ -1,4 +1,5 @@
-//! Agent Client Protocol driver for OpenCode, Gemini CLI and Cursor.
+//! Agent Client Protocol driver for every ACP agent in the catalogue
+//! (OpenCode, Gemini CLI, Cursor, Goose, Qwen Code, Copilot and more).
 //!
 //! ACP is JSON-RPC 2.0 over stdio with one JSON message per line. Like the
 //! other drivers this runs one process per turn: `initialize`, then
@@ -15,11 +16,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
-use bantu_protocol::{AgentKind, ChatItem, PermissionMode, Session, StreamDelta};
+use bantu_protocol::{AgentKind, AgentMode, ChatItem, PermissionMode, Session, StreamDelta};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, Notify};
 
+use crate::browser::{with_note, BrowserServer};
 use crate::ops::Daemon;
 use crate::permissions::Decision;
 use crate::sessions::{truncate, workspace_context};
@@ -32,14 +34,19 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 /// How much of the transcript to replay to an agent that can't load sessions.
 const REPLAY_CHARS: usize = 20_000;
 
-/// The binary and arguments that start an agent in ACP mode.
+/// The binary and arguments that start an agent in ACP mode, from the
+/// [catalogue](crate::catalogue). `None` for agents that don't speak ACP.
 pub fn command(config: &Config, agent: AgentKind) -> Option<(PathBuf, &'static [&'static str])> {
-    match agent {
-        AgentKind::Opencode => Some((config.opencode_bin.clone(), &["acp"])),
-        AgentKind::Gemini => Some((config.gemini_bin.clone(), &["--acp"])),
-        AgentKind::Cursor => Some((config.cursor_bin.clone(), &["acp"])),
-        AgentKind::Claude | AgentKind::Codex => None,
+    let spec = crate::catalogue::spec(agent);
+    if spec.mode != AgentMode::Acp {
+        return None;
     }
+    let bin = config.agent_bin(agent);
+    let bin = match spec.acp_program {
+        Some(program) => crate::catalogue::sibling(&bin, program),
+        None => bin,
+    };
+    Some((bin, spec.acp_args))
 }
 
 fn request(id: u64, method: &str, params: Value) -> String {
@@ -157,6 +164,9 @@ fn tool_output(update: &Value) -> String {
             Some("content") => {
                 if let Some(text) = item["content"]["text"].as_str() {
                     parts.push(text.to_string());
+                } else if item["content"]["type"] == "image" {
+                    // Screenshots are for the agent; base64 would only fill the log.
+                    parts.push("[image]".into());
                 }
             }
             Some("diff") => parts.push(format!(
@@ -354,16 +364,20 @@ impl Daemon {
         let mut lines = BufReader::new(child.stdout.take().expect("piped")).lines();
 
         // The token goes over stdin, so it never appears in `ps`.
+        let browser = self.browser_for_turn(s, &ws, turn).await;
         let mcp_servers = |http: bool| -> Value {
-            match (http, self.listen_base_url()) {
-                (true, Some(base)) => json!([{
+            let mut servers = match (http, self.listen_base_url()) {
+                (true, Some(base)) => vec![json!({
                     "type": "http",
                     "name": "bantu",
                     "url": format!("{base}/v1/mcp?session={}", s.id),
                     "headers": [{"name": "Authorization", "value": format!("Bearer {}", self.hook_token())}],
-                }]),
-                _ => json!([]),
-            }
+                })],
+                _ => vec![],
+            };
+            // Stdio, which every ACP agent supports.
+            servers.extend(browser.as_ref().map(BrowserServer::acp_entry));
+            Value::Array(servers)
         };
         let send = |line: String| line + "\n";
 
@@ -483,7 +497,7 @@ impl Daemon {
                                     };
                                     if first_contact {
                                         prompt_text = self
-                                            .acp_first_prompt(s, resume, &workspace_context(&ws), text)
+                                            .acp_first_prompt(s, resume, &with_note(workspace_context(&ws), browser.as_ref()), text)
                                             .await;
                                     }
                                     if let Some(mode) = mode_for(s.permission_mode, &result["modes"]) {
@@ -749,6 +763,16 @@ mod tests {
             "cost": {"amount": 70.0, "currency": "JPY"}}),
         );
         assert_eq!(u.cost_usd, Some(0.5));
+    }
+
+    #[test]
+    fn screenshots_become_a_placeholder() {
+        let update = json!({"toolCallId": "s1", "status": "completed",
+            "rawOutput": {"content": [{"type": "image", "data": "iVBORw0KGgo"}]},
+            "content": [
+                {"type": "content", "content": {"type": "text", "text": "Took a screenshot"}},
+                {"type": "content", "content": {"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo"}}]});
+        assert_eq!(tool_output(&update), "Took a screenshot\n[image]");
     }
 
     #[test]

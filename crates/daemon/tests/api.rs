@@ -8,8 +8,8 @@ use std::process::Command as Proc;
 use std::time::Duration;
 
 use bantu_protocol::{
-    ChatItem, Event, EventData, Repo, Session, SessionStatus, StateSnapshot, Workspace,
-    WorkspaceState,
+    AgentKind, AgentMode, ChatItem, Event, EventData, Repo, Session, SessionStatus, StateSnapshot,
+    Workspace, WorkspaceState,
 };
 use futures::StreamExt;
 use serde_json::{json, Value};
@@ -91,9 +91,22 @@ impl Harness {
             claude_bin,
             codex_bin,
             claude_config_dir: home.path().join("claude-config"),
-            opencode_bin: acp_bin.clone(),
-            gemini_bin: acp_bin.clone(),
-            cursor_bin: acp_bin,
+            // The fake stands in for every ACP agent. Terminal-only agents
+            // point at a missing binary, so a real install never interferes.
+            agent_bins: bantud::catalogue::AGENTS
+                .iter()
+                .filter(|s| !matches!(s.kind, AgentKind::Claude | AgentKind::Codex))
+                .map(|s| {
+                    let bin = if s.mode == AgentMode::Acp {
+                        acp_bin.clone()
+                    } else {
+                        home.path().join(format!("missing-{}", s.bin))
+                    };
+                    (s.kind, bin)
+                })
+                .collect(),
+            // Only chats with the browser on look for it.
+            npx_bin: home.path().join("no-npx"),
             allowed_hosts: vec!["box.tail1234.ts.net".into()],
             preview_url: None,
             cf_access: None,
@@ -2156,6 +2169,172 @@ async fn acp_sessions() {
             .any(|i| matches!(i, ChatItem::Assistant { text } if text == "acp: decision deny")),
         "{items:?}"
     );
+}
+
+/// The agents added from the catalogue. The fake ACP agent stands in for
+/// Goose here; no real Goose (or any other new agent) runs in these tests.
+#[tokio::test]
+async fn catalogue_agents_chat_and_run_in_terminals() {
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+
+    let agents: Vec<Value> = h
+        .http
+        .get(format!("{}/v1/agents", h.base))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(agents.len(), AgentKind::ALL.len());
+    let goose = agents.iter().find(|a| a["agent"] == "goose").unwrap();
+    assert_eq!(goose["name"], "Goose");
+    assert_eq!(goose["mode"], "acp");
+    assert_eq!(goose["installed"], true, "{goose}");
+    assert_eq!(goose["version"], "9.9.9");
+    let aider = agents.iter().find(|a| a["agent"] == "aider").unwrap();
+    assert_eq!(aider["mode"], "terminal");
+    assert_eq!(aider["installed"], false);
+    assert!(aider["install_hint"].as_str().unwrap().contains("aider"));
+
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+
+    // A full structured chat over ACP.
+    let (status, res) = h
+        .command(
+            json!({"type":"session.create","workspace_id":ws.id,"agent":"goose"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let session: Session = serde_json::from_value(res["result"].clone()).unwrap();
+    assert_eq!(session.agent, AgentKind::Goose);
+    h.command(
+        json!({"type":"session.send","session_id":session.id,"text":"hello goose"}),
+        None,
+    )
+    .await;
+    h.wait_session(&session.id, |s| {
+        s.status == SessionStatus::Idle && s.turns == 1
+    })
+    .await;
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    // The first prompt carries the workspace context, then the message.
+    assert!(
+        items
+            .iter()
+            .any(|i| matches!(i, ChatItem::Assistant { text }
+            if text.starts_with("acp: ") && text.ends_with("hello goose"))),
+        "{items:?}"
+    );
+    assert!(h.acp_calls().contains(r#""method":"session/prompt""#));
+
+    // Terminal-only agents can't hold a chat, but open in a terminal.
+    let (status, res) = h
+        .command(
+            json!({"type":"session.create","workspace_id":ws.id,"agent":"aider"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 400, "{res}");
+    let (status, res) = h
+        .command(
+            json!({"type":"terminal.open","workspace_id":ws.id,"agent":"aider"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["kind"], "agent");
+    assert_eq!(res["result"]["title"], "Aider");
+    assert!(
+        res["result"]["command"]
+            .as_str()
+            .unwrap()
+            .contains("missing-aider"),
+        "{res}"
+    );
+}
+
+/// `[agents]` in the main checkout's settings picks each role's agent.
+#[tokio::test]
+async fn repo_agent_roles_pick_the_agent() {
+    let (_dir, repo_path) = fixture();
+    std::fs::write(
+        repo_path.join(".bantu/settings.toml"),
+        "[agents]\nworker = \"goose\"\norchestrator = \"codex\"\n[review]\nagent = \"gemini\"\n",
+    )
+    .unwrap();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+
+    // The workspace's first chat, and any new chat without an agent, is the worker.
+    let first = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws.id)
+        {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(first.agent, AgentKind::Goose);
+    let create = |extra: Value| {
+        let mut cmd = json!({"type":"session.create","workspace_id":ws.id});
+        cmd.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        cmd
+    };
+    let (status, res) = h.command(create(json!({})), None).await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["agent"], "goose");
+    // An explicit agent still wins.
+    let (_, res) = h.command(create(json!({"agent":"claude"})), None).await;
+    assert_eq!(res["result"]["agent"], "claude");
+    // A lead chat gets the orchestrator.
+    let (_, res) = h
+        .command(create(json!({"role":"orchestrator"})), None)
+        .await;
+    assert_eq!(res["result"]["agent"], "codex");
+    // `[review] agent` still works as the reviewer.
+    let (status, res) = h
+        .command(
+            json!({"type":"workspace.review","workspace_id":ws.id}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["agent"], "gemini");
+
+    // The roles are trusted settings: a branch can't pick its own agents.
+    std::fs::write(
+        Path::new(&ws.path).join(".bantu/settings.toml"),
+        "[agents]\nworker = \"cursor\"\n",
+    )
+    .unwrap();
+    let (_, res) = h.command(create(json!({})), None).await;
+    assert_eq!(res["result"]["agent"], "goose");
 }
 
 #[tokio::test]
@@ -4365,4 +4544,451 @@ async fn tasks_sync_with_jira_and_clickup() {
         .iter()
         .all(|t| t["tracker_id"] != jira_id.as_str()));
     assert_eq!(h.state().await.trackers.len(), 1);
+}
+
+#[tokio::test]
+async fn tasks_sync_with_gitlab() {
+    use axum::extract::{Path as UrlPath, Query};
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::routing::get;
+    use axum::Json;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    // GitLab's REST API v4, as far as Bantu uses it.
+    type Notes = Arc<Mutex<Vec<(String, String, Value)>>>;
+    let notes: Notes = Default::default();
+    let mr_open = Arc::new(AtomicBool::new(false));
+    let authed = |h: &HeaderMap| {
+        h.get("private-token").and_then(|v| v.to_str().ok()) == Some("glpat-secret")
+    };
+    let denied = || {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"message": "401 Unauthorized"})),
+        )
+    };
+    let (n1, mr) = (notes.clone(), mr_open.clone());
+    let fake = axum::Router::new()
+        .route(
+            "/api/v4/user",
+            get(move |h: HeaderMap| async move {
+                if !authed(&h) {
+                    return denied();
+                }
+                (StatusCode::OK, Json(json!({"id": 7, "username": "me"})))
+            }),
+        )
+        .route(
+            "/api/v4/projects/{project}/issues",
+            get(
+                move |h: HeaderMap,
+                      UrlPath(project): UrlPath<String>,
+                      Query(q): Query<HashMap<String, String>>| async move {
+                    if !authed(&h) {
+                        return denied();
+                    }
+                    if project != "acme/web" {
+                        return (
+                            StatusCode::NOT_FOUND,
+                            Json(json!({"message": "404 Project Not Found"})),
+                        );
+                    }
+                    assert_eq!(q.get("state").map(String::as_str), Some("opened"));
+                    assert_eq!(q.get("labels").map(String::as_str), Some("needs agent"));
+                    (
+                        StatusCode::OK,
+                        Json(json!([
+                            {"id": 501, "iid": 12, "title": "Fix the login redirect", "state": "opened",
+                             "description": "Users land on a blank page.",
+                             "web_url": "https://gitlab.example/acme/web/-/issues/12",
+                             "updated_at": "2026-11-02T10:00:00.000Z",
+                             "assignees": [{"id": 7, "username": "me", "name": "Me"}]},
+                            {"id": 502, "iid": 13, "title": "Someone else's", "state": "opened",
+                             "description": null, "web_url": "https://gitlab.example/acme/web/-/issues/13",
+                             "updated_at": "2026-11-01T10:00:00.000Z",
+                             "assignees": [{"id": 8, "username": "ana", "name": "Ana"}]}
+                        ])),
+                    )
+                },
+            ),
+        )
+        .route(
+            "/api/v4/projects/{project}/issues/{iid}/notes",
+            axum::routing::post(
+                move |h: HeaderMap,
+                      UrlPath((project, iid)): UrlPath<(String, String)>,
+                      Json(body): Json<Value>| async move {
+                    if !authed(&h) {
+                        return denied();
+                    }
+                    n1.lock().unwrap().push((project, iid, body));
+                    (StatusCode::CREATED, Json(json!({"id": 1})))
+                },
+            ),
+        )
+        .route(
+            "/api/v4/projects/{project}/merge_requests",
+            get(
+                move |h: HeaderMap,
+                      UrlPath(project): UrlPath<String>,
+                      Query(q): Query<HashMap<String, String>>| async move {
+                    if !authed(&h) {
+                        return denied();
+                    }
+                    assert_eq!(project, "acme/web");
+                    assert_eq!(q.get("state").map(String::as_str), Some("opened"));
+                    let branch = q.get("source_branch").cloned().unwrap_or_default();
+                    if !mr.load(Ordering::SeqCst) {
+                        return (StatusCode::OK, Json(json!([])));
+                    }
+                    (
+                        StatusCode::OK,
+                        Json(json!([{"iid": 4, "state": "opened", "source_branch": branch,
+                            "web_url": "https://gitlab.example/acme/web/-/merge_requests/4"}])),
+                    )
+                },
+            ),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let site = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, fake).await.unwrap() });
+
+    let (_dir, repo_path) = fixture();
+    let h = Harness::start().await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let gitlab = |scope: &str, token: &str| {
+        json!({"type":"tracker.add","repo_id":repo.id,"kind":"gitlab","site":site,
+               "scope":scope,"token":token})
+    };
+
+    // A wrong token, or a project that isn't there, is caught before anything is saved.
+    let (status, res) = h
+        .command(gitlab("acme/web ~\"needs agent\"", "wrong"), None)
+        .await;
+    assert_eq!(status, 400, "{res}");
+    assert!(
+        res["error"].as_str().unwrap().contains("401 Unauthorized"),
+        "{res}"
+    );
+    let (status, res) = h
+        .command(gitlab("acme/nope ~\"needs agent\"", "glpat-secret"), None)
+        .await;
+    assert_eq!(status, 400, "{res}");
+    assert!(res["error"].as_str().unwrap().contains("404"), "{res}");
+    let (status, _) = h.command(gitlab("", "glpat-secret"), None).await;
+    assert_eq!(status, 400, "needs a project");
+    assert!(h.state().await.trackers.is_empty());
+
+    let (status, res) = h
+        .command(gitlab("acme/web ~\"needs agent\"", "glpat-secret"), None)
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let tracker_id = res["result"]["id"].as_str().unwrap().to_string();
+    assert_eq!(res["result"]["kind"], "gitlab");
+
+    // The token never reaches clients, and only the user can read it.
+    let state_text = h
+        .http
+        .get(format!("{}/v1/state", h.base))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(!state_text.contains("glpat-secret"));
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = h._dirs[0]
+            .path()
+            .join("trackers")
+            .join(format!("{tracker_id}.token"));
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    let tasks = || async {
+        h.http
+            .get(format!("{}/v1/tasks", h.base))
+            .bearer_auth(&h.token)
+            .send()
+            .await
+            .unwrap()
+            .json::<Vec<Value>>()
+            .await
+            .unwrap()
+    };
+    let list = tasks().await;
+    let keys: Vec<&str> = list.iter().map(|t| t["key"].as_str().unwrap()).collect();
+    assert_eq!(keys, ["#12", "#13"], "newest first");
+    assert_eq!(list[0]["mine"], true);
+    assert_eq!(list[1]["mine"], false);
+    assert_eq!(
+        list[0]["url"],
+        "https://gitlab.example/acme/web/-/issues/12"
+    );
+    assert_eq!(list[0]["id"], "12");
+
+    // Starting a task gives the agent the task, and tells it how GitLab links an MR.
+    let (status, res) = h
+        .command(
+            json!({"type":"task.start","tracker_id":tracker_id,"task_id":"12"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    assert!(ws.branch.starts_with("bantu/12-fix"), "{}", ws.branch);
+    h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h
+            .state()
+            .await
+            .sessions
+            .into_iter()
+            .find(|s| s.workspace_id == ws.id)
+        {
+            if s.turns >= 1 {
+                break s;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    assert!(
+        items.iter().any(|i| matches!(i, ChatItem::User { text }
+            if text.contains("GitLab task #12") && text.contains("blank page") && text.contains("Closes #12"))),
+        "{items:?}"
+    );
+
+    // Its agent posts notes to the issue.
+    let res: Value = h
+        .http
+        .post(format!("{}/v1/mcp?session={}", h.base, session.id))
+        .bearer_auth(&h.hook_token)
+        .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+            "params":{"name":"update_task","arguments":{"text":"Found it: the redirect drops the path."}}}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        res["result"]["content"][0]["text"], "Posted to GitLab #12.",
+        "{res}"
+    );
+    {
+        let notes = notes.lock().unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(
+            (notes[0].0.as_str(), notes[0].1.as_str()),
+            ("acme/web", "12")
+        );
+        assert_eq!(notes[0].2["body"], "Found it: the redirect drops the path.");
+    }
+
+    // No merge request yet: nothing is posted. Once one is open, its link is posted once.
+    h.daemon.post_pull_requests().await;
+    assert_eq!(notes.lock().unwrap().len(), 1);
+    mr_open.store(true, Ordering::SeqCst);
+    h.daemon.post_pull_requests().await;
+    h.daemon.post_pull_requests().await;
+    {
+        let notes = notes.lock().unwrap();
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert_eq!(
+            notes[1].2["body"],
+            "Merge request from Bantu: https://gitlab.example/acme/web/-/merge_requests/4"
+        );
+    }
+    assert!(!h
+        .http
+        .get(format!("{}/v1/state", h.base))
+        .bearer_auth(&h.token)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap()
+        .contains("glpat-secret"));
+}
+
+/// The `--mcp-config` JSON of the last Claude turn.
+fn last_mcp_config(calls: &str) -> Value {
+    let line = calls
+        .lines()
+        .rfind(|l| l.contains("--mcp-config"))
+        .expect("no turn yet");
+    let rest = line.split_once("--mcp-config ").unwrap().1;
+    serde_json::Deserializer::from_str(rest)
+        .into_iter::<Value>()
+        .next()
+        .unwrap()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn browser_is_opt_in_and_limited_to_the_workspace_ports() {
+    let (_dir, repo_path) = fixture();
+    // Never run: the fake agents don't start MCP servers, so no Playwright
+    // or browser is downloaded here.
+    let npx_dir = tempfile::tempdir().unwrap();
+    let npx = npx_dir.path().join("npx");
+    std::fs::write(&npx, "#!/bin/sh\nexit 1\n").unwrap();
+    let fake_npx = npx.clone();
+    let h = Harness::start_with(move |c| c.npx_bin = fake_npx).await;
+    let (_, res) = h
+        .command(json!({"type":"repo.add","path":repo_path}), None)
+        .await;
+    let repo: Repo = serde_json::from_value(res["result"].clone()).unwrap();
+    let (_, res) = h
+        .command(json!({"type":"workspace.create","repo_id":repo.id}), None)
+        .await;
+    let ws: Workspace = serde_json::from_value(res["result"].clone()).unwrap();
+    let ws = h.wait_for(&ws.id, WorkspaceState::Ready).await;
+    let session = loop {
+        if let Some(s) = h.state().await.sessions.into_iter().next() {
+            break s;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let calls = || std::fs::read_to_string(&h.claude_calls).unwrap_or_default();
+    let send = |text: &'static str, id: String, turns: u32| {
+        let h = &h;
+        async move {
+            h.command(
+                json!({"type":"session.send","session_id":id,"text":text}),
+                None,
+            )
+            .await;
+            h.wait_session(&id, |s| s.status == SessionStatus::Idle && s.turns == turns)
+                .await
+        }
+    };
+
+    // Off by default: only Bantu's own server.
+    assert!(!session.browser);
+    send("hello", session.id.clone(), 1).await;
+    let config = last_mcp_config(&calls());
+    assert!(config["mcpServers"]["bantu"].is_object(), "{config}");
+    assert!(config["mcpServers"]["browser"].is_null(), "{config}");
+    assert!(!calls().contains("playwright"));
+
+    // On for this chat: Playwright, headless and isolated, limited to the
+    // workspace's 10 ports, and the agent is told where its app runs.
+    let (status, res) = h
+        .command(
+            json!({"type":"session.update","session_id":session.id,"browser":true}),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{res}");
+    assert_eq!(res["result"]["browser"], true);
+    send("check the page", session.id.clone(), 2).await;
+    let config = last_mcp_config(&calls());
+    assert!(config["mcpServers"]["bantu"].is_object(), "{config}");
+    let browser = &config["mcpServers"]["browser"];
+    assert_eq!(browser["type"], "stdio");
+    assert_eq!(browser["command"], npx.to_str().unwrap());
+    let args: Vec<&str> = browser["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        &args[..4],
+        ["-y", "@playwright/mcp@latest", "--headless", "--isolated"]
+    );
+    let flag = |name: &str| args[args.iter().position(|a| *a == name).unwrap() + 1];
+    let mut origins: Vec<&str> = flag("--allowed-origins").split(';').collect();
+    origins.sort();
+    let p = ws.port_base;
+    let mut want: Vec<String> = (p..p + 10)
+        .flat_map(|port| {
+            ["http", "https"].into_iter().flat_map(move |scheme| {
+                ["localhost", "127.0.0.1"]
+                    .into_iter()
+                    .map(move |host| format!("{scheme}://{host}:{port}"))
+            })
+        })
+        .collect();
+    want.sort();
+    assert_eq!(origins, want);
+    assert!(!flag("--proxy-bypass").contains(&format!(":{}", p + 10)));
+    // Screenshots stay out of the worktree.
+    assert!(!flag("--output-dir").starts_with(&ws.path));
+    let last = calls().lines().last().unwrap().to_string();
+    assert!(last.contains("mcp__bantu mcp__browser"), "{last}");
+    assert!(last.contains(&format!("http://localhost:{p}")), "{last}");
+
+    // The repo's setting turns it on for new chats, Claude's and ACP agents'.
+    std::fs::write(
+        repo_path.join(".bantu/settings.toml"),
+        "[browser]\nenabled = true\n",
+    )
+    .unwrap();
+    let (_, res) = h
+        .command(
+            json!({"type":"session.create","workspace_id":ws.id,"agent":"opencode"}),
+            None,
+        )
+        .await;
+    let acp: Session = serde_json::from_value(res["result"].clone()).unwrap();
+    assert!(acp.browser);
+    send("hello", acp.id.clone(), 1).await;
+    let new_session = h
+        .acp_calls()
+        .lines()
+        .find(|l| l.contains(r#""method":"session/new""#))
+        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+        .unwrap();
+    let servers = new_session["params"]["mcpServers"].as_array().unwrap();
+    let browser = servers.iter().find(|s| s["name"] == "browser").unwrap();
+    assert_eq!(browser["command"], npx.to_str().unwrap());
+    assert!(browser["args"]
+        .to_string()
+        .contains(&format!("http://127.0.0.1:{}", p + 9)));
+    assert!(h.acp_calls().contains(&format!("http://localhost:{p}")));
+
+    // Without npx the turn still runs, and the chat says why, once.
+    std::fs::remove_file(&npx).unwrap();
+    send("again", session.id.clone(), 3).await;
+    send("and again", session.id.clone(), 4).await;
+    assert!(last_mcp_config(&calls())["mcpServers"]["browser"].is_null());
+    let items = chat(&h.history(&ws.id).await, &session.id);
+    let notices: Vec<&String> = items
+        .iter()
+        .filter_map(|i| match i {
+            ChatItem::Notice { message } => Some(message),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(notices.len(), 1, "{items:?}");
+    assert!(
+        notices[0].contains("isn't on the daemon's PATH"),
+        "{}",
+        notices[0]
+    );
+    let finished = items
+        .iter()
+        .filter(|i| {
+            matches!(
+                i,
+                ChatItem::TurnEnd {
+                    is_error: false,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(finished, 4, "{items:?}");
 }

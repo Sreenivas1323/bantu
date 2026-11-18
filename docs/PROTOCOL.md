@@ -39,6 +39,7 @@ All bodies are JSON (`content-type: application/json`). Errors are JSON too: `{ 
 | `GET /v1/workspaces/{id}/ports` | token | `ForwardedPort[]`, the servers listening on the workspace's ports |
 | `GET /v1/workspaces/{id}/children` | token | `ChildWorkspace[]`, the workspaces its agent started |
 | `GET /v1/tasks` | token | `Task[]`, open tasks from every connected tracker, newest first |
+| `GET /v1/agents` | token | `AgentStatus[]`, every agent Bantu knows, in `AgentKind` order; see [Agents](#agents) |
 | `GET /v1/push/key` | token | `{ public_key }`, the VAPID key browsers subscribe with |
 | `GET /v1/terminals/{id}/ws` | token | WebSocket of raw PTY bytes |
 | `POST /v1/hooks/permission?session=<id>` | hook token | Claude Code hook response (internal) |
@@ -169,12 +170,13 @@ One chat with an agent in a workspace. Every workspace gets one automatically wh
 |---|---|---|
 | `id` | string | |
 | `workspace_id` | string | |
-| `agent` | `"claude" \| "codex" \| "opencode" \| "gemini" \| "cursor"` | Fixed when the chat is created |
+| `agent` | `AgentKind` | Fixed when the chat is created; see [Agents](#agents) |
 | `title` | string | `"New chat"` until the first message, which becomes the title |
 | `model` | string \| null | `null` uses the agent's default (e.g. `opus`, `sonnet`, `haiku`, or a full model id) |
 | `permission_mode` | `PermissionMode` | See below |
 | `effort` | string \| null | `low`, `medium`, `high`, `xhigh` or `max`; `null` uses the agent's default. Claude and Codex only (Codex treats `max` as `xhigh`) |
 | `fast` | boolean | Claude's fast mode |
+| `browser` | boolean | The agent gets a headless browser limited to the workspace's ports; see [Browser](#browser). New chats start with the repo's `[browser] enabled` |
 | `forked_from` | string \| null | The chat this one was forked from |
 | `status` | `"idle" \| "running"` | |
 | `queued` | number | Messages waiting for the current turn to finish |
@@ -200,11 +202,12 @@ One transcript entry, normalized across agents and tagged by `kind`:
 | `assistant` | `text` | Markdown |
 | `thinking` | `text` | Only when the model's thinking is visible |
 | `tool_use` | `id`, `name`, `input` | e.g. `Bash {command}`, `Edit {file_path, …}` |
-| `tool_result` | `tool_use_id`, `content`, `is_error` | Text output, truncated to 20,000 characters |
+| `tool_result` | `tool_use_id`, `content`, `is_error` | Text output, truncated to 20,000 characters. Images (such as screenshots) become `[image]`; the agent still sees them |
 | `turn_end` | `is_error`, `duration_ms`, `cost_usd`, `input_tokens`, `output_tokens` | `input_tokens` includes cache reads and writes |
 | `rewound` | `to_turn` | Files were restored to before `to_turn` |
 | `terminal_session` | `imported` | The chat continued in a terminal; `imported` entries read back from the agent's transcript come just before this one |
 | `error` | `message` | Bantu-side problems: the agent couldn't start, crashed, or was stopped (`"Stopped"`) |
+| `notice` | `message` | Something to know that didn't stop the turn, e.g. why a chat with the browser on has none |
 
 ### `StreamDelta`
 `{ session_id, workspace_id, turn, text }`: a fragment of assistant text, only on the live stream (see above).
@@ -280,12 +283,12 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `workspace.address_comments` | `workspace_id`, `session_id` | `Session` | Sends the PR's comments to the agent. 400 without a PR or comments. |
 | `workspace.resolve_conflicts` | `workspace_id`, `session_id` | `Session` | Asks the agent to resolve what the conflict radar found. 400 if there's nothing to resolve. |
 | `workspace.rename_branch` | `workspace_id`, `session_id` | `Session` | Asks the agent to rename the branch. The daemon picks up the new name when the turn ends. |
-| `workspace.review` | `workspace_id`, `agent?` | `Session` | Starts a read-only chat that reviews the workspace's changes. |
-| `session.create` | `workspace_id`, `agent?`, `model?`, `permission_mode?`, `effort?`, `fast?` | `Session` | Opens another chat in a ready workspace. |
+| `workspace.review` | `workspace_id`, `agent?` | `Session` | Starts a read-only chat that reviews the workspace's changes. Without `agent`, the repo's `[agents] reviewer` (else Claude). |
+| `session.create` | `workspace_id`, `agent?`, `role?`, `model?`, `permission_mode?`, `effort?`, `fast?` | `Session` | Opens another chat in a ready workspace. Without `agent`, the repo's agent for `role` (`worker`, `orchestrator` or `reviewer`; see [Repo configuration](#repo-configuration-bantusettingstoml)) is used, else Claude. `role` defaults to `orchestrator` in a workspace that has started others, and `worker` otherwise. 400 for a terminal-only agent. |
 | `session.fork` | `session_id` | `Session` | Starts a new chat that continues from where this one is now; see below. 409 while a turn is running. |
 | `session.send` | `session_id`, `text` | `Session` | Sends a message. If a turn is running it's queued (`queued` goes up) and runs afterwards, in order. |
 | `session.cancel` | `session_id` | `Session` | Stops the running turn (it ends with an `error` item `"Stopped"`), drops queued messages, and denies pending permission requests. |
-| `session.update` | `session_id`, `title?`, `model?`, `permission_mode?`, `effort?`, `fast?` | `Session` | Changes settings; they apply from the next turn. An empty `effort` goes back to the default. |
+| `session.update` | `session_id`, `title?`, `model?`, `permission_mode?`, `effort?`, `fast?`, `browser?` | `Session` | Changes settings; they apply from the next turn. An empty `effort` goes back to the default. |
 | `session.rewind` | `session_id`, `turn` | `Session` | Restores the workspace files to the checkpoint taken just before `turn` started; see below. 409 while the agent is running. |
 | `permission.respond` | `request_id`, `allow`, `message?` | — | Answers a `PermissionRequest`. `message` tells the agent why it was denied. 404 if already answered. |
 | `inbox.respond` | `item_id`, `answer` | — | Answers a question in the inbox. 404 if already handled. |
@@ -296,7 +299,7 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `loop.update` | `loop_id`, `enabled?`, `prompt?` | `Loop` | Pauses, resumes or changes a loop. |
 | `loop.delete` | `loop_id` | — | Existing runs' workspaces are kept. |
 | `loop.run` | `loop_id` | `Workspace` | Starts a run now. 409 if the last run is still working or the repo has 10 active workspaces. |
-| `tracker.add` | `repo_id`, `kind`, `site?`, `scope?`, `account?`, `token?` | `Tracker` | Connects a repo to GitHub Issues, Jira or ClickUp; see [Tasks](#tasks). 400 if signing in or reading tasks fails. |
+| `tracker.add` | `repo_id`, `kind`, `site?`, `scope?`, `account?`, `token?` | `Tracker` | Connects a repo to GitHub Issues, GitLab, Jira or ClickUp; see [Tasks](#tasks). 400 if signing in or reading tasks fails. |
 | `tracker.remove` | `tracker_id` | — | Workspaces started from it are kept. |
 | `tasks.refresh` | `tracker_id?` | `Task[]` | Fetches now instead of waiting for the next sync. |
 | `task.start` | `tracker_id`, `task_id` | `Workspace` | A workspace for the task, with the agent given the task once it's ready. |
@@ -305,7 +308,7 @@ Commands are tagged by `type`. Optional fields may be `null` or omitted.
 | `comment.add` | `workspace_id`, `path`, `line`, `body` | `DiffComment` | Adds a draft review comment. |
 | `comment.delete` | `comment_id` | — | |
 | `comments.send` | `workspace_id`, `session_id` | `Session` | Sends every draft comment to the agent as one message (sorted by file and line), then marks them sent. 400 if there are none. |
-| `terminal.open` | `workspace_id`, `cols?`, `rows?`, `command?` | `Terminal` | Opens an interactive login shell in the worktree, or runs `command` (any CLI) there. |
+| `terminal.open` | `workspace_id`, `cols?`, `rows?`, `command?`, `agent?` | `Terminal` | Opens an interactive login shell in the worktree, or runs `command` (any CLI) there. With `agent` and no `command`, it runs that agent's own terminal UI (titled with its name); this is how terminal-only agents are used. |
 | `session.open_terminal` | `session_id`, `cols?`, `rows?` | `Terminal` | Continues a Claude or Codex chat in the agent's own terminal UI; see below. Returns the existing terminal if it's already open. 409 while a turn is running. |
 | `terminal.close` | `terminal_id` | — | Hangs up the terminal's whole process group and forgets it. |
 | `preferences.update` | `claude_user_setup?`, `loadouts?` | `Preferences` | Changes daemon-wide preferences (also in `StateSnapshot.preferences`; changes arrive as `preferences.updated`). |
@@ -343,6 +346,27 @@ A `Loop` runs an agent on its own: `{ id, repo_id, name, trigger, prompt, agent,
 - **GitHub triggers need a label**, because labels take triage rights while anyone can open an issue, and an issue's text goes into the agent's prompt. They refuse `bypass_permissions` and don't check out forks' PRs. The first poll records what's already open, so turning a loop on doesn't start a run for every old issue.
 - **Alerts.** A finished loop run sends no push alert, but one that asks for approval still does.
 
+### Pull requests and the board
+
+`StateSnapshot.pull_requests` holds a `WorkspacePr` for each ready workspace whose branch has a pull request: `{ workspace_id, pull_request, mergeable, head_sha, updated_at, follow_ups, needs_you }`. The daemon fetches every repo's PRs with one `gh pr list` every 90 seconds, and sends `pr.updated` and `pr.removed` when they change. Without `gh`, or for a repo with no GitHub remote, there are none.
+
+The app's board places each workspace in a lane from these facts, in this order: **Needs you** (setup failed, an approval or question waiting, or PR follow-up gave up), **Working** (an agent running or the workspace being set up), **In review** (an open PR that's a draft, conflicts, has CI running or failing, or waits for a review), **Ready to merge** (an open PR with CI passing and no review blocking it), and **Idle** (everything else, with the reason).
+
+With this in `.bantu/settings.toml`, read from the main checkout like the other settings that make Bantu act on its own:
+
+```toml
+[pr]
+follow_up = true
+```
+
+the daemon also sends the PR's agent what needs doing:
+
+- **Conflicts** with the base branch: once per commit, first.
+- **Failed CI**, with the failing jobs' logs, once the checks have finished: once per commit.
+- **New review comments**, from anyone but the PR's author: once per batch.
+
+It only does this while that workspace has no agent working and nothing waiting on you, and sends it to the newest chat that can edit files. After 3 automatic follow-ups without a message from you, it stops, sends an inbox notice, and the board shows the workspace under *Needs you*. Your next message in the workspace starts the count again. What's been handled is kept across restarts.
+
 ### Tasks
 
 A repo can be connected to task trackers. `StateSnapshot.trackers` lists them (`Tracker`: `{ id, kind, repo_id, name, site, scope, account, created_at, last_synced_at, last_error }`), and `GET /v1/tasks` returns their open tasks.
@@ -350,12 +374,15 @@ A repo can be connected to task trackers. `StateSnapshot.trackers` lists them (`
 | `kind` | Needs | `scope` |
 |---|---|---|
 | `github` | `gh`, signed in | A label, or empty for all open issues |
+| `gitlab` | `token` (personal access token with the `api` scope); `site` only for self-managed GitLab (default `https://gitlab.com`) | The project's path (`group/project`, `group/sub/project`) or numeric id, optionally followed by a label: `acme/web ~agent`, or `acme/web ~"needs agent"` for a name with spaces. The `~` is optional; commas separate labels an issue must all have. |
 | `jira` | `site` (`https://<you>.atlassian.net`), `account` (your email), `token` (API token) | A project key, or a JQL query |
 | `clickup` | `token` (personal API token) | A list id |
 
+GitLab support uses REST API v4 (`GET /user`, `GET /projects/:id/issues?state=opened`, `POST /projects/:id/issues/:iid/notes`, `GET /projects/:id/merge_requests?source_branch=…&state=opened`), with the token in the `PRIVATE-TOKEN` header. A `read_api` token can list issues but can't post notes, so it needs `api`. Keys are `#<iid>`, and `mine` means you're one of the issue's assignees. So far it's tested only against a local fake of the GitLab API, not a real instance.
+
 - **Sync.** Open tasks are fetched every 3 minutes, and on `tasks.refresh`. A `tasks.changed` event says when a tracker's tasks changed; fetch `GET /v1/tasks` again. `Task.mine` is true when it's assigned to the person whose credentials Bantu uses.
 - **Starting.** `task.start` creates a workspace on a branch named after the task (`bantu/web-12-fix-login`), names its chat after the task, and sends the agent the task. The description is marked as information written in the tracker, not instructions. `Workspace.task` records the link.
-- **Reporting back.** The agent can post notes with the `update_task` MCP tool. Once the workspace's branch has a pull request, its link is posted to the task, once.
+- **Reporting back.** The agent can post notes with the `update_task` MCP tool. Once the workspace's branch has a pull request, its link is posted to the task, once. For GitLab trackers that's the branch's open merge request, found through GitLab's API (other trackers find the pull request with `gh`), and the agent is asked to put `Closes #N` in the MR description; for GitHub it's `Fixes #N`.
 - **Tokens** are stored in `$BANTU_HOME/trackers/<id>.token`, readable only by the user, and are never in the event log, the snapshot or any response. HTTP goes through `curl` with its arguments on stdin, so tokens aren't in the process list. `site` must be HTTPS (plain HTTP only to `127.0.0.1`, for testing).
 
 ### Importing from Conductor and Pane
@@ -424,7 +451,7 @@ claude -p --output-format stream-json --verbose --include-partial-messages \
   --session-id <uuid> | --resume <uuid> \
   --append-system-prompt <workspace context> [--model <m>] \
   [--setting-sources project,local --strict-mcp-config] \
-  --settings <PermissionRequest hook JSON> --mcp-config <Bantu MCP server>
+  --settings <PermissionRequest hook JSON> --mcp-config <Bantu MCP server [+ browser]>
 ```
 
 - **One process per turn.** The prompt goes in over stdin. The first turn uses `--session-id`; every later turn uses `--resume` with the same id, so the conversation continues. A daemon restart never strands a process: turns that were running are marked with an `error` item `"Interrupted by a daemon restart"`, and the next message simply resumes.
@@ -480,6 +507,24 @@ Every turn gets Bantu's MCP server (`POST /v1/mcp?session=<id>`, authenticated w
 
 A chat in plan mode can't use `create_workspace`, `send_message`, `integrate_workspaces` or `update_task`. A chat that doesn't bypass permissions can't `send_message` to one that does.
 
+### Browser
+
+A chat with `browser` on gives its agent a headless browser, so it can open its own app, click through it and take screenshots. It's off by default, because it adds about 25 tools to every turn and needs Node.js. Turn it on for one chat with the **Browser** button next to the model and effort pickers (`session.update` with `browser`), or for every new chat in a repo with `[browser] enabled = true` in `.bantu/settings.toml`. The repo setting only decides where new chats start; each chat keeps its own switch after that.
+
+- **The server** is [Playwright MCP](https://github.com/microsoft/playwright-mcp), which the agent's CLI starts over stdio as an MCP server named `browser`:
+  ```
+  npx -y @playwright/mcp@latest --headless --isolated \
+    --allowed-origins "http://localhost:<p>;https://localhost:<p>;http://127.0.0.1:<p>;…" \
+    --proxy-server http://127.0.0.1:9 --proxy-bypass "localhost:<p>,127.0.0.1:<p>,…" \
+    --output-dir <temp dir>/bantu-browser/<workspace id>
+  ```
+  `<p>` runs from `BANTU_PORT` to `BANTU_PORT+9`. Claude gets it in `--mcp-config` (with `mcp__browser` in `--allowedTools`, except in plan mode), and so does a chat continued in the terminal. ACP agents get it in `session/new` and `session/load`.
+- **Only the workspace's own ports.** `--headless --isolated` means no window and a profile kept in memory, so none of the user's cookies or logins. Playwright's `--allowed-origins` blocks other requests from the page, but its docs say it isn't a security boundary, and it doesn't cover redirects. So Bantu also points the browser at a proxy that isn't there (`127.0.0.1:9`), and exempts only the workspace's ports. A redirect to the internet or to another workspace then fails too (`ERR_PROXY_CONNECTION_FAILED`). The browser is a convenience, not a sandbox: the agent's own shell and fetch tools still reach the network as before, and so does Playwright MCP's `browser_run_code_unsafe` tool, which runs code in the server's own Node process.
+- **The agent is told** where its app runs, in one line of its briefing: run the dev server on `http://localhost:$BANTU_PORT` and open that.
+- **Screenshots** go to the agent as images, and to a temporary folder, not the worktree. Bantu's chat shows the tool's text and `[image]` in place of the picture.
+- **Without `npx`** (no Node.js on the daemon's `PATH`), the turn runs without a browser and the chat gets one `notice` saying why. Set `BANTU_NPX_BIN` to use another `npx`.
+- **The first turn** downloads Playwright MCP through `npx`, which can take longer than the agent waits for an MCP server; the next turn then has it. The browser is the installed Google Chrome, Playwright MCP's default. That's the only setup it has been tried with.
+
 ### Chat and terminal on one conversation
 
 `session.open_terminal` runs `claude --resume <id>` (or `--session-id` before the first turn) or `codex resume <id>` in a PTY, with the same workspace context, model and permission mode as the chat. Bantu's MCP server stays available; the permission hook doesn't apply, because the agent's terminal UI asks for itself.
@@ -488,15 +533,47 @@ While that terminal runs, `session.send` returns 409, because two processes must
 
 - **Claude**: new entries in its transcript (`<CLAUDE_CONFIG_DIR>/projects/*/<id>.jsonl`) are added as chat items, then a `terminal_session` item. Subagent work and injected context are skipped, and the transcript carries no per-turn cost.
 - **Codex**: only the `terminal_session` item is added, but the conversation resumes normally, because Codex keeps it.
-- **ACP agents** can't reopen a conversation in a terminal yet (400). Run their CLI with `terminal.open` and a `command`; that's a separate conversation.
+- **ACP agents** can't reopen a conversation in a terminal yet (400). Open their own UI with `terminal.open` and `agent`; that's a separate conversation.
 
-### ACP agents (OpenCode, Gemini CLI, Cursor)
+### Agents
+
+`AgentKind` is one of these ids. The daemon's catalogue (`crates/daemon/src/catalogue.rs`) holds each one's binary, how it starts, its install command and how to tell it's signed in. `GET /v1/agents` returns an `AgentStatus` for each: `{ agent, name, mode, install_hint, docs_url, can_sign_in, installed, version, logged_in, auth_method, account, organization, plan }`, where `mode` (`AgentMode`) is `native`, `acp` or `terminal`.
+
+| `AgentKind` | Agent | Mode | Command Bantu runs |
+|---|---|---|---|
+| `claude` | Claude Code | native | `claude -p --output-format stream-json …` |
+| `codex` | Codex CLI | native | `codex exec --json …` |
+| `opencode` | OpenCode | acp | `opencode acp` |
+| `gemini` | Gemini CLI | acp | `gemini --acp` |
+| `cursor` | Cursor CLI | acp | `agent acp` |
+| `goose` | Goose | acp | `goose acp` |
+| `qwen` | Qwen Code | acp | `qwen --acp` |
+| `copilot` | GitHub Copilot CLI | acp | `copilot --acp` |
+| `auggie` | Auggie (Augment Code) | acp | `auggie --acp` |
+| `kimi` | Kimi Code CLI | acp | `kimi acp` |
+| `kiro` | Kiro CLI | acp | `kiro-cli acp` |
+| `cline` | Cline CLI | acp | `cline --acp` |
+| `kilo` | Kilo Code CLI | acp | `kilo acp` |
+| `vibe` | Mistral Vibe | acp | `vibe-acp` (installed next to `vibe`) |
+| `aider` | Aider | terminal | `aider` |
+| `amp` | Amp | terminal | `amp` |
+| `crush` | Crush | terminal | `crush` |
+| `droid` | Factory Droid | terminal | `droid` |
+
+- **ACP** is listed only where the agent's own current docs show an ACP mode. Amp, Aider and Crush have no first-party ACP mode (only third-party adapters or unreleased branches), and Factory's CLI reference doesn't document one for Droid, so they run in a terminal. Binaries, install commands and sign-in checks were cross-checked against [Agent Orchestrator](https://github.com/OrchestratorInc/agent-orchestrator)'s adapters (Apache-2.0).
+- **Tested with fakes only.** The automated tests drive Claude, Codex and the ACP agents through stand-in scripts (`scripts/fake-*.sh`). Goose, Qwen Code, Copilot, Auggie, Kimi, Kiro, Cline, Kilo Code, Mistral Vibe, Aider, Amp, Crush and Droid have not been run against their real CLIs yet.
+- **Binaries.** Each agent's binary can be overridden with `BANTU_<ID>_BIN` (e.g. `BANTU_KIRO_BIN`) or `--agent-bin <id>=<path>`. `--claude-bin`, `--codex-bin`, `--opencode-bin`, `--gemini-bin` and `--cursor-bin` still work.
+- **Installed** means `<bin> --version` succeeds. **Signed in** comes from `claude auth status`, `codex login status` and `kiro-cli whoami`; Goose, Auggie and Cline count as signed in when their credential file exists or their API-key variable is set; the other agents count as signed in once installed, until a turn says otherwise.
+- **Terminal-only agents** can't hold a chat (`session.create` returns 400). `terminal.open` with `agent` runs their own UI in the worktree.
+- **Sign-in.** `agent.login` opens the agent's own flow: a subcommand where it has one (`goose configure`, `kiro-cli login`, `auggie auth login`, `cline auth`, …), or else its UI, where it signs in with a command such as `/login`. Aider has none (`can_sign_in` is false): it reads provider API keys from the environment.
+
+### ACP agents
 
 These agents speak the [Agent Client Protocol](https://agentclientprotocol.com): JSON-RPC 2.0 over stdio. Each turn is one process running `initialize`, then `session/new` (or `session/load` to resume), then `session/prompt`.
 
-- **Commands**: `opencode acp`, `gemini --acp` and `agent acp`. Override the binaries with `BANTU_OPENCODE_BIN`, `BANTU_GEMINI_BIN` and `BANTU_CURSOR_BIN`.
+- **Commands**: the `acp` rows in [Agents](#agents).
 - **Client capabilities**: Bantu advertises neither `fs` nor `terminal`, so agents use their own file and shell tools inside the worktree.
-- **Bantu's MCP server** is passed to agents that advertise `mcpCapabilities.http`. The token travels over stdin, never in argv.
+- **Bantu's MCP server** is passed to agents that advertise `mcpCapabilities.http`. The token travels over stdin, never in argv. The [browser](#browser), when it's on, is passed as a stdio server, which every ACP agent supports.
 - **Workspace context** is prepended to the first prompt, because ACP has no system prompt.
 - **Permission modes** are enforced in the client on `session/request_permission`: `bypass_permissions` allows everything; `plan` allows only `read`, `search`, `fetch` and `think` tools; `accept_edits` allows `edit` tools and asks about the rest; `auto` and `ask` always ask. If the agent advertises a matching mode (such as `plan`, `autoEdit` or `yolo`), it's selected with `session/set_mode` too. An agent decides for itself which tools need permission, so this can only restrict what it asks about.
 - **Models** are selected with `session/set_model` when the agent advertises `models`.
@@ -519,6 +596,8 @@ These agents speak the [Agent Client Protocol](https://agentclientprotocol.com):
 | `comment.deleted` | `comment_id`, `workspace_id` | |
 | `permission.requested` | `request` | An agent is waiting for approval |
 | `permission.resolved` | `request_id`, `session_id`, `workspace_id`, `allowed` | Answered, stopped or timed out |
+| `pr.updated` | `pr` | A workspace's pull request changed (full `WorkspacePr`) |
+| `pr.removed` | `workspace_id` | Its branch no longer has a pull request |
 | `tracker.updated` | `tracker` | A tracker was connected, or synced (full object) |
 | `tracker.removed` | `tracker_id` | |
 | `tasks.changed` | `tracker_id` | Its tasks changed; fetch `GET /v1/tasks` |
@@ -555,6 +634,13 @@ resolve_conflicts = "Prefer rebasing over merge commits."
 rename_branch = "Branches look like team/short-description."
 ```
 
+A headless browser for agents is off by default. This turns it on for new chats (see [Browser](#browser)):
+
+```toml
+[browser]
+enabled = true
+```
+
 Automatic review by another agent is off by default, because it spends quota. It's described under [Automatic review](#automatic-review).
 
 ```toml
@@ -563,7 +649,19 @@ auto = true
 agent = "codex"   # defaults to Codex for Claude's work, and Claude for everyone else's
 ```
 
-Bantu looks for `setup` and `run` first in the worktree (the branch's committed config), then in the main checkout. Settings that make the daemon act on its own (`check`, `archive`, `[prompts]` and `[review]`) come only from the main checkout, because an agent allowed to edit files could otherwise run any command without a prompt, or turn off its own review. A branch's changes to them apply once they're merged. While Spotlight is active, those settings come from the base branch instead. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.
+Which agent the repo uses for each role. Any `AgentKind` that can hold a chat works; terminal-only and unknown ids are ignored, with a warning in the daemon log.
+
+```toml
+[agents]
+worker = "codex"         # new chats, including each workspace's first chat and create_workspace children
+orchestrator = "claude"  # a lead chat: session.create with role "orchestrator", or any new chat
+                         # in a workspace that has started others
+reviewer = "gemini"      # workspace.review without an agent, and automatic review
+```
+
+Each defaults to Claude, except that automatic review without a reviewer still picks a different agent from the author's. `[review] agent` is an alias for `reviewer`; `reviewer` wins when both are set. An explicit `agent` in a command always wins.
+
+Bantu looks for `setup` and `run` first in the worktree (the branch's committed config), then in the main checkout. Settings that make the daemon act on its own (`check`, `archive`, `[prompts]`, `[review]`, `[pr]`, `[browser]` and `[agents]`) come only from the main checkout, because an agent allowed to edit files could otherwise run any command without a prompt, or turn off its own review. A branch's changes to them apply once they're merged. While Spotlight is active, those settings come from the base branch instead. In each place it tries `.bantu/settings.toml`, then `.conductor/settings.toml` with the same keys, so existing Conductor setups work unchanged. Unknown keys are ignored.
 
 Scripts run in the user's login shell (`$SHELL -lc`) in the workspace directory, with these environment variables:
 

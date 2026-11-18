@@ -105,6 +105,8 @@ pub enum TrackerKind {
     Jira,
     /// ClickUp, with a personal API token.
     Clickup,
+    /// GitLab (gitlab.com or self-managed), with a personal access token.
+    Gitlab,
 }
 
 impl TrackerKind {
@@ -113,6 +115,7 @@ impl TrackerKind {
             Self::Github => "GitHub",
             Self::Jira => "Jira",
             Self::Clickup => "ClickUp",
+            Self::Gitlab => "GitLab",
         }
     }
 }
@@ -127,11 +130,13 @@ pub struct Tracker {
     pub repo_id: String,
     /// Shown in the app, e.g. "Jira: WEB".
     pub name: String,
-    /// Jira: `https://<you>.atlassian.net`. ClickUp: the API's address, only
-    /// set to test against something else.
+    /// Jira: `https://<you>.atlassian.net`. GitLab: the instance, if not
+    /// `https://gitlab.com`. ClickUp: the API's address, only set to test
+    /// against something else.
     pub site: Option<String>,
-    /// Which tasks: a Jira project key or JQL query, a ClickUp list id, or a
-    /// GitHub label (empty for all open issues).
+    /// Which tasks: a Jira project key or JQL query, a ClickUp list id, a
+    /// GitLab project (`group/project` or its id, optionally followed by
+    /// ` ~label`), or a GitHub label (empty for all open issues).
     pub scope: String,
     /// The Jira account's email, for its API token.
     pub account: Option<String>,
@@ -141,7 +146,7 @@ pub struct Tracker {
     pub last_error: Option<String>,
 }
 
-/// A task in a tracker: a Jira issue, a ClickUp task or a GitHub issue.
+/// A task in a tracker: a Jira issue, a ClickUp task, or a GitHub or GitLab issue.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
 pub struct Task {
@@ -253,7 +258,9 @@ pub struct IntegrationResult {
     pub sent_to_agent: bool,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+/// Which coding agent a chat or terminal runs. The daemon's agent catalogue
+/// (`crates/daemon/src/catalogue.rs`) says how each one is started.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum AgentKind {
@@ -267,9 +274,57 @@ pub enum AgentKind {
     Gemini,
     /// Cursor's CLI (`agent acp`), over the Agent Client Protocol.
     Cursor,
+    /// Block's Goose (`goose acp`), over the Agent Client Protocol.
+    Goose,
+    /// Qwen Code (`qwen --acp`), over the Agent Client Protocol.
+    Qwen,
+    /// GitHub Copilot CLI (`copilot --acp`), over the Agent Client Protocol.
+    Copilot,
+    /// Augment Code's Auggie (`auggie --acp`), over the Agent Client Protocol.
+    Auggie,
+    /// Moonshot AI's Kimi Code CLI (`kimi acp`), over the Agent Client Protocol.
+    Kimi,
+    /// Kiro CLI (`kiro-cli acp`), over the Agent Client Protocol.
+    Kiro,
+    /// Cline CLI (`cline --acp`), over the Agent Client Protocol.
+    Cline,
+    /// Kilo Code CLI (`kilo acp`), over the Agent Client Protocol.
+    Kilo,
+    /// Mistral Vibe (`vibe-acp`), over the Agent Client Protocol.
+    Vibe,
+    /// Aider (`aider`), in a terminal only.
+    Aider,
+    /// Amp (`amp`), in a terminal only.
+    Amp,
+    /// Charm's Crush (`crush`), in a terminal only.
+    Crush,
+    /// Factory's Droid (`droid`), in a terminal only.
+    Droid,
 }
 
 impl AgentKind {
+    /// Every agent, in the order clients list them.
+    pub const ALL: [AgentKind; 18] = [
+        Self::Claude,
+        Self::Codex,
+        Self::Opencode,
+        Self::Gemini,
+        Self::Cursor,
+        Self::Goose,
+        Self::Qwen,
+        Self::Copilot,
+        Self::Auggie,
+        Self::Kimi,
+        Self::Kiro,
+        Self::Cline,
+        Self::Kilo,
+        Self::Vibe,
+        Self::Aider,
+        Self::Amp,
+        Self::Crush,
+        Self::Droid,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Claude => "claude",
@@ -277,19 +332,53 @@ impl AgentKind {
             Self::Opencode => "opencode",
             Self::Gemini => "gemini",
             Self::Cursor => "cursor",
+            Self::Goose => "goose",
+            Self::Qwen => "qwen",
+            Self::Copilot => "copilot",
+            Self::Auggie => "auggie",
+            Self::Kimi => "kimi",
+            Self::Kiro => "kiro",
+            Self::Cline => "cline",
+            Self::Kilo => "kilo",
+            Self::Vibe => "vibe",
+            Self::Aider => "aider",
+            Self::Amp => "amp",
+            Self::Crush => "crush",
+            Self::Droid => "droid",
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
-        Some(match s {
-            "claude" => Self::Claude,
-            "codex" => Self::Codex,
-            "opencode" => Self::Opencode,
-            "gemini" => Self::Gemini,
-            "cursor" => Self::Cursor,
-            _ => return None,
-        })
+        Self::ALL.into_iter().find(|a| a.as_str() == s)
     }
+}
+
+/// How Bantu drives an agent.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum AgentMode {
+    /// Structured chat through the agent's own machine interface (Claude
+    /// Code's `stream-json`, Codex's `exec --json`).
+    Native,
+    /// Structured chat over the Agent Client Protocol.
+    Acp,
+    /// No structured interface Bantu can drive, so it runs in a workspace
+    /// terminal (`terminal.open` with `agent`).
+    Terminal,
+}
+
+/// What a repo's `[agents]` settings choose an agent for.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum AgentRole {
+    /// New chats (`[agents] worker`).
+    Worker,
+    /// A lead chat that starts other workspaces (`[agents] orchestrator`).
+    Orchestrator,
+    /// Review chats, manual and automatic (`[agents] reviewer`).
+    Reviewer,
 }
 
 /// How much the agent may do without asking. Anything that needs approval
@@ -360,6 +449,10 @@ pub struct Session {
     /// Claude's fast mode: faster output at a higher cost.
     #[serde(default)]
     pub fast: bool,
+    /// A headless browser (Playwright MCP) limited to the workspace's ports.
+    /// New chats start with the repo's `[browser] enabled`.
+    #[serde(default)]
+    pub browser: bool,
     /// The chat this one was forked from.
     #[serde(default)]
     pub forked_from: Option<String>,
@@ -430,6 +523,11 @@ pub enum ChatItem {
     },
     /// Bantu-side problems: the agent couldn't start, crashed, or was cancelled.
     Error {
+        message: String,
+    },
+    /// Something the user should know that didn't stop the turn, e.g. why a
+    /// chat has no browser.
+    Notice {
         message: String,
     },
 }
@@ -520,6 +618,25 @@ pub struct PullRequest {
     pub checks_passing: u32,
     pub checks_failing: u32,
     pub checks_pending: u32,
+}
+
+/// A workspace's pull request as the fleet board sees it, refreshed in the
+/// background for every workspace at once.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct WorkspacePr {
+    pub workspace_id: String,
+    pub pull_request: PullRequest,
+    /// `false` when it conflicts with its base; `None` while GitHub is still
+    /// working it out.
+    pub mergeable: Option<bool>,
+    pub head_sha: String,
+    pub updated_at: Option<String>,
+    /// Automatic follow-ups sent to the agent since you last wrote in this
+    /// workspace. Only with `[pr] follow_up = true`.
+    pub follow_ups: u32,
+    /// Follow-up reached its limit, so it's waiting for you.
+    pub needs_you: bool,
 }
 
 /// One CI check on the workspace's pull request.
@@ -816,9 +933,14 @@ pub enum Command {
     #[serde(rename = "session.create")]
     SessionCreate {
         workspace_id: String,
-        /// Defaults to Claude.
+        /// Defaults to the repo's agent for `role`, then Claude.
         #[serde(default)]
         agent: Option<AgentKind>,
+        /// Which of the repo's `[agents]` picks the agent when `agent` is
+        /// unset. Defaults to `orchestrator` in a workspace that has started
+        /// others, and `worker` otherwise.
+        #[serde(default)]
+        role: Option<AgentRole>,
         model: Option<String>,
         permission_mode: Option<PermissionMode>,
         #[serde(default)]
@@ -848,6 +970,9 @@ pub enum Command {
         effort: Option<String>,
         #[serde(default)]
         fast: Option<bool>,
+        /// Turns this chat's browser on or off.
+        #[serde(default)]
+        browser: Option<bool>,
     },
     /// Restore the workspace files to the checkpoint taken just before `turn`
     /// started. The conversation is kept; the agent is told on its next turn.
@@ -911,8 +1036,8 @@ pub enum Command {
     /// Start a run now.
     #[serde(rename = "loop.run")]
     LoopRun { loop_id: String },
-    /// Connect a repo to a task tracker. `token` is required for Jira and
-    /// ClickUp; GitHub uses `gh`. The connection is tested before it's saved.
+    /// Connect a repo to a task tracker. `token` is required for Jira,
+    /// ClickUp and GitLab; GitHub uses `gh`. The connection is tested before it's saved.
     #[serde(rename = "tracker.add")]
     TrackerAdd {
         repo_id: String,
@@ -969,7 +1094,8 @@ pub enum Command {
         session_id: String,
     },
     /// Open an interactive shell in the workspace, or run `command` (any CLI)
-    /// in a terminal there.
+    /// in a terminal there. With `agent` (and no `command`) it runs that
+    /// agent's own terminal UI, which is how terminal-only agents are used.
     #[serde(rename = "terminal.open")]
     TerminalOpen {
         workspace_id: String,
@@ -977,6 +1103,8 @@ pub enum Command {
         rows: Option<u16>,
         #[serde(default)]
         command: Option<String>,
+        #[serde(default)]
+        agent: Option<AgentKind>,
     },
     /// Continue a chat in its agent's own terminal UI. The chat takes no turns
     /// until the terminal ends; then its transcript is imported where possible.
@@ -1154,6 +1282,12 @@ pub enum EventData {
     },
     #[serde(rename = "loop.deleted")]
     LoopDeleted { loop_id: String },
+    /// A workspace's pull request changed: CI, reviews, conflicts or state.
+    #[serde(rename = "pr.updated")]
+    PrUpdated { pr: WorkspacePr },
+    /// The workspace no longer has a pull request on its branch.
+    #[serde(rename = "pr.removed")]
+    PrRemoved { workspace_id: String },
     #[serde(rename = "tracker.updated")]
     TrackerUpdated { tracker: Tracker },
     #[serde(rename = "tracker.removed")]
@@ -1197,6 +1331,8 @@ impl EventData {
             | Self::SpotlightUpdated { .. }
             | Self::ImportUpdated { .. }
             | Self::TrackerUpdated { .. }
+            | Self::PrUpdated { .. }
+            | Self::PrRemoved { .. }
             | Self::TrackerRemoved { .. }
             | Self::TasksChanged { .. }
             | Self::LoopUpdated { .. }
@@ -1265,6 +1401,9 @@ pub struct StateSnapshot {
     pub loops: Vec<Loop>,
     #[serde(default)]
     pub trackers: Vec<Tracker>,
+    /// Pull requests for workspaces' branches, for the fleet board.
+    #[serde(default)]
+    pub pull_requests: Vec<WorkspacePr>,
     pub preferences: Preferences,
 }
 
@@ -1273,6 +1412,16 @@ pub struct StateSnapshot {
 #[ts(export)]
 pub struct AgentStatus {
     pub agent: AgentKind,
+    /// Display name, e.g. `GitHub Copilot`.
+    pub name: String,
+    pub mode: AgentMode,
+    /// A command that installs it, e.g. `npm install -g @github/copilot`.
+    pub install_hint: String,
+    /// The agent's own documentation for the interface Bantu uses.
+    pub docs_url: String,
+    /// It has a sign-in flow `agent.login` can open. Agents without one read
+    /// provider API keys from the environment.
+    pub can_sign_in: bool,
     pub installed: bool,
     pub version: Option<String>,
     pub logged_in: bool,
@@ -1331,6 +1480,8 @@ mod tests {
         for name in [
             "Activity",
             "AgentKind",
+            "AgentMode",
+            "AgentRole",
             "AgentStatus",
             "ChatItem",
             "CheckRun",
@@ -1381,6 +1532,7 @@ mod tests {
             "WorkspaceChecks",
             "WorkspaceConflict",
             "WorkspaceDiff",
+            "WorkspacePr",
             "WorkspaceSource",
             "WorkspaceState",
         ] {

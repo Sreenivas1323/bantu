@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { AgentKind, AgentStatus, Command, CommandResponse, Loop, LoopTrigger, PermissionMode, Repo, Workspace } from "@bantu/protocol";
-import { AGENT_KINDS, agentLabel } from "../lib/useAgents.ts";
+import { AGENT_KINDS, agentLabel, isChatAgent } from "../lib/useAgents.ts";
 import { afterExit } from "../lib/motion.ts";
 
 type TriggerKind = LoopTrigger["kind"];
@@ -128,7 +128,10 @@ function NewLoop({ repoId, agents, run }: { repoId: string; agents: AgentStatus[
 
   const isCron = kind === "cron";
   const github = !isCron;
-  const installed = AGENT_KINDS.filter((a) => a === "claude" || agents?.find((s) => s.agent === a)?.installed);
+  // Loops hold a chat, so terminal-only agents can't run them.
+  const installed = AGENT_KINDS.filter(
+    (a) => isChatAgent(a, agents) && (a === "claude" || agents?.find((s) => s.agent === a)?.installed),
+  );
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

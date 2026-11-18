@@ -35,14 +35,21 @@ struct Args {
     #[arg(long, env = "BANTU_CODEX_BIN", default_value = "codex")]
     codex_bin: PathBuf,
     /// OpenCode CLI, driven over the Agent Client Protocol.
-    #[arg(long, env = "BANTU_OPENCODE_BIN", default_value = "opencode")]
-    opencode_bin: PathBuf,
+    #[arg(long, env = "BANTU_OPENCODE_BIN")]
+    opencode_bin: Option<PathBuf>,
     /// Gemini CLI, driven over the Agent Client Protocol.
-    #[arg(long, env = "BANTU_GEMINI_BIN", default_value = "gemini")]
-    gemini_bin: PathBuf,
+    #[arg(long, env = "BANTU_GEMINI_BIN")]
+    gemini_bin: Option<PathBuf>,
     /// Cursor's CLI, driven over the Agent Client Protocol.
-    #[arg(long, env = "BANTU_CURSOR_BIN", default_value = "agent")]
-    cursor_bin: PathBuf,
+    #[arg(long, env = "BANTU_CURSOR_BIN")]
+    cursor_bin: Option<PathBuf>,
+    /// Any other agent's binary, as `<agent>=<path>` (repeatable), e.g.
+    /// `--agent-bin kiro=/opt/kiro/kiro-cli`. `BANTU_<AGENT>_BIN` works too.
+    #[arg(long = "agent-bin", value_parser = bantud::catalogue::parse_override)]
+    agent_bins: Vec<(bantu_protocol::AgentKind, PathBuf)>,
+    /// Runs the Playwright MCP server for chats with the browser on.
+    #[arg(long, env = "BANTU_NPX_BIN", default_value = "npx")]
+    npx_bin: PathBuf,
     /// Accept non-loopback binds and any Host header. Prefer --allowed-host.
     #[arg(long)]
     allow_remote: bool,
@@ -195,6 +202,17 @@ async fn main() -> Result<()> {
         )?),
         None => None,
     };
+    let agent_bins = {
+        use bantu_protocol::AgentKind;
+        agent_bins(
+            &args.agent_bins,
+            [
+                (AgentKind::Opencode, &args.opencode_bin),
+                (AgentKind::Gemini, &args.gemini_bin),
+                (AgentKind::Cursor, &args.cursor_bin),
+            ],
+        )
+    };
     let config = Config {
         cf_access,
         preview_url: args.preview_url.clone(),
@@ -212,9 +230,8 @@ async fn main() -> Result<()> {
         claude_config_dir: std::env::var_os("CLAUDE_CONFIG_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| home_dir.join(".claude")),
-        opencode_bin: args.opencode_bin,
-        gemini_bin: args.gemini_bin,
-        cursor_bin: args.cursor_bin,
+        agent_bins,
+        npx_bin: args.npx_bin,
         allowed_hosts,
     };
     let web_dir = config.web_dir.clone();
@@ -264,6 +281,31 @@ async fn main() -> Result<()> {
         })
         .await?;
     Ok(())
+}
+
+/// Agent binaries other than Claude's and Codex's: `BANTU_<ID>_BIN` from the
+/// environment, then `--agent-bin`, then the original per-agent flags.
+fn agent_bins(
+    flags: &[(bantu_protocol::AgentKind, PathBuf)],
+    legacy: [(bantu_protocol::AgentKind, &Option<PathBuf>); 3],
+) -> std::collections::BTreeMap<bantu_protocol::AgentKind, PathBuf> {
+    use bantu_protocol::AgentKind;
+    let mut bins = std::collections::BTreeMap::new();
+    for spec in &bantud::catalogue::AGENTS {
+        if matches!(spec.kind, AgentKind::Claude | AgentKind::Codex) {
+            continue;
+        }
+        if let Some(path) = std::env::var_os(spec.env_var()).filter(|p| !p.is_empty()) {
+            bins.insert(spec.kind, PathBuf::from(path));
+        }
+    }
+    bins.extend(flags.iter().cloned());
+    for (kind, flag) in legacy {
+        if let Some(path) = flag {
+            bins.insert(kind, path.clone());
+        }
+    }
+    bins
 }
 
 /// Looks for the web app next to the binary (packaged installs), then in the

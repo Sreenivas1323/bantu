@@ -1,73 +1,74 @@
 //! Which agent CLIs are installed on this machine and which accounts they're
-//! signed in to. Bantu runs the user's own `claude` / `codex`, so turns use
-//! that login: a Claude Pro, Max or Team subscription, or an API key.
+//! signed in to, and which agent a repo wants for each role. Bantu runs the
+//! user's own CLIs, so turns use their login: a Claude Pro, Max or Team
+//! subscription, an API key, and so on.
+//!
+//! What each agent is and how to probe it comes from the
+//! [catalogue](crate::catalogue).
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bantu_protocol::{AgentKind, AgentStatus, LoginMethod, Terminal, TerminalKind};
+use bantu_protocol::{
+    AgentKind, AgentRole, AgentStatus, LoginMethod, Terminal, TerminalKind, Workspace,
+    WorkspaceState,
+};
 use serde_json::Value;
 
+use crate::catalogue::{self, AgentSpec, Login, SignIn};
 use crate::ops::{CommandError, Daemon};
 use crate::platform::{self, shell_quote};
 use crate::terminals::TerminalSpec;
 
-const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+/// `--version` only labels the agent, so a CLI that hangs on it (Droid does on
+/// some machines) mustn't hold up the whole list.
+const VERSION_TIMEOUT: Duration = Duration::from_secs(3);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl Daemon {
+    /// Every agent in the catalogue, probed in parallel.
     pub async fn agent_statuses(&self) -> Vec<AgentStatus> {
-        let (claude, codex, opencode, gemini, cursor) = tokio::join!(
-            self.claude_status(),
-            self.codex_status(),
-            self.acp_status(AgentKind::Opencode),
-            self.acp_status(AgentKind::Gemini),
-            self.acp_status(AgentKind::Cursor),
-        );
-        vec![claude, codex, opencode, gemini, cursor]
+        futures::future::join_all(catalogue::AGENTS.iter().map(|spec| self.agent_status(spec)))
+            .await
     }
 
-    /// ACP has no standard way to ask who's signed in without starting a
-    /// session, so an installed agent counts as ready until a turn says otherwise.
-    async fn acp_status(&self, agent: AgentKind) -> AgentStatus {
-        let mut status = empty(agent);
-        let Some((bin, _)) = crate::acp::command(&self.config, agent) else {
+    async fn agent_status(&self, spec: &AgentSpec) -> AgentStatus {
+        let bin = self.config.agent_bin(spec.kind);
+        let mut status = empty(spec);
+        if !on_path(&bin) {
             return status;
-        };
-        let Some(version) = run(&bin, &["--version"]).await.filter(|(ok, _)| *ok) else {
-            return status;
-        };
-        status.installed = true;
-        status.logged_in = true;
-        status.version = version.1.split_whitespace().last().map(str::to_string);
-        status
-    }
-
-    async fn claude_status(&self) -> AgentStatus {
-        let bin = &self.config.claude_bin;
-        let mut status = empty(AgentKind::Claude);
-        let Some(version) = run(bin, &["--version"]).await.filter(|(ok, _)| *ok) else {
-            return status;
-        };
-        status.installed = true;
-        status.version = version.1.split_whitespace().next().map(str::to_string);
-        if let Some((_, out)) = run(bin, &["auth", "status", "--json"]).await {
-            if let Ok(v) = serde_json::from_str::<Value>(&out) {
-                apply_claude_auth(&mut status, &v);
-            }
         }
-        status
-    }
-
-    async fn codex_status(&self) -> AgentStatus {
-        let bin = &self.config.codex_bin;
-        let mut status = empty(AgentKind::Codex);
-        let Some(version) = run(bin, &["--version"]).await.filter(|(ok, _)| *ok) else {
-            return status;
-        };
         status.installed = true;
-        status.version = version.1.split_whitespace().last().map(str::to_string);
-        if let Some((ok, out)) = run(bin, &["login", "status"]).await {
-            apply_codex_login(&mut status, ok, &out);
+        if let Some((true, out)) = run_for(&bin, &["--version"], VERSION_TIMEOUT).await {
+            status.version = parse_version(spec.kind, &out);
+        }
+        match spec.sign_in {
+            SignIn::Claude => {
+                if let Some((_, out)) = run(&bin, &["auth", "status", "--json"]).await {
+                    if let Ok(v) = serde_json::from_str::<Value>(&out) {
+                        apply_claude_auth(&mut status, &v);
+                    }
+                }
+            }
+            SignIn::Codex => {
+                if let Some((ok, out)) = run(&bin, &["login", "status"]).await {
+                    apply_codex_login(&mut status, ok, &out);
+                }
+            }
+            // ACP has no standard way to ask who's signed in without starting
+            // a session, so an installed agent counts as ready until a turn
+            // says otherwise.
+            SignIn::Assume => status.logged_in = true,
+            SignIn::Files { files, env } => {
+                status.logged_in = signed_in_by_files(platform::home_dir().as_deref(), files, env);
+            }
+            SignIn::Command { args, signed_out } => {
+                status.logged_in = matches!(
+                    run(&bin, args).await,
+                    Some((true, out)) if !out.replace(' ', "").contains(signed_out)
+                );
+            }
         }
         status
     }
@@ -80,37 +81,34 @@ impl Daemon {
         method: Option<LoginMethod>,
     ) -> Result<Terminal, CommandError> {
         let method = method.unwrap_or(LoginMethod::Subscription);
-        let (bin, args, title): (&std::path::Path, &str, &str) = match (agent, method) {
-            (AgentKind::Claude, LoginMethod::Subscription) => (
-                &self.config.claude_bin,
-                "auth login --claudeai",
-                "Sign in to Claude",
-            ),
-            (AgentKind::Claude, LoginMethod::Sso) => (
-                &self.config.claude_bin,
-                "auth login --sso",
-                "Sign in to Claude (SSO)",
-            ),
+        let spec = catalogue::spec(agent);
+        let (args, title) = match (agent, method) {
+            (AgentKind::Claude, LoginMethod::Subscription) => {
+                ("auth login --claudeai", "Sign in to Claude".to_string())
+            }
+            (AgentKind::Claude, LoginMethod::Sso) => {
+                ("auth login --sso", "Sign in to Claude (SSO)".to_string())
+            }
             (AgentKind::Claude, LoginMethod::Console) => (
-                &self.config.claude_bin,
                 "auth login --console",
-                "Sign in to Anthropic Console",
+                "Sign in to Anthropic Console".to_string(),
             ),
-            (AgentKind::Codex, LoginMethod::Console) => (
-                &self.config.codex_bin,
-                "login --with-api-key",
-                "Codex API key",
-            ),
-            (AgentKind::Codex, _) => (&self.config.codex_bin, "login", "Sign in to Codex"),
-            (AgentKind::Opencode, _) => (
-                &self.config.opencode_bin,
-                "auth login",
-                "Sign in to OpenCode",
-            ),
-            // Gemini CLI signs in from its own first-run screen.
-            (AgentKind::Gemini, _) => (&self.config.gemini_bin, "", "Sign in to Gemini"),
-            (AgentKind::Cursor, _) => (&self.config.cursor_bin, "login", "Sign in to Cursor"),
+            (AgentKind::Codex, LoginMethod::Console) => {
+                ("login --with-api-key", "Codex API key".to_string())
+            }
+            _ => match spec.login {
+                Login::Args(args) => (args, format!("Sign in to {}", spec.name)),
+                Login::Tui => ("", format!("Sign in to {}", spec.name)),
+                Login::None => {
+                    return Err(CommandError::BadRequest(format!(
+                        "{} has no sign-in of its own; it reads provider API keys from the \
+                         environment",
+                        spec.name
+                    )))
+                }
+            },
         };
+        let bin = self.config.agent_bin(agent);
         let command = format!(
             "{} {args}",
             platform::call(&shell_quote(&bin.to_string_lossy()))
@@ -121,16 +119,79 @@ impl Daemon {
             None,
             TerminalSpec {
                 command: Some(command),
-                ..TerminalSpec::new(TerminalKind::Login, title.into())
+                ..TerminalSpec::new(TerminalKind::Login, title)
             },
         )
         .await
     }
+
+    /// An agent's own terminal UI in a workspace terminal. This is how
+    /// terminal-only agents run, and it works for every other agent too
+    /// (as a separate conversation from any chat).
+    pub async fn open_agent_terminal(
+        self: &Arc<Self>,
+        workspace_id: &str,
+        agent: AgentKind,
+        cols: Option<u16>,
+        rows: Option<u16>,
+    ) -> Result<Terminal, CommandError> {
+        let ws = self.ready_workspace(workspace_id).await?;
+        let spec = catalogue::spec(agent);
+        let mut parts = vec![platform::call(&shell_quote(
+            &self.config.agent_bin(agent).to_string_lossy(),
+        ))];
+        parts.extend(spec.tui_args.iter().map(|a| a.to_string()));
+        self.spawn_terminal(
+            Some(&ws),
+            TerminalSpec {
+                command: Some(parts.join(" ")),
+                cols,
+                rows,
+                ..TerminalSpec::new(TerminalKind::Agent, spec.name.to_string())
+            },
+        )
+        .await
+    }
+
+    /// The agent a new chat gets when none was asked for: the repo's
+    /// `[agents]` choice for `role` (read from the main checkout, like every
+    /// setting the daemon acts on by itself), else Claude.
+    pub(crate) async fn role_agent(&self, ws: &Workspace, role: AgentRole) -> AgentKind {
+        match self.trusted_settings(ws).await {
+            Ok(settings) => settings.agents.for_role(role, &settings.review),
+            Err(e) => {
+                tracing::warn!("couldn't read settings for {}: {e:#}", ws.name);
+                None
+            }
+        }
+        .unwrap_or(AgentKind::Claude)
+    }
+
+    /// The role a chat started without one plays: a workspace that has
+    /// started others is a lead, so its new chats get the orchestrator.
+    pub(crate) async fn default_role(&self, ws: &Workspace) -> AgentRole {
+        let leads = self.store.workspaces().await.is_ok_and(|all| {
+            all.iter().any(|w| {
+                w.parent_id.as_deref() == Some(ws.id.as_str())
+                    && w.state != WorkspaceState::Archived
+            })
+        });
+        if leads {
+            AgentRole::Orchestrator
+        } else {
+            AgentRole::Worker
+        }
+    }
 }
 
-fn empty(agent: AgentKind) -> AgentStatus {
+fn empty(spec: &AgentSpec) -> AgentStatus {
     AgentStatus {
-        agent,
+        agent: spec.kind,
+        name: spec.name.to_string(),
+        mode: spec.mode,
+        install_hint: spec.install.to_string(),
+        docs_url: spec.docs.to_string(),
+        can_sign_in: spec.login != Login::None,
         installed: false,
         version: None,
         logged_in: false,
@@ -139,6 +200,31 @@ fn empty(agent: AgentKind) -> AgentStatus {
         organization: None,
         plan: None,
     }
+}
+
+/// `claude --version` prints `2.1.0 (Claude Code)`; most others end with it.
+fn parse_version(agent: AgentKind, out: &str) -> Option<String> {
+    let mut words = out.split_whitespace();
+    if agent == AgentKind::Claude {
+        words.next()
+    } else {
+        words.last()
+    }
+    .map(str::to_string)
+}
+
+/// Whether any credential file (relative to `home`) has content, or any of
+/// the environment variables is set.
+fn signed_in_by_files(home: Option<&Path>, files: &[&str], env: &[&str]) -> bool {
+    let has_file = home.is_some_and(|home| {
+        files
+            .iter()
+            .any(|f| std::fs::metadata(home.join(f)).is_ok_and(|m| m.is_file() && m.len() > 0))
+    });
+    has_file
+        || env
+            .iter()
+            .any(|v| std::env::var_os(v).is_some_and(|v| !v.is_empty()))
 }
 
 /// Fields from `claude auth status --json`.
@@ -167,14 +253,29 @@ pub fn apply_codex_login(status: &mut AgentStatus, ok: bool, out: &str) {
     }
 }
 
+/// Whether the agent's program exists: a path that's a file, or a name found
+/// on `PATH`.
+fn on_path(bin: &std::path::Path) -> bool {
+    let program = platform::program(bin);
+    if program.components().count() > 1 {
+        return program.is_file();
+    }
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(&program).is_file()))
+}
+
 /// Runs a probe with a timeout; `(success, stdout)`, or `None` if it can't start.
 async fn run(bin: &std::path::Path, args: &[&str]) -> Option<(bool, String)> {
+    run_for(bin, args, PROBE_TIMEOUT).await
+}
+
+async fn run_for(bin: &std::path::Path, args: &[&str], limit: Duration) -> Option<(bool, String)> {
     let out = tokio::process::Command::new(crate::platform::program(bin))
         .args(args)
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true)
         .output();
-    let out = tokio::time::timeout(PROBE_TIMEOUT, out).await.ok()?.ok()?;
+    let out = tokio::time::timeout(limit, out).await.ok()?.ok()?;
     let mut text = String::from_utf8_lossy(&out.stdout).to_string();
     if text.trim().is_empty() {
         // Some CLIs print status to stderr.
@@ -189,8 +290,19 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn finds_programs_by_path_or_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("agent-cli");
+        std::fs::write(&file, "").unwrap();
+        assert!(on_path(&file));
+        assert!(!on_path(&dir.path().join("missing")));
+        assert!(on_path(std::path::Path::new("sh")), "found on PATH");
+        assert!(!on_path(std::path::Path::new("surely-not-a-real-cli-name")));
+    }
+
+    #[test]
     fn reads_claude_and_codex_status() {
-        let mut s = empty(AgentKind::Claude);
+        let mut s = empty(catalogue::spec(AgentKind::Claude));
         apply_claude_auth(
             &mut s,
             &json!({"loggedIn": true, "authMethod": "claude.ai", "email": "a@b.c",
@@ -200,11 +312,11 @@ mod tests {
         assert_eq!(s.plan.as_deref(), Some("team"));
         assert_eq!(s.organization.as_deref(), Some("Team X"));
 
-        let mut c = empty(AgentKind::Codex);
+        let mut c = empty(catalogue::spec(AgentKind::Codex));
         apply_codex_login(&mut c, true, "Logged in using an API key - sk-proj-***abcd");
         assert_eq!(c.auth_method.as_deref(), Some("api_key"));
         assert_eq!(c.account, None, "never echo the key");
-        let mut c = empty(AgentKind::Codex);
+        let mut c = empty(catalogue::spec(AgentKind::Codex));
         apply_codex_login(&mut c, false, "Not logged in");
         assert!(!c.logged_in);
         #[cfg(unix)]
@@ -212,5 +324,42 @@ mod tests {
             shell_quote("/Users/me/My Apps/claude"),
             "'/Users/me/My Apps/claude'"
         );
+    }
+
+    #[test]
+    fn statuses_carry_catalogue_data() {
+        let s = empty(catalogue::spec(AgentKind::Copilot));
+        assert_eq!(s.name, "GitHub Copilot");
+        assert_eq!(s.mode, bantu_protocol::AgentMode::Acp);
+        assert!(s.install_hint.contains("@github/copilot"));
+        assert_eq!(
+            parse_version(AgentKind::Claude, "2.1.0 (Claude Code)").as_deref(),
+            Some("2.1.0")
+        );
+        assert_eq!(
+            parse_version(AgentKind::Kiro, "kiro-cli 1.25.0\n").as_deref(),
+            Some("1.25.0")
+        );
+    }
+
+    #[test]
+    fn credential_files_and_env() {
+        let home = tempfile::tempdir().unwrap();
+        let files = &[".augment/session.json"];
+        assert!(!signed_in_by_files(Some(home.path()), files, &[]));
+        std::fs::create_dir_all(home.path().join(".augment")).unwrap();
+        std::fs::write(home.path().join(".augment/session.json"), "").unwrap();
+        assert!(
+            !signed_in_by_files(Some(home.path()), files, &[]),
+            "an empty file isn't a login"
+        );
+        std::fs::write(home.path().join(".augment/session.json"), "{}").unwrap();
+        assert!(signed_in_by_files(Some(home.path()), files, &[]));
+        assert!(signed_in_by_files(None, &[], &["PATH"]));
+        assert!(!signed_in_by_files(
+            None,
+            &[],
+            &["BANTU_TEST_SURELY_UNSET_VARIABLE"]
+        ));
     }
 }

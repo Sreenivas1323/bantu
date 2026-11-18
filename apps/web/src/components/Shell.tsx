@@ -15,6 +15,7 @@ import { LoopsDialog } from "./LoopsDialog.tsx";
 import { TasksDialog } from "./TasksDialog.tsx";
 import { useAgents } from "../lib/useAgents.ts";
 import { WorkspaceView } from "./WorkspaceView.tsx";
+import { FleetBoard } from "./FleetBoard.tsx";
 
 export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: (reason?: string) => void }) {
   const { state, status, send, loadHistory, client } = useDaemon(conn);
@@ -164,6 +165,11 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
         }}
         onOpenLoops={setLoopsRepoId}
         onOpenTasks={setTasksRepoId}
+        onShowBoard={() => {
+          setSelectedId(null);
+          setNavOpen(false);
+        }}
+        boardSelected={!selected}
         onOpenImport={() => setShowImport(true)}
       />
       <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
@@ -210,6 +216,16 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
             onArchive={async (id) => {
               await run({ type: "workspace.archive", workspace_id: id });
             }}
+          />
+        ) : Object.values(state.workspaces).some((w) => w.state !== "archived") ? (
+          <FleetBoard
+            repos={state.repos}
+            workspaces={Object.values(state.workspaces)}
+            sessionsByWorkspace={sessionsByWorkspace}
+            permissions={Object.values(state.permissions)}
+            inbox={Object.values(state.inbox)}
+            pullRequests={state.pullRequests}
+            onOpen={setSelectedId}
           />
         ) : (
           <EmptyState
