@@ -336,6 +336,9 @@ impl Daemon {
 
         if s.title == DEFAULT_TITLE {
             s.title = title_from(&text);
+            // A setting like any other, so it's saved with the settings; the
+            // progress write below leaves titles alone.
+            s = self.store.update_session_settings(&s).await?;
             if let Err(e) = self.name_branch(&ws, &text).await {
                 tracing::warn!("couldn't rename branch for {}: {e:#}", ws.id);
             }
