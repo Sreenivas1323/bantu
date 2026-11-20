@@ -4,6 +4,7 @@ import type { ChatEntry } from "../../lib/store.ts";
 import { formatCost, formatDuration, formatTokens } from "./format.ts";
 import { Markdown } from "./Markdown.tsx";
 import { ToolCard } from "./ToolCard.tsx";
+import { DotLogo } from "../DotLogo.tsx";
 
 type ToolResult = Extract<ChatItem, { kind: "tool_result" }>;
 
@@ -65,9 +66,10 @@ export function Transcript({
     >
       <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-6 px-5 py-5">
         {turns.length === 0 && !running && (
-          <p className="py-10 text-center text-muted">
-            Describe a task. The agent works on this workspace's branch, so other workspaces aren't affected.
-          </p>
+          <div className="flex flex-col items-center gap-4 py-16 text-center text-muted">
+            <DotLogo size={52} tone="mono" motion="enter" label="" className="text-faint" />
+            <p className="max-w-sm">Describe a task. The agent works on this workspace's branch, so other workspaces aren't affected.</p>
+          </div>
         )}
         {turns.map(([turn, list]) => (
           <section key={turn} className="group/turn flex flex-col gap-2.5" aria-label={`Turn ${turn}`}>

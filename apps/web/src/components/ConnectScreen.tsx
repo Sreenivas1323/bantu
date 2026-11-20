@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { DotLogo } from "./DotLogo.tsx";
 import { checkDaemon, type Connection } from "../lib/connection.ts";
 
 export function ConnectScreen({
@@ -29,6 +30,7 @@ export function ConnectScreen({
     <div className="flex h-full items-center justify-center overflow-y-auto p-6">
       <form onSubmit={(e) => void submit(e)} className="w-full max-w-sm space-y-4 rounded-lg border border-line bg-panel p-6">
         <div>
+          <DotLogo size={48} motion="enter" label="" className="mb-4" />
           <h1 className="text-base font-semibold">Connect to a Bantu daemon</h1>
           <p className="mt-1 text-muted">
             Run <code className="font-mono text-fg">bantud --print-token</code> on the machine running the daemon.
