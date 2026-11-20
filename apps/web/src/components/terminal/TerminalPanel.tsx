@@ -74,7 +74,7 @@ export function TerminalPanel({
           </button>
         )}
       </div>
-      <div className="relative min-h-0 flex-1 bg-[#16181d]">
+      <div className="relative min-h-0 flex-1 bg-bg">
         {terminals.length === 0 ? (
           <div className="flex h-full items-center justify-center text-muted">
             {ready ? (

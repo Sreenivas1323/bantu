@@ -6,17 +6,18 @@
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  --color-bg: oklch(0.17 0.005 260);
-  --color-panel: oklch(0.2 0.006 260);
-  --color-raised: oklch(0.24 0.007 260);
-  --color-line: oklch(0.3 0.008 260);
-  --color-fg: oklch(0.93 0.005 260);
-  --color-muted: oklch(0.68 0.01 260);
-  --color-faint: oklch(0.52 0.01 260);
-  --color-accent: oklch(0.72 0.13 250);
-  --color-ok: oklch(0.74 0.15 150);
-  --color-warn: oklch(0.8 0.14 80);
-  --color-bad: oklch(0.68 0.18 25);
+  /* Light by default; the dark values below take over when the system is dark. */
+  --color-bg: oklch(0.995 0.001 260);
+  --color-panel: oklch(0.975 0.002 260);
+  --color-raised: oklch(0.948 0.003 260);
+  --color-line: oklch(0.912 0.004 260);
+  --color-fg: oklch(0.22 0.01 260);
+  --color-muted: oklch(0.47 0.012 260);
+  --color-faint: oklch(0.6 0.01 260);
+  --color-accent: oklch(0.55 0.16 255);
+  --color-ok: oklch(0.56 0.13 150);
+  --color-warn: oklch(0.62 0.14 65);
+  --color-bad: oklch(0.56 0.19 25);
 
   /* Motion. Enters use a strong ease-out so they read as an instant response;
      exits are quicker and plainer, because attention has already moved on. */
@@ -141,9 +142,25 @@ dialog[open]::backdrop {
   }
 }
 
-/* The app is dark, so its scrollbars and form controls should be too. */
+/* Follows the system. Scrollbars and form controls match. */
 html {
-  color-scheme: dark;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: oklch(0.17 0.005 260);
+    --color-panel: oklch(0.2 0.006 260);
+    --color-raised: oklch(0.245 0.007 260);
+    --color-line: oklch(0.3 0.008 260);
+    --color-fg: oklch(0.93 0.005 260);
+    --color-muted: oklch(0.68 0.01 260);
+    --color-faint: oklch(0.52 0.01 260);
+    --color-accent: oklch(0.72 0.13 250);
+    --color-ok: oklch(0.74 0.15 150);
+    --color-warn: oklch(0.8 0.14 80);
+    --color-bad: oklch(0.68 0.18 25);
+  }
 }
 
 html,
@@ -168,7 +185,7 @@ body {
   background: var(--color-bg);
   color: var(--color-fg);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 13.5px;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -178,12 +195,16 @@ body {
 }
 
 ::selection {
-  background: oklch(0.72 0.13 250 / 0.35);
+  background: color-mix(in oklch, var(--color-accent) 30%, transparent);
 }
 
-:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
+/* In the base layer so a component can replace the ring (e.g. the composer
+   lights its whole frame instead), which an unlayered rule would forbid. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
 }
 
 /* Assistant markdown. Kept here so react-markdown output needs no per-element classes. */
@@ -279,4 +300,16 @@ body {
   border: 0;
   border-top: 1px solid var(--color-line);
   margin: 1em 0;
+}
+
+/* Menus open from their button: a short scale and fade from that corner. */
+.menu-in {
+  animation: menu-in 150ms var(--ease-out-ui) both;
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    scale: 0.96;
+    translate: 0 -4px;
+  }
 }

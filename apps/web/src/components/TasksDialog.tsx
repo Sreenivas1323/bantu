@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { Command, CommandResponse, Org, Repo, Task, Tracker, TrackerKind } from "@bantu/protocol";
 import type { DaemonClient } from "../lib/api.ts";
-import { afterExit } from "../lib/motion.ts";
+import { Dialog } from "./Dialog.tsx";
 
 const KINDS: { kind: TrackerKind; label: string }[] = [
   { kind: "github", label: "GitHub Issues" },
@@ -32,16 +32,12 @@ export function TasksDialog({
   onSelectWorkspace: (id: string) => void;
   onClose: () => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [mineOnly, setMineOnly] = useState(true);
   const [starting, setStarting] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,17 +71,7 @@ export function TasksDialog({
   };
 
   return (
-    <dialog
-      ref={dialog}
-      onClose={() => afterExit(onClose)}
-      className="m-auto max-h-[85dvh] w-[min(720px,calc(100vw-2rem))] rounded-lg border border-line bg-panel p-0 text-fg backdrop:bg-black/60"
-    >
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="font-medium">Tasks for {repo.name}</h2>
-        <button type="button" onClick={() => dialog.current?.close()} className="px-1 text-muted hover:text-fg" aria-label="Close">
-          ✕
-        </button>
-      </div>
+    <Dialog title={`Tasks for ${repo.name}`} width={720} onClose={onClose}>
       <div className="flex flex-col gap-3 p-4">
         {trackers.length === 0 && !adding && (
           <p className="text-[12.5px] text-muted">
@@ -200,7 +186,7 @@ export function TasksDialog({
           </>
         )}
       </div>
-    </dialog>
+    </Dialog>
   );
 }
 
@@ -261,7 +247,7 @@ function ConnectTracker({ repoId, run, onDone }: { repoId: string; run: (command
       </div>
       {kind === "github" && (
         <>
-          <p className="text-[12px] text-faint">Uses this repository's GitHub issues through your `gh` login.</p>
+          <p className="text-[12px] text-faint">Uses this repository's GitHub issues through your <code className="font-mono">gh</code> login.</p>
           <label className={label}>
             Only issues with this label (optional)
             <input value={scope} onChange={(e) => setScope(e.target.value)} placeholder="e.g. agent" className={field} />

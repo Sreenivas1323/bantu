@@ -121,7 +121,7 @@ impl Daemon {
         model: Option<String>,
         permission_mode: Option<PermissionMode>,
     ) -> CmdResult<Session> {
-        let (mut s, agent_id) = self.require_session(session_id).await?;
+        let (mut s, _) = self.require_session(session_id).await?;
         if let Some(t) = title
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty())
@@ -134,8 +134,7 @@ impl Daemon {
         if let Some(p) = permission_mode {
             s.permission_mode = p;
         }
-        self.store.upsert_session(&s, &agent_id).await?;
-        Ok(s)
+        Ok(self.store.update_session_settings(&s).await?)
     }
 
     /// Changes how hard and how fast the agent works. An empty effort goes
@@ -146,7 +145,7 @@ impl Daemon {
         effort: Option<String>,
         fast: Option<bool>,
     ) -> CmdResult<Session> {
-        let (mut s, agent_id) = self.require_session(session_id).await?;
+        let (mut s, _) = self.require_session(session_id).await?;
         if effort.is_none() && fast.is_none() {
             return Ok(s);
         }
@@ -163,8 +162,7 @@ impl Daemon {
         if let Some(fast) = fast {
             s.fast = fast;
         }
-        self.store.upsert_session(&s, &agent_id).await?;
-        Ok(s)
+        Ok(self.store.update_session_settings(&s).await?)
     }
 
     /// Turns the chat's browser on or off, from the next turn.
@@ -173,10 +171,10 @@ impl Daemon {
         session_id: &str,
         browser: Option<bool>,
     ) -> CmdResult<Session> {
-        let (mut s, agent_id) = self.require_session(session_id).await?;
+        let (mut s, _) = self.require_session(session_id).await?;
         if let Some(browser) = browser.filter(|b| *b != s.browser) {
             s.browser = browser;
-            self.store.upsert_session(&s, &agent_id).await?;
+            return Ok(self.store.update_session_settings(&s).await?);
         }
         Ok(s)
     }
@@ -300,8 +298,7 @@ impl Daemon {
         if let Some(r) = running.get_mut(&s.id) {
             r.queue.push_back(text);
             s.queued = r.queue.len() as u32;
-            self.store.upsert_session(&s, &agent_id).await?;
-            return Ok(s);
+            return Ok(self.store.update_session_progress(&s).await?);
         }
         let stop = Arc::new(Notify::new());
         running.insert(
@@ -339,6 +336,9 @@ impl Daemon {
 
         if s.title == DEFAULT_TITLE {
             s.title = title_from(&text);
+            // A setting like any other, so it's saved with the settings; the
+            // progress write below leaves titles alone.
+            s = self.store.update_session_settings(&s).await?;
             if let Err(e) = self.name_branch(&ws, &text).await {
                 tracing::warn!("couldn't rename branch for {}: {e:#}", ws.id);
             }
@@ -366,13 +366,13 @@ impl Daemon {
             None => text,
         };
         s.status = SessionStatus::Running;
-        self.store.upsert_session(&s, &agent_id).await?;
+        let s = self.store.update_session_progress(&s).await?;
         tokio::spawn(self.clone().drive(s.clone(), agent_id, text, stop));
         Ok(s)
     }
 
     pub async fn cancel_session(&self, session_id: &str) -> CmdResult<Session> {
-        let (mut s, agent_id) = self.require_session(session_id).await?;
+        let (mut s, _) = self.require_session(session_id).await?;
         // A turn blocked on a permission prompt must be released to stop.
         self.deny_session_permissions(session_id).await;
         self.drop_session_questions(session_id).await;
@@ -381,7 +381,7 @@ impl Daemon {
             r.queue.clear();
             r.stop.notify_one();
             s.queued = 0;
-            self.store.upsert_session(&s, &agent_id).await?;
+            return Ok(self.store.update_session_progress(&s).await?);
         }
         Ok(s)
     }
@@ -573,14 +573,9 @@ impl Daemon {
     pub async fn recover_sessions(&self) -> anyhow::Result<()> {
         for mut s in self.store.sessions().await? {
             if s.status == SessionStatus::Running || s.queued > 0 {
-                let (_, agent_id) = self
-                    .store
-                    .session(&s.id)
-                    .await?
-                    .context("session vanished")?;
                 s.status = SessionStatus::Idle;
                 s.queued = 0;
-                self.store.upsert_session(&s, &agent_id).await?;
+                self.store.update_session_progress(&s).await?;
                 self.store
                     .session_item(
                         &s,
@@ -607,8 +602,10 @@ impl Daemon {
         let mut auto_fixes = 0;
         loop {
             s.turns += 1;
-            if let Err(e) = self.store.upsert_session(&s, &agent_id).await {
-                tracing::error!("session {}: {e:#}", s.id);
+            // Picks up any settings changed since the last turn, too.
+            match self.store.update_session_progress(&s).await {
+                Ok(fresh) => s = fresh,
+                Err(e) => tracing::error!("session {}: {e:#}", s.id),
             }
             let turn = s.turns;
             let _ = self
@@ -686,7 +683,7 @@ impl Daemon {
                     running.remove(&s.id);
                     s.status = SessionStatus::Idle;
                     s.queued = 0;
-                    if let Err(e) = self.store.upsert_session(&s, &agent_id).await {
+                    if let Err(e) = self.store.update_session_progress(&s).await {
                         tracing::error!("session {}: {e:#}", s.id);
                     }
                     drop(running);

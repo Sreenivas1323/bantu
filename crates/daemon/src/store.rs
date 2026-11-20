@@ -212,6 +212,66 @@ impl Store {
         self.finish(guard, tx, data).await
     }
 
+    /// Saves the settings a person changes (title, model, mode, effort, fast,
+    /// browser) and nothing else, so a turn ending at the same moment can't
+    /// be undone by it, nor undo it. Returns the session as stored.
+    pub async fn update_session_settings(&self, s: &Session) -> Result<Session> {
+        self.update_session_columns(
+            &s.id,
+            sqlx::query(
+                "UPDATE sessions SET title = ?, model = ?, permission_mode = ?, effort = ?,
+                                     fast = ?, browser = ?
+                 WHERE id = ?",
+            )
+            .bind(&s.title)
+            .bind(&s.model)
+            .bind(s.permission_mode.as_str())
+            .bind(&s.effort)
+            .bind(s.fast)
+            .bind(s.browser)
+            .bind(&s.id),
+        )
+        .await
+    }
+
+    /// Saves where a chat's turns stand (status, queue, turns, cost) and
+    /// nothing else, so the turn loop never writes back settings that
+    /// changed while it ran. Returns the session as stored.
+    pub async fn update_session_progress(&self, s: &Session) -> Result<Session> {
+        self.update_session_columns(
+            &s.id,
+            sqlx::query(
+                "UPDATE sessions SET status = ?, queued = ?, turns = ?, total_cost_usd = ?
+                 WHERE id = ?",
+            )
+            .bind(status_str(s.status))
+            .bind(s.queued as i64)
+            .bind(s.turns as i64)
+            .bind(s.total_cost_usd)
+            .bind(&s.id),
+        )
+        .await
+    }
+
+    async fn update_session_columns<'q>(
+        &self,
+        id: &str,
+        update: sqlx::query::Query<'q, Sqlite, sqlx::sqlite::SqliteArguments>,
+    ) -> Result<Session> {
+        let (guard, mut tx) = self.begin().await?;
+        update.execute(&mut *tx).await?;
+        let row = sqlx::query("SELECT * FROM sessions WHERE id = ?")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let session = session_from_row(&row)?;
+        let data = EventData::SessionUpdated {
+            session: session.clone(),
+        };
+        self.finish(guard, tx, data).await?;
+        Ok(session)
+    }
+
     /// Codex only reveals its thread id once the first turn starts.
     pub async fn set_agent_session_id(
         &self,
@@ -1065,5 +1125,64 @@ mod tests {
         store.pool.close().await;
         let reopened = Store::open(&db).await;
         assert!(reopened.is_ok(), "{:?}", reopened.err());
+    }
+
+    /// A turn ending and a person changing the chat's mode at the same moment
+    /// each start from the same copy. Neither write may undo the other.
+    #[tokio::test]
+    async fn settings_and_progress_never_overwrite_each_other() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("bantu.db")).await.unwrap();
+        sqlx::query("INSERT INTO repos (id, name, root_path, default_branch, created_at) VALUES ('r', 'r', '/r', 'main', '')")
+            .execute(&store.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO workspaces (id, repo_id, name, branch, base_ref, path, port_base, state, created_at)
+             VALUES ('w', 'r', 'w', 'b', 'main', '/w', 0, 'ready', '')",
+        )
+        .execute(&store.pool)
+        .await
+        .unwrap();
+        let start = Session {
+            id: "s".into(),
+            workspace_id: "w".into(),
+            agent: AgentKind::Claude,
+            title: "New chat".into(),
+            model: None,
+            permission_mode: PermissionMode::default(),
+            effort: None,
+            fast: false,
+            browser: false,
+            forked_from: None,
+            status: SessionStatus::Running,
+            queued: 0,
+            turns: 1,
+            total_cost_usd: 0.0,
+            created_at: String::new(),
+        };
+        store.upsert_session(&start, "agent").await.unwrap();
+
+        let mut person = start.clone();
+        person.permission_mode = PermissionMode::Plan;
+        person.model = Some("opus".into());
+        let mut turn = start.clone();
+        turn.status = SessionStatus::Idle;
+        turn.total_cost_usd = 0.25;
+
+        store.update_session_settings(&person).await.unwrap();
+        let stored = store.update_session_progress(&turn).await.unwrap();
+        assert_eq!(stored.permission_mode, PermissionMode::Plan);
+        assert_eq!(stored.model.as_deref(), Some("opus"));
+        assert_eq!(stored.status, SessionStatus::Idle);
+        assert_eq!(stored.total_cost_usd, 0.25);
+
+        // And the other way round: a stale settings write leaves the turn's progress.
+        let mut late = start.clone();
+        late.effort = Some("high".into());
+        let stored = store.update_session_settings(&late).await.unwrap();
+        assert_eq!(stored.status, SessionStatus::Idle);
+        assert_eq!(stored.total_cost_usd, 0.25);
+        assert_eq!(stored.effort.as_deref(), Some("high"));
     }
 }
