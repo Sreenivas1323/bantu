@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Command, CommandResponse, ImportPreview, ImportSource, ImportStatus } from "@bantu/protocol";
-import { afterExit } from "../lib/motion.ts";
+import { Dialog } from "./Dialog.tsx";
 
 const LABEL: Record<ImportSource, string> = { conductor: "Conductor", pane: "Pane" };
 
@@ -15,11 +15,9 @@ export function ImportDialog({
   run: (command: Command) => Promise<CommandResponse | null>;
   onClose: () => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [previews, setPreviews] = useState<ImportPreview[] | null>(null);
 
   useEffect(() => {
-    dialog.current?.showModal();
     let cancelled = false;
     void (async () => {
       const found: ImportPreview[] = [];
@@ -37,17 +35,7 @@ export function ImportDialog({
   }, []);
 
   return (
-    <dialog
-      ref={dialog}
-      onClose={() => afterExit(onClose)}
-      className="m-auto max-h-[85dvh] w-[min(560px,calc(100vw-2rem))] rounded-lg border border-line bg-panel p-0 text-fg backdrop:bg-black/60"
-    >
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="font-medium">Import from another tool</h2>
-        <button type="button" onClick={() => dialog.current?.close()} className="px-1 text-muted hover:text-fg" aria-label="Close">
-          ✕
-        </button>
-      </div>
+    <Dialog title="Import from another tool" width={560} onClose={onClose}>
       <div className="flex flex-col gap-3 p-4">
         <p className="text-[12.5px] text-muted">
           Bantu reads the other tool's data without changing it, and works in its existing worktrees. Archiving an imported workspace here only forgets it. Each chat
@@ -91,6 +79,6 @@ export function ImportDialog({
           );
         })}
       </div>
-    </dialog>
+    </Dialog>
   );
 }

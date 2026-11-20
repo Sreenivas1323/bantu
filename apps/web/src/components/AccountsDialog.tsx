@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { AgentKind, AgentStatus, Command, CommandResponse, LoginMethod, Org, Preferences, Repo, Terminal, Tracker } from "@bantu/protocol";
 import type { DaemonClient } from "../lib/api.ts";
 import { accountKind, agentLabel } from "../lib/useAgents.ts";
 import { TerminalView } from "./terminal/TerminalView.tsx";
-import { afterExit } from "../lib/motion.ts";
 import { claudeGuidance, orgTrackers, syncLine } from "../lib/org.ts";
+import { Dialog } from "./Dialog.tsx";
 
 // Agents with more than one way in; the rest get one button for their own flow.
 const METHODS: Partial<Record<AgentKind, { method: LoginMethod; label: string; hint: string }[]>> = {
@@ -54,11 +54,7 @@ export function AccountsDialog({
 }) {
   const [loginId, setLoginId] = useState<string | null>(null);
   const login = loginId ? terminals[loginId] : undefined;
-  const dialog = useRef<HTMLDialogElement>(null);
 
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
   // When the sign-in flow finishes, show the new status.
   useEffect(() => {
     if (login?.exited) void onRefresh();
@@ -71,17 +67,7 @@ export function AccountsDialog({
   };
 
   return (
-    <dialog
-      ref={dialog}
-      onClose={() => afterExit(onClose)}
-      className="m-auto w-[min(720px,calc(100vw-2rem))] rounded-lg border border-line bg-panel p-0 text-fg backdrop:bg-black/60"
-    >
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="font-medium">Agent accounts</h2>
-        <button type="button" onClick={() => dialog.current?.close()} className="px-1 text-muted hover:text-fg" aria-label="Close">
-          ✕
-        </button>
-      </div>
+    <Dialog title="Agent accounts" width={720} onClose={onClose}>
       <div className="flex flex-col gap-3 p-4">
         <p className="text-[12.5px] text-muted">
           Bantu runs the agent CLIs installed on this machine, so chats use whatever account they're signed in to. Your
@@ -105,7 +91,8 @@ export function AccountsDialog({
               </p>
             )}
             {a.installed ? (
-              <div className="mt-2.5 flex flex-wrap gap-1.5 pl-4">
+              <div className="mt-2.5 flex flex-wrap items-center gap-1.5 pl-4">
+                {a.can_sign_in && <span className="mr-0.5 text-[12px] text-faint">{a.logged_in ? "Switch account" : "Sign in with"}</span>}
                 {!a.can_sign_in && <span className="text-[12.5px] text-muted">Reads provider API keys from your environment.</span>}
                 {(a.can_sign_in ? (METHODS[a.agent] ?? [{ method: "subscription" as const, label: a.name, hint: `${a.name}'s own sign-in` }]) : []).map((m) => (
                   <button
@@ -115,7 +102,7 @@ export function AccountsDialog({
                     title={m.hint}
                     className="rounded-md border border-line px-2.5 py-1 text-[12px] text-muted hover:bg-raised hover:text-fg"
                   >
-                    {a.logged_in ? "Switch account:" : "Sign in with"} {m.label}
+                    {m.label}
                   </button>
                 ))}
               </div>
@@ -211,7 +198,7 @@ export function AccountsDialog({
           </section>
         )}
       </div>
-    </dialog>
+    </Dialog>
   );
 }
 

@@ -181,9 +181,13 @@ body {
   background: oklch(0.72 0.13 250 / 0.35);
 }
 
-:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
+/* In the base layer so a component can replace the ring (e.g. the composer
+   lights its whole frame instead), which an unlayered rule would forbid. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
 }
 
 /* Assistant markdown. Kept here so react-markdown output needs no per-element classes. */
@@ -279,4 +283,16 @@ body {
   border: 0;
   border-top: 1px solid var(--color-line);
   margin: 1em 0;
+}
+
+/* Menus open from their button: a short scale and fade from that corner. */
+.menu-in {
+  animation: menu-in 150ms var(--ease-out-ui) both;
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    scale: 0.96;
+    translate: 0 -4px;
+  }
 }

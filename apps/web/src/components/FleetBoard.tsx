@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import type { InboxItem, PermissionRequest, Repo, Session, Workspace, WorkspacePr } from "@bantu/protocol";
 import { LANES, place, type Lane, type Placement } from "../lib/lanes.ts";
 
@@ -50,14 +50,30 @@ export function FleetBoard({
     return out;
   }, [workspaces, sessionsByWorkspace, permissions, inbox, pullRequests]);
 
+  // Lanes with cards get the room; empty ones stay narrow but keep their place,
+  // so a workspace moving across never makes the columns jump around.
+  const columns = LANES.map(({ lane }) => (lanes[lane].length > 0 ? "minmax(13rem,1fr)" : "minmax(9.5rem,0.55fr)")).join(" ");
+  const waiting = lanes.needs_you.length;
+  const summary =
+    waiting > 0
+      ? `${waiting} ${waiting === 1 ? "workspace needs" : "workspaces need"} you`
+      : lanes.working.length > 0
+        ? `${lanes.working.length} ${lanes.working.length === 1 ? "agent" : "agents"} working, nothing waiting on you`
+        : "Nothing is waiting on you";
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-baseline gap-3 border-b border-line px-5 py-3 max-md:px-3">
         <h2 className="font-medium">Board</h2>
-        <p className="text-[12.5px] text-muted">Every workspace, placed by what's happening: approvals, agents at work, CI and reviews.</p>
+        <p className="min-w-0 truncate text-[12.5px] text-muted" title="Every workspace, placed by what's happening: approvals, agents at work, CI and reviews.">
+          {summary}
+        </p>
       </div>
       {/* All five lanes fit side by side on a laptop; phones swipe between them. */}
-      <div className="grid min-h-0 flex-1 grid-flow-col auto-cols-[85%] snap-x gap-3 overflow-x-auto p-3 md:grid-flow-row md:grid-cols-[repeat(5,minmax(11rem,1fr))] md:p-4">
+      <div
+        className="grid min-h-0 flex-1 grid-flow-col auto-cols-[85%] snap-x gap-3 overflow-x-auto p-3 md:grid-flow-row md:grid-cols-(--lanes) md:p-4 md:transition-[grid-template-columns] md:duration-300 md:ease-[var(--ease-out-ui)]"
+        style={{ "--lanes": columns } as CSSProperties}
+      >
         {LANES.map(({ lane, title, empty }) => (
           <section key={lane} aria-label={title} className="flex min-h-0 snap-start flex-col rounded-lg bg-panel/60">
             <h3 className="flex items-center gap-2 px-3 pt-3 pb-2 text-[12px] font-medium uppercase tracking-wide text-muted">
@@ -72,11 +88,13 @@ export function FleetBoard({
                   <button
                     type="button"
                     onClick={() => onOpen(workspace.id)}
-                    className="flex w-full flex-col gap-1 rounded-md border border-line bg-panel px-3 py-2 text-left hover:border-faint"
+                    className={`flex w-full flex-col gap-1 rounded-lg border bg-panel px-3 py-2.5 text-left shadow-sm shadow-black/20 ${
+                      lane === "needs_you" ? "border-warn/35 hover:border-warn/60" : "border-line hover:border-faint"
+                    }`}
                   >
                     <span className="flex items-baseline gap-2">
                       <span className="truncate font-medium">{workspace.name}</span>
-                      <span className="truncate text-[11.5px] text-faint">{repos[workspace.repo_id]?.name}</span>
+                      <span className="ml-auto shrink-0 truncate text-[11.5px] text-faint">{repos[workspace.repo_id]?.name}</span>
                     </span>
                     {title && (
                       <span className="line-clamp-2 text-[12.5px] text-muted" title={title}>

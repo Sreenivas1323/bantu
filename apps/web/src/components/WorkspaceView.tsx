@@ -91,6 +91,15 @@ export function WorkspaceView({
   const drafts = comments.filter((c) => !c.sent_at).length;
   const ready = workspace.state === "ready";
 
+  // A ready workspace says what's happening in it, in the board's words and colours.
+  const activity = !ready
+    ? null
+    : permissions.length > 0 || questions.length > 0
+      ? { label: "needs you", dot: "bg-warn", tone: "border-warn/40 text-warn" }
+      : sessions.some((s) => s.status === "running")
+        ? { label: "working", dot: "bg-accent animate-pulse", tone: "border-accent/40 text-accent" }
+        : null;
+
   const canArchive = workspace.state === "ready" || workspace.state === "failed";
   const childCount = Object.values(allWorkspaces).filter((w) => w.parent_id === workspace.id && w.state !== "archived").length;
   // The Board tab only exists while there are children to show.
@@ -121,10 +130,17 @@ export function WorkspaceView({
           </p>
           <h2 className="mt-0.5 flex items-center gap-2 text-lg font-semibold tracking-tight">
             {workspace.name}
-            <span className="flex items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-xs font-normal text-muted">
-              <StateDot state={workspace.state} decorative />
-              {workspace.state}
-            </span>
+            {activity ? (
+              <span className={`flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-normal ${activity.tone}`}>
+                <span aria-hidden className={`size-2 rounded-full ${activity.dot}`} />
+                {activity.label}
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-xs font-normal text-muted">
+                <StateDot state={workspace.state} decorative />
+                {workspace.state}
+              </span>
+            )}
             {workspace.review_state && (
               <span className={`rounded-full border px-2 py-0.5 text-xs font-normal ${REVIEW[workspace.review_state].tone}`}>{REVIEW[workspace.review_state].label}</span>
             )}

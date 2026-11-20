@@ -16,6 +16,9 @@ const MODELS: Partial<Record<Session["agent"], string[]>> = {
   codex: ["gpt-5-codex", "gpt-5"],
 };
 const CUSTOM = "__custom__";
+
+/** The settings under the message box are quiet until hovered or turned on, so the message stays the focus. */
+const CONTROL = "rounded-md bg-transparent px-1.5 py-1 text-[12px] hover:bg-raised";
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
 export function Composer({
@@ -100,14 +103,12 @@ export function Composer({
             aria-label="Message"
             className="block max-h-60 w-full resize-none bg-transparent px-3 py-2.5 text-[16px] leading-6 placeholder:text-faint focus:outline-none disabled:opacity-50"
           />
-          <div className="flex flex-wrap items-center gap-2 px-2 pb-2">
+          <div className="flex flex-wrap items-center gap-1 px-2 pb-2">
             <select
               value={session.permission_mode}
               onChange={(e) => void onUpdate({ permission_mode: e.target.value as PermissionMode })}
               aria-label="Permission mode"
-              className={`rounded-md border bg-panel px-1.5 py-1 text-[12px] ${
-                session.permission_mode === "bypass_permissions" ? "border-warn/60 text-warn" : "border-line text-muted"
-              }`}
+              className={`${CONTROL} ${session.permission_mode === "bypass_permissions" ? "bg-warn/10 text-warn" : "text-muted hover:text-fg"}`}
             >
               {MODES.map((m) => (
                 <option key={m.value} value={m.value}>
@@ -127,7 +128,7 @@ export function Composer({
                 void onUpdate({ model: next });
               }}
               aria-label="Model"
-              className="rounded-md border border-line bg-panel px-1.5 py-1 text-[12px] text-muted"
+              className={`${CONTROL} text-muted hover:text-fg`}
             >
               <option value="">Default model</option>
               {modelOptions.map((m) => (
@@ -142,7 +143,7 @@ export function Composer({
                 value={session.effort ?? ""}
                 onChange={(e) => void onUpdate({ effort: e.target.value })}
                 aria-label="Effort"
-                className="rounded-md border border-line bg-panel px-1.5 py-1 text-[12px] text-muted"
+                className={`${CONTROL} text-muted hover:text-fg`}
               >
                 <option value="">Default effort</option>
                 {EFFORTS.map((effort) => (
@@ -158,7 +159,7 @@ export function Composer({
                 aria-pressed={session.fast}
                 onClick={() => void onUpdate({ fast: !session.fast })}
                 title="Fast mode: faster output at a higher cost"
-                className={`rounded-md border px-1.5 py-1 text-[12px] ${session.fast ? "border-accent/60 text-accent" : "border-line text-muted hover:text-fg"}`}
+                className={`${CONTROL} ${session.fast ? "bg-accent/12 text-accent" : "text-muted hover:text-fg"}`}
               >
                 Fast
               </button>
@@ -168,7 +169,7 @@ export function Composer({
               aria-pressed={session.browser}
               onClick={() => void onUpdate({ browser: !session.browser })}
               title="Browser: the agent can open and screenshot its own app on this workspace's ports, in a headless browser. Needs npx."
-              className={`rounded-md border px-1.5 py-1 text-[12px] ${session.browser ? "border-accent/60 text-accent" : "border-line text-muted hover:text-fg"}`}
+              className={`${CONTROL} ${session.browser ? "bg-accent/12 text-accent" : "text-muted hover:text-fg"}`}
             >
               Browser
             </button>
@@ -176,7 +177,7 @@ export function Composer({
               type="button"
               onClick={onSaveLoadout}
               title="Save this agent and these settings as a loadout for new chats"
-              className="rounded-md border border-line px-1.5 py-1 text-[12px] text-muted hover:text-fg"
+              className={`${CONTROL} text-muted hover:text-fg`}
             >
               Save…
             </button>

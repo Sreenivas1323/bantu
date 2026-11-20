@@ -87,8 +87,11 @@ export function StatusBar({
         <span className={`size-2 rounded-full ${tone[status]}`} />
         {label[status]}
       </span>
-      {daemonVersion && <span className="max-md:hidden">bantud {daemonVersion}</span>}
-      <span className="tabular-nums max-md:hidden">seq {lastSeq}</span>
+      {daemonVersion && (
+        <span className="text-faint max-md:hidden" title={`Daemon ${daemonVersion}, event ${lastSeq}`}>
+          bantud {daemonVersion}
+        </span>
+      )}
       {agents && <AgentsEntry agents={agents} onOpen={onOpenAccounts} />}
       {error && (
         <button type="button" onClick={onDismissError} className="min-w-0 truncate text-bad" title="Dismiss">

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { Repo, Session, Workspace, WorkspaceSource } from "@bantu/protocol";
 import { NewFromForm } from "./NewFromForm.tsx";
 import { RepoSuggestions } from "./RepoSuggestions.tsx";
@@ -127,42 +127,21 @@ function RepoGroup({
   const [showFrom, setShowFrom] = useState(false);
   return (
     <section className="mt-2">
-      <div className="group flex items-center gap-1 px-2 py-1">
+      <div className="flex items-center gap-0.5 py-1 pr-0.5 pl-2">
         <span
           className="min-w-0 flex-1 truncate text-xs font-medium uppercase tracking-wide text-muted"
           title={repo.github_account ? `${repo.root_path}\nGitHub: ${repo.github_account}` : repo.root_path}
         >
           {repo.name}
         </span>
-        <button
-          type="button"
-          onClick={() => {
-            if (confirm(`Remove ${repo.name} from Bantu? Files on disk are not touched.`)) void onRemoveRepo(repo.id);
-          }}
-          // Out of the layout until wanted, so the repo name gets the room.
-          className="hidden rounded px-1 text-xs text-faint hover:text-bad group-hover:inline-block group-focus-within:inline-block max-md:inline-block"
-          title="Remove repository"
-        >
-          Remove
-        </button>
-        <button
-          type="button"
-          onClick={() => onOpenTasks(repo.id)}
-          className="rounded px-1 py-0.5 text-xs text-muted hover:bg-raised hover:text-fg"
-          title="Tasks from GitHub Issues, Jira and ClickUp"
-        >
-          Tasks
-        </button>
-        <button
-          type="button"
-          onClick={() => onOpenLoops(repo.id)}
-          className="rounded px-1 py-0.5 text-xs text-muted hover:bg-raised hover:text-fg"
-          title="Agents that start on a schedule or from GitHub"
-        >
-          Loops
-        </button>
-        <button
-          type="button"
+        <IconButton label="Tasks from GitHub Issues, Jira and ClickUp" onClick={() => onOpenTasks(repo.id)}>
+          <path d="M3 4.5l1.2 1.2L6.5 3.4M3 10.5l1.2 1.2 2.3-2.3M8.5 4.5H13M8.5 10.5H13" />
+        </IconButton>
+        <IconButton label="Loops: agents that start on a schedule or from GitHub" onClick={() => onOpenLoops(repo.id)}>
+          <path d="M12.5 6.5A4.6 4.6 0 0 0 4 4.8M3.5 9.5A4.6 4.6 0 0 0 12 11.2M4 2.5v2.5h2.5M12 13.5V11H9.5" />
+        </IconButton>
+        <IconButton
+          label="New workspace"
           disabled={busy}
           onClick={async () => {
             setBusy(true);
@@ -172,20 +151,15 @@ function RepoGroup({
               setBusy(false);
             }
           }}
-          className="rounded px-1.5 py-0.5 text-xs text-muted hover:bg-raised hover:text-fg disabled:opacity-40"
-          title="New workspace"
         >
-          + New
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowFrom((v) => !v)}
-          aria-expanded={showFrom}
-          className="rounded px-1 py-0.5 text-xs text-muted hover:bg-raised hover:text-fg"
-          title="New workspace from a branch, pull request or issue"
-        >
-          …
-        </button>
+          <path d="M8 3.5v9M3.5 8h9" />
+        </IconButton>
+        <RepoMenu
+          onNewFrom={() => setShowFrom(true)}
+          onRemove={() => {
+            if (confirm(`Remove ${repo.name} from Bantu? Files on disk are not touched.`)) void onRemoveRepo(repo.id);
+          }}
+        />
       </div>
       {showFrom && (
         <NewFromForm
@@ -314,5 +288,99 @@ function AddRepo({ onAdd, client }: { onAdd: (path: string) => Promise<void>; cl
         </button>
       </div>
     </form>
+  );
+}
+
+/** A small square button for the repo header; the label doubles as its tooltip. */
+function IconButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg disabled:opacity-40 max-md:size-9"
+    >
+      <svg aria-hidden viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        {children}
+      </svg>
+    </button>
+  );
+}
+
+/** The repo's less frequent actions, out of the way until asked for. */
+function RepoMenu({ onNewFrom, onRemove }: { onNewFrom: () => void; onRemove: () => void }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        root.current?.querySelector<HTMLButtonElement>("button")?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", escape);
+    // Keyboard users land on the first item.
+    root.current?.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+  const item = "block w-full rounded px-2.5 py-1.5 text-left hover:bg-raised focus-visible:bg-raised";
+  return (
+    <div ref={root} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="More for this repository"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="More"
+        className={`flex size-7 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg max-md:size-9 ${open ? "bg-raised text-fg" : ""}`}
+      >
+        <svg aria-hidden viewBox="0 0 16 16" className="size-3.5" fill="currentColor">
+          <circle cx="3.5" cy="8" r="1.2" />
+          <circle cx="8" cy="8" r="1.2" />
+          <circle cx="12.5" cy="8" r="1.2" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="menu-in absolute top-full right-0 z-40 mt-1 w-60 origin-top-right rounded-lg border border-line bg-raised/95 p-1 text-[12.5px] shadow-xl shadow-black/40 backdrop-blur-sm"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className={item}
+            onClick={() => {
+              setOpen(false);
+              onNewFrom();
+            }}
+          >
+            New from a branch, PR or issue…
+          </button>
+          <div className="my-1 h-px bg-line" />
+          <button
+            type="button"
+            role="menuitem"
+            className={`${item} text-bad`}
+            onClick={() => {
+              setOpen(false);
+              onRemove();
+            }}
+          >
+            Remove repository…
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

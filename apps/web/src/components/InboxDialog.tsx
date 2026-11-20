@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { Command, CommandResponse, InboxItem, PermissionRequest, Workspace } from "@bantu/protocol";
-import { afterExit } from "../lib/motion.ts";
+import { Dialog } from "./Dialog.tsx";
 
 type Run = (command: Command) => Promise<CommandResponse | null>;
 
@@ -20,10 +20,6 @@ export function InboxDialog({
   onSelectWorkspace: (id: string) => void;
   onClose: () => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
 
   const byDate = <T extends { created_at: string }>(list: T[]) => [...list].sort((a, b) => a.created_at.localeCompare(b.created_at));
   const questions = byDate(inbox.filter((i) => i.kind === "question"));
@@ -37,17 +33,7 @@ export function InboxDialog({
   );
 
   return (
-    <dialog
-      ref={dialog}
-      onClose={() => afterExit(onClose)}
-      className="m-auto max-h-[80dvh] w-[min(560px,calc(100vw-2rem))] rounded-lg border border-line bg-panel p-0 text-fg backdrop:bg-black/60"
-    >
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="font-medium">Inbox</h2>
-        <button type="button" onClick={() => dialog.current?.close()} className="px-1 text-muted hover:text-fg" aria-label="Close">
-          ✕
-        </button>
-      </div>
+    <Dialog title="Inbox" width={560} onClose={onClose}>
       <div className="flex flex-col gap-3 p-4">
         {empty && <p className="py-6 text-center text-muted">Nothing needs you right now.</p>}
         {permissions.map((p) => (
@@ -81,7 +67,7 @@ export function InboxDialog({
           </div>
         ))}
       </div>
-    </dialog>
+    </Dialog>
   );
 }
 

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import type { AgentKind, AgentStatus, Command, CommandResponse, Loop, LoopTrigger, PermissionMode, Repo, Workspace } from "@bantu/protocol";
 import { AGENT_KINDS, agentLabel, isChatAgent } from "../lib/useAgents.ts";
-import { afterExit } from "../lib/motion.ts";
+import { Dialog } from "./Dialog.tsx";
 
 type TriggerKind = LoopTrigger["kind"];
 
@@ -42,24 +42,10 @@ export function LoopsDialog({
   onSelectWorkspace: (id: string) => void;
   onClose: () => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
   const sorted = [...loops].sort((a, b) => a.created_at.localeCompare(b.created_at));
 
   return (
-    <dialog
-      ref={dialog}
-      onClose={() => afterExit(onClose)}
-      className="m-auto max-h-[85dvh] w-[min(640px,calc(100vw-2rem))] rounded-lg border border-line bg-panel p-0 text-fg backdrop:bg-black/60"
-    >
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="font-medium">Loops in {repo.name}</h2>
-        <button type="button" onClick={() => dialog.current?.close()} className="px-1 text-muted hover:text-fg" aria-label="Close">
-          ✕
-        </button>
-      </div>
+    <Dialog title={`Loops in ${repo.name}`} width={640} onClose={onClose}>
       <div className="flex flex-col gap-3 p-4">
         <p className="text-[12.5px] text-muted">
           Each run gets a fresh workspace and spends your agent's quota. A run that changes nothing archives itself. Loops only run while this daemon is on.
@@ -113,7 +99,7 @@ export function LoopsDialog({
         ))}
         <NewLoop repoId={repo.id} agents={agents} run={run} />
       </div>
-    </dialog>
+    </Dialog>
   );
 }
 
