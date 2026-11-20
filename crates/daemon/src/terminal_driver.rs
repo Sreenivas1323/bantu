@@ -141,7 +141,7 @@ impl Daemon {
         let imported = items.len() as u32;
         s.turns += 1;
         let turn = s.turns;
-        if let Err(e) = self.store.upsert_session(&s, &agent_id).await {
+        if let Err(e) = self.store.update_session_progress(&s).await {
             tracing::warn!("couldn't record terminal turn for {session_id}: {e:#}");
             return;
         }
