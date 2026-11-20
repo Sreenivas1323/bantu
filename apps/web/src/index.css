@@ -313,3 +313,38 @@ body {
     translate: 0 -4px;
   }
 }
+
+/* The dot-matrix mark (DotLogo). Each dot carries its resting opacity (--o)
+   and its place in the sequence (--step); the reduced-motion rule above
+   leaves it still and whole. */
+.dot-logo circle {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+/* Assembles once, outward from the pawn's head. */
+.dot-logo-enter circle {
+  animation: dot-in 460ms var(--ease-out-ui) both;
+  animation-delay: calc(var(--step) * 26ms);
+}
+@keyframes dot-in {
+  from {
+    opacity: 0;
+    scale: 0.2;
+  }
+}
+/* A slow light passing diagonally through the dots, for as long as we wait. */
+.dot-logo-loading circle {
+  animation: dot-shimmer 1.8s ease-in-out infinite;
+  animation-delay: calc(var(--step) * 50ms - 1.8s);
+}
+@keyframes dot-shimmer {
+  0%,
+  100% {
+    opacity: calc(var(--o) * 0.45);
+    scale: 0.8;
+  }
+  45% {
+    opacity: calc(var(--o) * 0.4 + 0.6);
+    scale: 1;
+  }
+}

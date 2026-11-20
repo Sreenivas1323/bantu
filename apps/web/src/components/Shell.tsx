@@ -15,6 +15,7 @@ import { TasksDialog } from "./TasksDialog.tsx";
 import { useAgents } from "../lib/useAgents.ts";
 import { WorkspaceView } from "./WorkspaceView.tsx";
 import { FleetBoard } from "./FleetBoard.tsx";
+import { DotLogo, LogoLoader } from "./DotLogo.tsx";
 
 export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: (reason?: string) => void }) {
   const { state, status, send, loadHistory, client } = useDaemon(conn);
@@ -113,6 +114,11 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   useNotifications(state);
 
   const selected = selectedId ? state.workspaces[selectedId] : undefined;
+
+  // Until the first snapshot lands there's nothing true to show, so show that we're on our way.
+  if (state.daemonVersion === null && (status === "connecting" || status === "reconnecting")) {
+    return <LogoLoader label={status === "reconnecting" ? "Can't reach the Bantu daemon yet. Trying again…" : "Connecting to Bantu…"} />;
+  }
 
   return (
     <div className="relative grid h-full grid-cols-1 md:grid-cols-[272px_minmax(0,1fr)]">
@@ -335,6 +341,7 @@ function EmptyState({
   return (
     <div className="flex h-full items-center justify-center p-8">
       <div className="w-full max-w-md text-center">
+        <DotLogo size={64} motion="enter" label="" className="mx-auto mb-5" />
         <h2 className="text-base font-semibold">{hasRepos ? "Pick a workspace" : "Add your first repository"}</h2>
         <p className="mt-1.5 text-muted">
           {hasRepos

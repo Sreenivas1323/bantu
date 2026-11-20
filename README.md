@@ -141,6 +141,7 @@ cross-checked against [Agent Orchestrator](https://github.com/OrchestratorInc/ag
 | AWS template with idle auto-stop (Tailscale) | ✅ (lint-checked, not yet deployed end to end) |
 | Lean Claude turns: global setup skipped by default | ✅ (on `main`) |
 | Installable web app with a phone layout, hostable on its own | ✅ |
+| Three-pane layout (workspaces, chat, changes and terminal) in light and dark, with a dot-matrix mark for loading and empty screens | ✅ |
 | Port forwarding for dev-server previews | ✅ |
 | Web Push alerts from the daemon | ✅ (tested with a local push server, not a real browser service yet) |
 | AWS template with CloudFront and your own domain | ✅ (lint-checked, not yet deployed end to end) |
