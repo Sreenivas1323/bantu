@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { PermissionMode, Session } from "@bantu/protocol";
 import { formatCost } from "./format.ts";
+import { IconButton } from "../Menu.tsx";
 
 const MODES: { value: PermissionMode; label: string }[] = [
   { value: "auto", label: "Auto" },
@@ -86,9 +87,9 @@ export function Composer({
   const modelOptions = model && !known.includes(model) ? [...known, model] : known;
 
   return (
-    <div className="border-t border-line bg-panel/60 px-5 pt-3 pb-3 max-md:px-2 max-md:pt-2 max-md:pb-2">
+    <div className="px-5 pt-1 pb-4 max-md:px-2 max-md:pb-2">
       <div className="mx-auto max-w-3xl">
-        <div className="rounded-lg border border-line bg-bg focus-within:border-accent/60">
+        <div className="rounded-2xl border border-line bg-bg shadow-sm shadow-black/5 transition-[border-color,box-shadow] focus-within:border-faint focus-within:shadow-md focus-within:shadow-black/8">
           <textarea
             ref={ref}
             value={text}
@@ -99,11 +100,11 @@ export function Composer({
               drafts.current.set(session.id, e.target.value);
             }}
             onKeyDown={onKeyDown}
-            placeholder={disabledReason ?? (running ? "Queue a follow-up…" : "Ask the agent to do something…")}
+            placeholder={disabledReason ?? (running ? "Queue a follow-up…" : "What should the agent do?")}
             aria-label="Message"
-            className="block max-h-60 w-full resize-none bg-transparent px-3 py-2.5 text-[16px] leading-6 placeholder:text-faint focus:outline-none disabled:opacity-50"
+            className="block max-h-60 min-h-14 w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[16px] leading-6 placeholder:text-faint focus:outline-none disabled:opacity-50 md:text-[14.5px]"
           />
-          <div className="flex flex-wrap items-center gap-1 px-2 pb-2">
+          <div className="flex flex-wrap items-center gap-0.5 px-2.5 pb-2.5">
             <select
               value={session.permission_mode}
               onChange={(e) => void onUpdate({ permission_mode: e.target.value as PermissionMode })}
@@ -153,60 +154,55 @@ export function Composer({
                 ))}
               </select>
             )}
-            {session.agent === "claude" && (
-              <button
-                type="button"
-                aria-pressed={session.fast}
-                onClick={() => void onUpdate({ fast: !session.fast })}
-                title="Fast mode: faster output at a higher cost"
-                className={`${CONTROL} ${session.fast ? "bg-accent/12 text-accent" : "text-muted hover:text-fg"}`}
-              >
-                Fast
-              </button>
-            )}
-            <button
-              type="button"
-              aria-pressed={session.browser}
-              onClick={() => void onUpdate({ browser: !session.browser })}
-              title="Browser: the agent can open and screenshot its own app on this workspace's ports, in a headless browser. Needs npx."
-              className={`${CONTROL} ${session.browser ? "bg-accent/12 text-accent" : "text-muted hover:text-fg"}`}
-            >
-              Browser
-            </button>
-            <button
-              type="button"
-              onClick={onSaveLoadout}
-              title="Save this agent and these settings as a loadout for new chats"
-              className={`${CONTROL} text-muted hover:text-fg`}
-            >
-              Save…
-            </button>
             {session.queued > 0 && (
-              <span className="rounded-full bg-raised px-2 py-0.5 text-[11.5px] text-muted">{session.queued} queued</span>
+              <span className="ml-1 rounded-full bg-raised px-2 py-0.5 text-[11.5px] text-muted">{session.queued} queued</span>
             )}
-            <span className="ml-auto text-[11.5px] tabular-nums text-faint" title="Total cost of this chat">
+            <span className="flex-1" />
+            {session.agent === "claude" && (
+              <IconButton label={session.fast ? "Fast mode is on: faster output at a higher cost" : "Fast mode: faster output at a higher cost"} pressed={session.fast} onClick={() => void onUpdate({ fast: !session.fast })}>
+                <path d="M8.8 1.8L3.5 9h4l-.8 5.2L12.5 7h-4z" />
+              </IconButton>
+            )}
+            <IconButton
+              label={session.browser ? "Browser is on: the agent can open and screenshot its app" : "Browser: let the agent open and screenshot its own app on this workspace's ports (needs npx)"}
+              pressed={session.browser}
+              onClick={() => void onUpdate({ browser: !session.browser })}
+            >
+              <circle cx="8" cy="8" r="5.8" />
+              <path d="M2.2 8h11.6M8 2.2c1.6 1.6 2.4 3.5 2.4 5.8S9.6 12.2 8 13.8C6.4 12.2 5.6 10.3 5.6 8S6.4 3.8 8 2.2z" />
+            </IconButton>
+            <IconButton label="Save this agent and these settings as a loadout for new chats" onClick={onSaveLoadout}>
+              <path d="M4.5 2.5h7v11L8 11l-3.5 2.5z" />
+            </IconButton>
+            <span className="px-1.5 text-[11.5px] tabular-nums text-faint" title="Total cost of this chat">
               {formatCost(session.total_cost_usd)}
             </span>
             {running && (
               <button
                 type="button"
                 onClick={() => void onStop()}
-                className="rounded-md border border-line px-2.5 py-1 text-[12px] text-muted hover:border-bad/60 hover:text-bad"
+                aria-label="Stop the agent"
+                title="Stop the agent"
+                className="flex size-8 items-center justify-center rounded-full border border-line text-muted hover:border-bad/60 hover:text-bad"
               >
-                Stop
+                <span aria-hidden className="size-2.5 rounded-[2px] bg-current" />
               </button>
             )}
             <button
               type="button"
               onClick={() => void submit()}
               disabled={disabled || sending || !text.trim()}
-              className="pressable rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-bg disabled:opacity-40"
+              aria-label={running ? "Queue this message" : "Send"}
+              title={running ? "Queue: sent when the agent finishes this turn" : "Send"}
+              className="pressable ml-1 flex size-8 items-center justify-center rounded-full bg-fg text-bg hover:bg-fg/85 disabled:bg-raised disabled:text-faint"
             >
-              {running ? "Queue" : "Send"}
+              <svg aria-hidden viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 13V3.5M3.8 7.5L8 3.3l4.2 4.2" />
+              </svg>
             </button>
           </div>
         </div>
-        <p className="mt-1.5 text-[11px] text-faint max-md:hidden">
+        <p className="mt-1.5 px-1 text-[11px] text-faint max-md:hidden">
           Enter to send · Shift+Enter for a new line
           {session.permission_mode === "bypass_permissions" && (
             <span className="text-warn"> · Bypass lets the agent run anything without asking</span>

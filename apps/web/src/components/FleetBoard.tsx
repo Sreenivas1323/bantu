@@ -63,7 +63,7 @@ export function FleetBoard({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-baseline gap-3 border-b border-line px-5 py-3 max-md:px-3">
+      <div className="flex min-h-12 items-center gap-3 border-b border-line px-5 max-md:px-3">
         <h2 className="font-medium">Board</h2>
         <p className="min-w-0 truncate text-[12.5px] text-muted" title="Every workspace, placed by what's happening: approvals, agents at work, CI and reviews.">
           {summary}

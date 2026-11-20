@@ -149,7 +149,7 @@ export function ChatPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {(sessions.length > 1 || ready) && (
-        <div className="scroll-quiet flex items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-line px-3 max-md:px-1" role="tablist" aria-label="Chats">
+        <div className="scroll-quiet flex min-h-10 items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-line px-3 text-[13px] max-md:px-1" role="tablist" aria-label="Chats">
           {sessions.length > 1 &&
             sessions.map((s) => (
               <button
@@ -158,8 +158,8 @@ export function ChatPanel({
                 role="tab"
                 aria-selected={s.id === active.id}
                 onClick={() => setActiveId(s.id)}
-                className={`flex max-w-48 shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-1.5 ${
-                  s.id === active.id ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"
+                className={`-mb-px flex max-w-52 shrink-0 items-center gap-1.5 self-stretch border-b-2 px-2.5 ${
+                  s.id === active.id ? "border-fg text-fg" : "border-transparent text-muted hover:text-fg"
                 }`}
                 title={s.title}
               >

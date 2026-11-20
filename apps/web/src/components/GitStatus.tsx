@@ -76,7 +76,7 @@ export function GitStatus({
               ? "Ask the agent to commit, push and open a pull request"
               : (createPrBlocked ?? "Needs a ready workspace with an idle chat")
           }
-          className="rounded-md border border-line px-2.5 py-1 text-muted hover:bg-raised hover:text-fg disabled:opacity-40"
+          className="pressable rounded-md bg-fg px-3 py-1 font-medium text-bg hover:bg-fg/85 disabled:bg-raised disabled:text-faint"
         >
           Create PR
         </button>

@@ -46,9 +46,11 @@ export function ChangesPanel({
   const totals = diff.files.reduce((t, f) => ({ add: t.add + f.additions, del: t.del + f.deletions }), { add: 0, del: 0 });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // Sized by its own width: the file list only gets a column when there's room,
+    // so it reads well both full-width and in the side panel.
+    <div className="@container flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1">
-        <nav aria-label="Changed files" className="w-60 shrink-0 overflow-y-auto border-r border-line py-2">
+        <nav aria-label="Changed files" className={`w-60 shrink-0 overflow-y-auto border-r border-line py-2 ${diff.files.length === 0 ? "hidden" : "hidden @3xl:block"}`}>
           <p className="px-3 pb-1.5 text-[11.5px] text-muted tabular-nums">
             {diff.files.length} {diff.files.length === 1 ? "file" : "files"} · <span className="text-ok">+{totals.add}</span>{" "}
             <span className="text-bad">−{totals.del}</span>
@@ -79,7 +81,13 @@ export function ChangesPanel({
             </a>
           ))}
         </nav>
-        <div className="min-w-0 flex-1 overflow-y-auto p-4">
+        <div className="min-w-0 flex-1 overflow-y-auto p-4 @max-3xl:p-3">
+          {diff.files.length > 0 && (
+            <p className="pb-2 text-[12px] text-muted tabular-nums @3xl:hidden">
+              {diff.files.length} {diff.files.length === 1 ? "file" : "files"} changed · <span className="text-ok">+{totals.add}</span>{" "}
+              <span className="text-bad">−{totals.del}</span>
+            </p>
+          )}
           {diff.files.length === 0 ? (
             <p className="py-10 text-center text-muted">
               No changes yet compared with <span className="font-mono">{diff.base_ref}</span>.

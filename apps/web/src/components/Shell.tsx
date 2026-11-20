@@ -5,7 +5,6 @@ import { useDaemon } from "../lib/useDaemon.ts";
 import { conflictsFor } from "../lib/store.ts";
 import { useNotifications } from "../lib/useNotifications.ts";
 import { Sidebar } from "./Sidebar.tsx";
-import { StatusBar } from "./StatusBar.tsx";
 import { RepoSuggestions } from "./RepoSuggestions.tsx";
 import type { DaemonClient } from "../lib/api.ts";
 import { AccountsDialog } from "./AccountsDialog.tsx";
@@ -116,7 +115,7 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
   const selected = selectedId ? state.workspaces[selectedId] : undefined;
 
   return (
-    <div className="relative grid h-full grid-cols-1 grid-rows-[1fr_auto] md:grid-cols-[264px_minmax(0,1fr)]">
+    <div className="relative grid h-full grid-cols-1 md:grid-cols-[272px_minmax(0,1fr)]">
       {status === "signin" && (
         <div role="alert" className="enter-rise absolute inset-x-0 top-0 z-40 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warn/40 bg-panel px-4 py-2 text-center">
           <span>Your sign-in for this daemon's address has expired, so Bantu can't reach it.</span>
@@ -171,6 +170,17 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
         }}
         boardSelected={!selected}
         onOpenImport={() => setShowImport(true)}
+        inboxCount={Object.keys(state.inbox).length + Object.keys(state.permissions).length}
+        onOpenInbox={() => {
+          setShowInbox(true);
+          setNavOpen(false);
+        }}
+        status={status}
+        agents={agents}
+        onOpenAccounts={() => setShowAccounts(true)}
+        onDisconnect={() => onDisconnect()}
+        daemonVersion={state.daemonVersion}
+        onError={setError}
       />
       <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
         <div className="flex items-center gap-2 border-b border-line bg-panel px-2 py-1.5 md:hidden">
@@ -298,20 +308,17 @@ export function Shell({ conn, onDisconnect }: { conn: Connection; onDisconnect: 
           onClose={() => setShowInbox(false)}
         />
       )}
-      <StatusBar
-        inboxCount={Object.keys(state.inbox).length + Object.keys(state.permissions).length}
-        onOpenInbox={() => setShowInbox(true)}
-        client={client}
-        onError={setError}
-        agents={agents}
-        onOpenAccounts={() => setShowAccounts(true)}
-        status={status}
-        lastSeq={state.lastSeq}
-        daemonVersion={state.daemonVersion}
-        error={error}
-        onDismissError={() => setError(null)}
-        onDisconnect={() => onDisconnect()}
-      />
+      {error && (
+        <div role="alert" className="enter-rise absolute right-4 bottom-4 z-50 flex max-w-[min(28rem,calc(100vw-2rem))] items-start gap-3 rounded-lg border border-bad/40 bg-panel px-3.5 py-2.5 shadow-xl shadow-black/15">
+          <span aria-hidden className="mt-1.5 size-2 shrink-0 rounded-full bg-bad" />
+          <p className="min-w-0 flex-1 break-words">{error}</p>
+          <button type="button" onClick={() => setError(null)} aria-label="Dismiss" className="-my-1 -mr-1.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg">
+            <svg aria-hidden viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
