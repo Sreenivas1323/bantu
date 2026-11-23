@@ -1,5 +1,35 @@
 [
   {
+    "id": "0.98.0",
+    "title": "See where your usage goes",
+    "url": "https://www.conductor.build/changelog/0.98.0-see-where-your-usage-goes",
+    "date": "2026-11-20"
+  },
+  {
+    "id": "0.97.0",
+    "title": "First class artifacts",
+    "url": "https://www.conductor.build/changelog/0.97.0-first-class-artifacts",
+    "date": "2026-11-19"
+  },
+  {
+    "id": "0.96.0",
+    "title": "Know what you're spending",
+    "url": "https://www.conductor.build/changelog/0.96.0-know-what-you-re-spending",
+    "date": "2026-11-18"
+  },
+  {
+    "id": "0.95.1",
+    "title": "GPT-6.2 Sol and GPT-6.2 Astra",
+    "url": "https://www.conductor.build/changelog/0.95.1-gpt-6-2-sol-and-gpt-6-2-astra",
+    "date": "2026-11-17"
+  },
+  {
+    "id": "0.95.0",
+    "title": "Agents that manage your local workspaces",
+    "url": "https://www.conductor.build/changelog/0.95.0-agents-that-manage-your-local-workspaces",
+    "date": "2026-11-16"
+  },
+  {
     "id": "0.94.2",
     "title": "Conductor is back",
     "url": "https://www.conductor.build/changelog/0.94.2-conductor-is-back",
