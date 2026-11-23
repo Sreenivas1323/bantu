@@ -85,7 +85,7 @@ Feature-by-feature status against Conductor and Pane lives in
 - [x] Cloudflare: a setup script for Tunnel and Access, and the daemon verifies Access sign-ins itself ([CLOUDFLARE.md](CLOUDFLARE.md)); burst runs on Cloudflare Containers with the API key held in the Worker ([CLOUDFLARE-BURST.md](CLOUDFLARE-BURST.md)) — neither has run against a real Cloudflare account yet
 - [x] Vercel Sandbox burst runner ([VERCEL.md](VERCEL.md)): one microVM per task, with the API key held at the firewall and work returned as local branches — tested with a local stand-in for the VM, not yet run against Vercel
 - [x] Import from Conductor and Pane: active workspaces adopted in place (archiving only forgets them), chats with their recent history, read-only on the source
-- [ ] Windows support: the daemon compiles for Windows, uses PowerShell or `$SHELL`, finds npm-installed agents, and CI builds it on `windows-latest` without blocking. Still needed: running it on a real Windows machine, a background service, releases and the desktop app
+- [ ] Windows support: the daemon compiles for Windows, uses PowerShell or `$SHELL`, finds npm-installed agents, and CI builds it on `windows-latest` without blocking. Releases now include a Windows installer for the desktop app and a `bantud` zip (0.1.0-alpha.8). Still needed: running it on a real Windows machine, a background service and code signing
 
 ## M5 — Teams
 

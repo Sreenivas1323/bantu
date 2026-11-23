@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "bantu-git"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "tempfile",
  "thiserror 2.0.21",
@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "bantu-protocol"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "serde",
  "serde_json",
@@ -213,7 +213,7 @@ dependencies = [
 
 [[package]]
 name = "bantud"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "aes-gcm",
  "anyhow",

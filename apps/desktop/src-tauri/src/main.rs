@@ -164,6 +164,15 @@ fn spawn_daemon(bin: &Path, home: &Path, addr: &str) -> Result<(), String> {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
+    #[cfg(windows)]
+    {
+        // No console window for the daemon (its hidden console is inherited by
+        // git, shells and agents), and its own group so Ctrl-C here doesn't reach it.
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    }
     cmd.spawn()
         .map(drop)
         .map_err(|e| format!("Couldn't start {}: {e}", bin.display()))
