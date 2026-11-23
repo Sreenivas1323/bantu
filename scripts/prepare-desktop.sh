@@ -5,8 +5,10 @@
 set -eu
 cd "$(dirname "$0")/.."
 target="${1:-$(rustc -vV | sed -n 's/^host: //p')}"
+ext=""
+case "$target" in *-windows-*) ext=".exe" ;; esac
 bun run build:web
 cargo build --release --locked -p bantud --target "$target"
 mkdir -p apps/desktop/src-tauri/binaries
-cp "target/$target/release/bantud" "apps/desktop/src-tauri/binaries/bantud-$target"
+cp "target/$target/release/bantud$ext" "apps/desktop/src-tauri/binaries/bantud-$target$ext"
 echo "Prepared bantud for $target"

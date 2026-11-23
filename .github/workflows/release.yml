@@ -37,6 +37,8 @@ jobs:
           # binaries also run on Amazon Linux 2023, Ubuntu 20.04, etc.
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest, container: "rust:1-bullseye" }
           - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, container: "rust:1-bullseye" }
+          # Windows is a preview: built and packaged, not yet run on a real machine.
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
     steps:
@@ -63,22 +65,37 @@ jobs:
         run: |
           name=bantu-${{ matrix.target }}
           mkdir -p "$name/bin" "$name/share/bantu"
-          cp target/${{ matrix.target }}/release/bantud "$name/bin/"
-          cp -R web "$name/share/bantu/web"
           cp LICENSE README.md "$name/"
-          tar -czf "$name.tar.gz" "$name"
+          cp -R web "$name/share/bantu/web"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp target/${{ matrix.target }}/release/bantud.exe "$name/bin/"
+            7z a -tzip "$name.zip" "$name" > /dev/null
+          else
+            cp target/${{ matrix.target }}/release/bantud "$name/bin/"
+            tar -czf "$name.tar.gz" "$name"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: bantu-${{ matrix.target }}
-          path: bantu-${{ matrix.target }}.tar.gz
+          path: |
+            bantu-${{ matrix.target }}.tar.gz
+            bantu-${{ matrix.target }}.zip
+          if-no-files-found: error
 
   desktop:
     name: Desktop app (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
-        target: [aarch64-apple-darwin, x86_64-apple-darwin]
-    runs-on: macos-latest
+        include:
+          - { target: aarch64-apple-darwin, os: macos-latest, bundles: "app,dmg" }
+          - { target: x86_64-apple-darwin, os: macos-latest, bundles: "app,dmg" }
+          # NSIS, not MSI: WiX rejects pre-release versions like 0.1.0-alpha.8.
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, bundles: nsis }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - name: Tag matches Cargo version
@@ -101,6 +118,7 @@ jobs:
       # Sign with the Developer ID and notarize when the secrets exist
       # (see docs/RELEASING.md); otherwise Tauri ad-hoc signs the app.
       - name: Signing setup
+        if: runner.os == 'macOS'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -131,16 +149,23 @@ jobs:
               echo "APPLE_API_KEY_PATH=$key"
             } >> "$GITHUB_ENV"
           fi
-      - run: bun x tauri build --target ${{ matrix.target }} --bundles app,dmg
+      - run: bun x tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
         working-directory: apps/desktop
       - name: Collect
         run: |
-          arch=$([ "${{ matrix.target }}" = aarch64-apple-darwin ] && echo apple-silicon || echo intel)
-          cp apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg "Bantu-macOS-$arch.dmg"
+          bundle=apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin) cp "$bundle"/dmg/*.dmg Bantu-macOS-apple-silicon.dmg ;;
+            x86_64-apple-darwin) cp "$bundle"/dmg/*.dmg Bantu-macOS-intel.dmg ;;
+            x86_64-pc-windows-msvc) cp "$bundle"/nsis/*-setup.exe Bantu-Windows-x64-setup.exe ;;
+          esac
       - uses: actions/upload-artifact@v4
         with:
           name: bantu-desktop-${{ matrix.target }}
-          path: Bantu-macOS-*.dmg
+          path: |
+            Bantu-macOS-*.dmg
+            Bantu-Windows-*.exe
+          if-no-files-found: error
 
   publish:
     name: Publish
@@ -158,14 +183,14 @@ jobs:
           merge-multiple: true
       - run: ls -la
       - name: Checksums
-        run: sha256sum bantu-*.tar.gz Bantu-macOS-*.dmg > SHA256SUMS
+        run: sha256sum bantu-*.tar.gz bantu-*.zip Bantu-macOS-*.dmg Bantu-Windows-*.exe > SHA256SUMS
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Tags with a suffix (v0.1.0-alpha.1) are marked as pre-releases.
           pre=""; case "${GITHUB_REF_NAME}" in *-*) pre="--prerelease" ;; esac
-          gh release create "${GITHUB_REF_NAME}" bantu-*.tar.gz Bantu-macOS-*.dmg SHA256SUMS $pre \
+          gh release create "${GITHUB_REF_NAME}" bantu-*.tar.gz bantu-*.zip Bantu-macOS-*.dmg Bantu-Windows-*.exe SHA256SUMS $pre \
             --repo "${GITHUB_REPOSITORY}" --title "Bantu ${GITHUB_REF_NAME}" --generate-notes
       # Launch Stack links need the templates in a public bucket (docs/RELEASING.md).
       - uses: aws-actions/configure-aws-credentials@v4

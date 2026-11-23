@@ -27,6 +27,14 @@ signed in with your own account. Bantu never sees your credentials; it runs your
 starts it when you open the app. It isn't notarized yet, so after dragging it to
 Applications run `xattr -dr com.apple.quarantine /Applications/Bantu.app` once.
 
+**Windows (preview):** download `Bantu-Windows-x64-setup.exe` from
+[Releases](https://github.com/Sreenivas1323/bantu/releases), or `bantu-x86_64-pc-windows-msvc.zip`
+for the daemon alone (`bin\bantud.exe`). It isn't code-signed yet, so SmartScreen will warn:
+choose **More info → Run anyway**. Agents run in PowerShell, or in Git Bash if `SHELL` is set.
+There's no background service on Windows yet; the app starts the daemon when you open it.
+This is the first Windows build and hasn't been tried on a real machine, so please
+[report](https://github.com/Sreenivas1323/bantu/issues) what breaks.
+
 `bantud url --open` opens the app again later; `bantud service uninstall` removes the service.
 To use it from your phone or another machine, see [docs/REMOTE.md](docs/REMOTE.md). To run it
 on your own AWS account for ≈ $7/month with idle auto-stop, see [docs/AWS.md](docs/AWS.md).
@@ -162,7 +170,7 @@ cross-checked against [Agent Orchestrator](https://github.com/OrchestratorInc/ag
 | Loops: agents on a schedule or from GitHub labels | ✅ (GitHub polling not yet run against a real repo) |
 | Import workspaces and chats from Conductor and Pane | ✅ |
 | Burst runs on Vercel Sandbox or Cloudflare Containers | ✅ (not yet run against either service) |
-| Windows | Preview: builds in CI, not yet tried on a real machine |
+| Windows | Preview: installer and `bantud` zip in each release, not yet tried on a real machine |
 
 ## Your own cloud, at cost
 

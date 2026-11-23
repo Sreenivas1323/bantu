@@ -5,8 +5,9 @@
 2. Commit, wait for CI, then tag: `git tag -a v0.1.0 -m "Bantu 0.1.0" && git push origin v0.1.0`.
    Tags with a suffix (`v0.1.0-alpha.4`) become pre-releases.
 
-The release workflow builds `bantud` for macOS and Linux, plus the Mac app (DMG), and
-publishes them with `SHA256SUMS`.
+The release workflow builds `bantud` for macOS, Linux and Windows (a zip on Windows), plus
+the Mac app (DMG) and the Windows app (an NSIS installer, unsigned), and publishes them with
+`SHA256SUMS`. Windows uses NSIS rather than MSI because WiX rejects versions like `0.1.0-alpha.8`.
 
 ## Signing and notarizing the Mac app
 
