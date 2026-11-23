@@ -1,0 +1,1134 @@
+/* The home page.
+
+   The brand is one blue family, square corners, small controls and pictures
+   on the mark's dot grid. The dots live in one place: the landscape the
+   product stands in front of. Type is a single
+   grotesque, set large and tight for headings and plain for everything else. */
+
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("./assets/fonts/instrument-sans.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+
+  /* Every colour is a step of one hue. */
+  --paper: light-dark(oklch(0.978 0.008 258), oklch(0.16 0.038 262));
+  --sheet: light-dark(oklch(1 0 0), oklch(0.195 0.04 262));
+  --wash: light-dark(oklch(0.955 0.018 258), oklch(0.24 0.05 262));
+  --ink: light-dark(oklch(0.22 0.07 262), oklch(0.95 0.015 258));
+  --ink-2: light-dark(oklch(0.44 0.05 262), oklch(0.76 0.035 258));
+  --ink-3: light-dark(oklch(0.5 0.045 262), oklch(0.66 0.04 258));
+  --rule: light-dark(oklch(0.895 0.022 258), oklch(0.3 0.05 262));
+  --rule-strong: light-dark(oklch(0.8 0.035 258), oklch(0.4 0.055 262));
+  --blue: light-dark(oklch(0.5 0.19 262), oklch(0.74 0.13 258));
+  --on-blue: light-dark(oklch(0.99 0.004 258), oklch(0.17 0.04 262));
+
+  /* The stage is night in both schemes: the one dark surface on a light page. */
+  --night: light-dark(oklch(0.2 0.075 264), oklch(0.215 0.06 264));
+  --night-rule: light-dark(oklch(0.2 0.075 264), oklch(0.32 0.06 264));
+  --on-night: oklch(0.95 0.015 258);
+  --on-night-2: oklch(0.78 0.04 258);
+  --dot-ink: oklch(0.7 0.13 258);
+  --dot-sun: oklch(0.9 0.06 258);
+
+  --sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+  /* A stronger ease-out for the one large thing that moves, and a firm one for icon swaps. */
+  --ease-out-quint: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-swap: cubic-bezier(0.25, 0.1, 0, 1);
+  --measure: 34rem;
+  --page: min(72rem, 100% - 2.5rem);
+  --gap: clamp(3.5rem, 8vw, 6.5rem);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 16px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+}
+
+body {
+  margin: 0;
+}
+
+::selection {
+  background: color-mix(in oklch, var(--blue) 26%, transparent);
+}
+
+a {
+  color: inherit;
+  text-decoration-color: color-mix(in oklch, currentColor 35%, transparent);
+  text-underline-offset: 0.2em;
+  transition: text-decoration-color 150ms ease, color 150ms ease;
+  @media (hover: hover) {
+    &:hover {
+      color: var(--blue);
+      text-decoration-color: currentColor;
+    }
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+dl,
+figure,
+pre {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+p,
+li {
+  text-wrap: pretty;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 20;
+  padding: 0.5rem 0.75rem;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 0.875rem;
+  &:focus {
+    top: 0.75rem;
+  }
+}
+
+.wrap {
+  width: var(--page);
+  margin-inline: auto;
+}
+
+/* Every grid on the page starts as one column that may shrink below its
+   content, so a long command or a line of code scrolls inside its own box
+   and never widens the page. Wider layouts are set further down. */
+.hero-head,
+.agents,
+.section-head,
+.chapter,
+.chapter-text,
+.source,
+.closing-text {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Small type under and beside things: caveats, captions, sources. */
+.fine {
+  max-width: var(--measure);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--ink-3);
+  &.wide {
+    max-width: 44rem;
+    font-size: 0.875rem;
+    color: var(--ink-2);
+  }
+}
+
+/* ---- Top bar --------------------------------------------------------------- */
+
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in oklch, var(--paper) 88%, transparent);
+  backdrop-filter: saturate(1.4) blur(12px);
+  border-bottom: 1px solid var(--rule);
+}
+
+.bar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  height: 3.5rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+  & img {
+    width: 22px;
+    height: auto;
+  }
+  @media (hover: hover) {
+    &:hover {
+      color: var(--ink);
+    }
+  }
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.nav-link {
+  padding: 0.35rem 0.6rem;
+  color: var(--ink-2);
+  text-decoration: none;
+  @media (hover: hover) {
+    &:hover {
+      color: var(--ink);
+    }
+  }
+}
+
+.nav .btn {
+  margin-left: 0.35rem;
+}
+
+
+/* ---- Buttons --------------------------------------------------------------- */
+
+/* Small and square. The primary one is the only solid blue thing on a screen. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.875rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--rule-strong);
+  background: var(--sheet);
+  color: var(--ink);
+  font: 500 0.8125rem/1 var(--sans);
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, scale 150ms ease-out;
+  @media (hover: hover) {
+    &:hover {
+      border-color: var(--ink);
+      color: var(--ink);
+    }
+  }
+  &:active {
+    scale: 0.96;
+  }
+}
+
+.btn-lg {
+  height: 2.25rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+}
+
+.btn-primary {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--on-blue);
+  @media (hover: hover) {
+    &:hover {
+      border-color: var(--ink);
+      background: var(--ink);
+      color: var(--paper);
+    }
+  }
+}
+
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* The Mac label unless the head script found Windows. */
+.os-windows,
+:root[data-os="windows"] .os-mac {
+  display: none;
+}
+:root[data-os="windows"] .os-windows {
+  display: inline;
+}
+
+/* ---- Install command ------------------------------------------------------- */
+
+.cmd {
+  display: flex;
+  align-items: stretch;
+  max-width: 100%;
+  border: 1px solid var(--rule-strong);
+  background: var(--sheet);
+  & code {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem 0.8rem;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+    font: 0.8125rem/1.5 var(--mono);
+    color: var(--ink);
+  }
+  & code::before {
+    content: "$ ";
+    color: var(--blue);
+    user-select: none;
+  }
+}
+
+/* Both icons are always there; the swap is a cross-fade, so it runs the same
+   way in both directions. */
+.copy {
+  position: relative;
+  flex: none;
+  width: 2.4rem;
+  border: 0;
+  border-left: 1px solid var(--rule-strong);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+  @media (hover: hover) {
+    &:hover {
+      background: var(--wash);
+      color: var(--ink);
+    }
+  }
+  & svg {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: square;
+    /* Both icons are always there, one over the other. A deep scale and a
+       touch of blur make the change read as a swap, not a flicker. */
+    transition:
+      opacity 300ms var(--ease-swap),
+      scale 300ms var(--ease-swap),
+      filter 300ms var(--ease-swap);
+  }
+  & .i-done {
+    opacity: 0;
+    scale: 0.3;
+    filter: blur(3px);
+    stroke: var(--blue);
+    stroke-width: 2;
+  }
+  &[data-done] .i-copy {
+    opacity: 0;
+    scale: 0.3;
+    filter: blur(3px);
+  }
+  &[data-done] .i-done {
+    opacity: 1;
+    scale: 1;
+    filter: none;
+  }
+}
+
+/* ---- Hero ------------------------------------------------------------------ */
+
+.hero {
+  padding-top: clamp(2.5rem, 6vw, 4.5rem);
+}
+
+.hero-head {
+  display: grid;
+  gap: 1.75rem clamp(2rem, 5vw, 4.5rem);
+  align-items: end;
+  @media (min-width: 60rem) {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  }
+}
+
+.hero h1 {
+  max-width: 15ch;
+  font-size: clamp(2.5rem, 5.2vw, 4rem);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+}
+
+.hero-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.1rem;
+  justify-items: start;
+  & .cmd {
+    width: 100%;
+  }
+}
+
+.lede {
+  max-width: var(--measure);
+  font-size: 1.125rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* The stage: a dot-matrix landscape at night, with the product standing in
+   front of it. The window starts part-way down so the peaks and the sun
+   stand clear of it. */
+.stage {
+  position: relative;
+  margin-top: clamp(2.25rem, 5vw, 3.5rem);
+  padding: clamp(4.5rem, 13vw, 10.5rem) clamp(0.75rem, 4.5vw, 4rem) 0;
+  border: 1px solid var(--night-rule);
+  background: var(--night);
+  overflow: hidden;
+  & .dots {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  & .window {
+    position: relative;
+    display: block;
+    border: 1px solid oklch(0.45 0.06 262 / 0.6);
+    border-bottom: 0;
+    box-shadow:
+      0 0 0 1px oklch(0.1 0.04 264 / 0.5),
+      0 24px 60px -12px oklch(0.08 0.05 264 / 0.75);
+  }
+  & figcaption {
+    position: relative;
+    margin: 0 calc(-1 * clamp(0.75rem, 4.5vw, 4rem));
+    padding: 0.6rem 1rem;
+    border-top: 1px solid oklch(0.45 0.06 262 / 0.6);
+    background: var(--night);
+    font-size: 0.8125rem;
+    color: var(--on-night-2);
+  }
+}
+
+/* A picture on the dot grid (scene.ts). Until the script has drawn it, and in
+   a browser without scripts, a plain grid of dots holds its place. */
+.dots {
+  display: block;
+  background: radial-gradient(circle, color-mix(in oklch, var(--dot-ink) 24%, transparent) 1.2px, transparent 1.7px) 0 0 / 8px 8px;
+  &[data-ready] {
+    background: none;
+  }
+}
+
+/* ---- The agents it drives --------------------------------------------------- */
+
+.agents {
+  display: grid;
+  gap: 1rem;
+  padding: clamp(2rem, 5vw, 3rem) 0 0;
+}
+
+.agents-title {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.agents-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  & li {
+    padding: 0.3rem 0.65rem;
+    border: 1px solid var(--rule);
+    background: var(--sheet);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+}
+
+/* ---- Sections --------------------------------------------------------------- */
+
+.section {
+  margin-top: var(--gap);
+  padding-top: clamp(2rem, 4vw, 3rem);
+  border-top: 1px solid var(--rule);
+}
+
+.section-head {
+  display: grid;
+  gap: 0.9rem;
+  max-width: 44rem;
+  & h2 {
+    font-size: clamp(1.75rem, 3.2vw, 2.5rem);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+  }
+  & p {
+    max-width: var(--measure);
+    font-size: 1.0625rem;
+    color: var(--ink-2);
+  }
+}
+
+/* ---- Steps ------------------------------------------------------------------ */
+
+/* A sequence, so it is numbered. */
+.steps {
+  display: grid;
+  margin-top: clamp(1.75rem, 4vw, 2.75rem);
+  counter-reset: step;
+  border-top: 1px solid var(--ink);
+  @media (min-width: 44rem) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  & li {
+    counter-increment: step;
+    padding: 1.1rem 1.5rem 1.4rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  /* In one row the next section's rule closes it. */
+  @media (min-width: 64rem) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    & li {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+  }
+  & li::before {
+    content: counter(step);
+    display: block;
+    margin-bottom: 1.6rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--blue);
+  }
+  & h3 {
+    font-size: 1.0625rem;
+    letter-spacing: -0.01em;
+  }
+  & p {
+    margin-top: 0.35rem;
+    font-size: 0.9375rem;
+    color: var(--ink-2);
+  }
+}
+
+/* ---- Chapters --------------------------------------------------------------- */
+
+.chapter {
+  display: grid;
+  gap: 1.75rem clamp(2rem, 5vw, 4.5rem);
+  align-items: center;
+  margin-top: clamp(3rem, 7vw, 5.5rem);
+  @media (min-width: 60rem) {
+    grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+    &.flip > .chapter-text {
+      order: 2;
+    }
+    &.flip {
+      grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.82fr);
+    }
+    &.phone {
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    }
+  }
+}
+
+.chapter-text {
+  display: grid;
+  gap: 0.9rem;
+  & h3 {
+    font-size: clamp(1.375rem, 2.2vw, 1.75rem);
+    line-height: 1.15;
+    letter-spacing: -0.025em;
+  }
+  & > p {
+    max-width: var(--measure);
+    color: var(--ink-2);
+  }
+}
+
+/* Each point is marked with a picture on the logo's dot grid. */
+.points {
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--rule);
+  & li {
+    position: relative;
+    padding: 0.8rem 0 0.8rem 2.4rem;
+    border-bottom: 1px solid var(--rule);
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    color: var(--ink-2);
+  }
+  & b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+}
+
+i[data-glyph] {
+  display: block;
+  width: 1.4rem;
+  height: 1.4rem;
+  color: var(--blue);
+  & svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.points i[data-glyph] {
+  position: absolute;
+  left: 0;
+  top: 0.95rem;
+}
+
+/* A framed screenshot or file. */
+.plate {
+  border: 1px solid var(--rule-strong);
+  background: var(--sheet);
+}
+
+/* A screenshot whose lower part is empty space: show the top of it. */
+.plate.top img {
+  width: 100%;
+  aspect-ratio: 2880 / 1150;
+  object-fit: cover;
+  object-position: top;
+}
+
+.handset {
+  justify-self: center;
+  width: min(17rem, 100%);
+}
+
+.file {
+  & figcaption {
+    padding: 0.55rem 0.9rem;
+    border-bottom: 1px solid var(--rule);
+    font: 0.8125rem/1.4 var(--mono);
+    color: var(--ink-2);
+  }
+  & pre {
+    padding: 1rem 0.9rem 1.15rem;
+    overflow-x: auto;
+    font: 0.8125rem/1.75 var(--mono);
+    color: var(--ink);
+  }
+  & code {
+    font-size: inherit;
+  }
+  & .k {
+    font-weight: 600;
+  }
+  & .s {
+    color: var(--blue);
+  }
+  & .c {
+    color: var(--ink-3);
+  }
+}
+
+/* The rest, briefly. */
+.more {
+  display: grid;
+  margin-top: clamp(3rem, 7vw, 5.5rem);
+  border-top: 1px solid var(--ink);
+  @media (min-width: 40rem) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (min-width: 64rem) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  & li {
+    padding: 1.25rem 1.75rem 1.5rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  & h3 {
+    margin-top: 0.9rem;
+    font-size: 1rem;
+    letter-spacing: -0.01em;
+  }
+  & p {
+    margin-top: 0.3rem;
+    font-size: 0.9375rem;
+    color: var(--ink-2);
+  }
+}
+
+.more + .fine {
+  margin-top: 1.5rem;
+}
+
+/* ---- Tables ----------------------------------------------------------------- */
+
+.scroll {
+  margin-top: clamp(1.75rem, 4vw, 2.75rem);
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+th {
+  text-align: left;
+  font-weight: 600;
+}
+
+.compare {
+  min-width: 52rem;
+  & thead th {
+    padding: 0.7rem 0.9rem;
+    border-bottom: 1px solid var(--ink);
+    font-size: 0.9375rem;
+  }
+  & tbody th {
+    width: 15%;
+    padding: 0.85rem 1rem 0.85rem 0;
+    border-bottom: 1px solid var(--rule);
+    font-weight: 500;
+    vertical-align: top;
+  }
+  & td {
+    width: 21.25%;
+    padding: 0.85rem 0.9rem;
+    border-bottom: 1px solid var(--rule);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--ink-2);
+    vertical-align: top;
+  }
+  /* Bantu's column is the only tinted one. */
+  & .us {
+    background: var(--wash);
+    color: var(--ink);
+  }
+  & thead .us {
+    border-top: 2px solid var(--blue);
+    color: var(--blue);
+  }
+}
+
+.notes {
+  display: grid;
+  gap: 1rem clamp(2rem, 5vw, 4rem);
+  margin-top: 1.75rem;
+  font-size: 0.875rem;
+  color: var(--ink-2);
+  @media (min-width: 52rem) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  & b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+}
+
+.cost {
+  max-width: 48rem;
+  margin-top: clamp(1.75rem, 4vw, 2.75rem);
+  & th {
+    padding: 0 0 0.7rem;
+    border-bottom: 1px solid var(--ink);
+    font-size: 0.8125rem;
+    color: var(--ink-2);
+  }
+  & td {
+    padding: 0.85rem 1rem 0.85rem 0;
+    border-bottom: 1px solid var(--rule);
+    color: var(--ink-2);
+  }
+  & td:last-child,
+  & th:last-child {
+    padding-right: 0;
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  & td:last-child {
+    color: var(--ink);
+    font-weight: 600;
+  }
+}
+
+/* ---- Open source ------------------------------------------------------------ */
+
+.source {
+  display: grid;
+  gap: 2rem clamp(2rem, 5vw, 4.5rem);
+  @media (min-width: 60rem) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+    align-items: start;
+  }
+  & .cta {
+    margin-top: 0.5rem;
+  }
+}
+
+.facts {
+  border-top: 1px solid var(--ink);
+  & div {
+    display: grid;
+    grid-template-columns: 7.5rem minmax(0, 1fr);
+    gap: 1rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--rule);
+    font-size: 0.9375rem;
+  }
+  & dt {
+    color: var(--ink-2);
+  }
+  & dd {
+    margin: 0;
+    font-weight: 500;
+  }
+}
+
+/* ---- Closing ---------------------------------------------------------------- */
+
+/* The page ends where it began: at night, with the ridge along the bottom. */
+.closing {
+  position: relative;
+  margin-top: var(--gap);
+  padding: clamp(2.5rem, 6vw, 4.5rem) clamp(1.25rem, 4.5vw, 4rem) 0;
+  border: 1px solid var(--night-rule);
+  background: var(--night);
+  color: var(--on-night);
+  overflow: hidden;
+  & .dots {
+    width: calc(100% + 2 * clamp(1.25rem, 4.5vw, 4rem));
+    height: clamp(6rem, 13vw, 9.5rem);
+    margin: clamp(2rem, 5vw, 3.5rem) calc(-1 * clamp(1.25rem, 4.5vw, 4rem)) 0;
+  }
+}
+
+.closing-text {
+  display: grid;
+  gap: 1rem;
+  justify-items: start;
+  max-width: 44rem;
+  & h2 {
+    font-size: clamp(1.75rem, 3.2vw, 2.5rem);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+  }
+  & p {
+    color: var(--on-night-2);
+  }
+  & .cmd {
+    width: 100%;
+    border-color: oklch(0.45 0.06 262);
+    background: oklch(0.16 0.06 264);
+  }
+  & .cmd code {
+    color: var(--on-night);
+  }
+  & .cmd code::before {
+    color: var(--dot-ink);
+  }
+  & .copy {
+    border-left-color: oklch(0.45 0.06 262);
+    color: var(--on-night-2);
+  }
+  & .copy .i-done {
+    stroke: var(--dot-sun);
+  }
+  @media (hover: hover) {
+    & .copy:hover {
+      background: oklch(0.26 0.07 264);
+      color: var(--on-night);
+    }
+  }
+  /* On night the buttons keep their shape and trade their colours. */
+  & .btn {
+    border-color: oklch(0.5 0.06 262);
+    background: transparent;
+    color: var(--on-night);
+  }
+  & .btn-primary {
+    border-color: var(--on-night);
+    background: var(--on-night);
+    color: oklch(0.2 0.075 264);
+  }
+  @media (hover: hover) {
+    & .btn:hover {
+      border-color: var(--on-night);
+      color: var(--on-night);
+    }
+    & .btn-primary:hover {
+      border-color: var(--dot-ink);
+      background: var(--dot-ink);
+      color: oklch(0.16 0.06 264);
+    }
+  }
+}
+
+/* ---- Footer ----------------------------------------------------------------- */
+
+.foot {
+  margin-top: clamp(3rem, 7vw, 5rem);
+  padding: clamp(2rem, 5vw, 3rem) 0 clamp(3rem, 7vw, 4.5rem);
+  border-top: 1px solid var(--rule);
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.foot-row {
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  @media (min-width: 52rem) {
+    grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+  }
+}
+
+.foot-brand {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+  grid-column: 1 / -1;
+  color: var(--ink);
+  @media (min-width: 52rem) {
+    grid-column: auto;
+  }
+  & p {
+    max-width: 22rem;
+    color: var(--ink-2);
+  }
+}
+
+.foot-col {
+  display: grid;
+  gap: 0.45rem;
+  align-content: start;
+  justify-items: start;
+  & h2 {
+    margin-bottom: 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  & a {
+    text-decoration: none;
+  }
+}
+
+/* ---- The Teams page ---------------------------------------------------------- */
+
+/* Three steps fill the row that four do on the home page. */
+.steps.three {
+  @media (min-width: 64rem) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* What is built and what is planned. Each row says which. */
+.plan {
+  max-width: 56rem;
+  margin-top: clamp(1.75rem, 4vw, 2.75rem);
+  border-top: 1px solid var(--ink);
+  & li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem 1.5rem;
+    padding: 0.95rem 0;
+    border-bottom: 1px solid var(--rule);
+    color: var(--ink-2);
+    @media (min-width: 40rem) {
+      grid-template-columns: 5.5rem minmax(0, 1fr);
+    }
+  }
+  & .when {
+    padding-top: 0.15rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  & [data-when="next"] .when {
+    color: var(--blue);
+  }
+  & b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+}
+
+/* Two statements of principle, side by side. */
+.pair {
+  display: grid;
+  gap: 2.25rem clamp(2rem, 5vw, 4rem);
+  @media (min-width: 52rem) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  & h2 {
+    font-size: clamp(1.375rem, 2.4vw, 1.75rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  & p {
+    max-width: var(--measure);
+    margin-top: 0.8rem;
+    color: var(--ink-2);
+  }
+}
+
+.nav-link[aria-current] {
+  color: var(--ink);
+}
+
+/* ---- Motion ----------------------------------------------------------------- */
+
+/* Three kinds, all small, and only opacity, position and a little blur move.
+
+   1. The hero arrives in pieces, once per visit: heading, then the copy and
+      controls beside it, then the product window while the dots light up
+      behind it. `.intro` is set before first paint.
+   2. Further down, section headings, the steps and each chapter's text and
+      picture settle in the first time they are scrolled to. Tables and lists
+      of facts stay put: they are for looking things up.
+   3. Controls answer the pointer: buttons give when pressed, the copy icon
+      becomes a tick, and the dots swell under the cursor. */
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+    filter: blur(2px);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    translate: 0 16px;
+  }
+}
+
+.intro .hero-head h1,
+.intro .hero-side > * {
+  animation: arrive 450ms var(--ease-out) both;
+  animation-delay: calc(var(--n, 0) * 80ms);
+}
+
+.intro .hero-side > :nth-child(1) {
+  --n: 1;
+}
+.intro .hero-side > :nth-child(2) {
+  --n: 2;
+}
+.intro .hero-side > :nth-child(3) {
+  --n: 3;
+}
+.intro .hero-side > :nth-child(4) {
+  --n: 4;
+}
+
+/* The window is the largest thing on the page, so it gets the longest, softest landing. */
+.intro .stage .window {
+  animation: rise 700ms var(--ease-out-quint) 360ms both;
+}
+
+.reveal [data-reveal] {
+  transition:
+    opacity 500ms var(--ease-out),
+    translate 500ms var(--ease-out);
+  transition-delay: calc(var(--n, 0) * 70ms);
+}
+
+.reveal [data-reveal]:not([data-shown]) {
+  opacity: 0;
+  translate: 0 10px;
+}
+
+.reveal.still [data-reveal] {
+  transition: none;
+}
+
+/* A row of steps lands left to right; a chapter's picture follows its text. */
+.steps > :nth-child(2),
+.chapter .plate {
+  --n: 1;
+}
+.steps > :nth-child(3) {
+  --n: 2;
+}
+.steps > :nth-child(4) {
+  --n: 3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+  [data-reveal] {
+    opacity: 1 !important;
+    translate: none !important;
+  }
+}
+
+/* Last, so it wins over the display each of these has by its own class. */
+@media (max-width: 52rem) {
+  .wide-only {
+    display: none;
+  }
+}
